@@ -375,9 +375,10 @@ body {
 
 .legend-item { display: flex; align-items: center; gap: 4px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot-press { background: var(--emerald-green); }
-.dot-peel { background: var(--torii-red); }
-.dot-base { background: var(--sky-blue); }
+.dot-press { background: #10b981; }
+.dot-peel { background: #06b6d4; }
+.dot-pull { background: #f59e0b; }
+.dot-base { background: #64748b; }
 
 /* CPRI Score Box */
 .cpri-score-box {

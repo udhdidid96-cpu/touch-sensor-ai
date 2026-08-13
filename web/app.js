@@ -281,13 +281,13 @@ function renderFrame(fr, total) {
   const layout = state.layout || DEFAULT_LAYOUT;
   (layout).forEach((p, i) => {
     const d = (fr.deltas && fr.deltas[i] !== undefined) ? fr.deltas[i] : 0;
-    const col = d >= 300 ? '#10b981' : d <= -300 ? '#06b6d4' : '#10b981';
+    const col = d >= 300 ? '#10b981' : d <= -600 ? '#f59e0b' : d <= -300 ? '#06b6d4' : '#64748b';
     const cir = document.getElementById(`cir-${p.pad}`);
     const glow = document.getElementById(`glow-${p.pad}`);
     if (cir) cir.setAttribute('stroke', col);
     if (glow) {
       glow.setAttribute('fill', col);
-      glow.setAttribute('opacity', Math.abs(d) >= 300 ? '0.85' : '0.22');
+      glow.setAttribute('opacity', Math.abs(d) >= 300 ? '0.85' : '0.15');
     }
   });
 
