@@ -1,0 +1,47 @@
+Loading dataset ...
+  81 files, 3349 frames, 9 features (calibration=kalman, gradient=False)
+  sessions: 1 (S0)
+  NOTE: single session - these figures cannot show generalisation to a new sensor mounting (see ACTION_PLAN.md P0-3)
+
+======================================================================
+EPISODE-LEVEL PERFORMANCE (out-of-fold, through the live annunciator)
+======================================================================
+  Sensitivity (episode detected) :  85.0%  95% CI [70.9, 92.9]   n=40
+  False-alarm rate (per recording):   7.3%  95% CI [2.5, 19.4]   n=41
+  False alarms per hour          :   7.8  over 23 min of normal activity
+  Time to alarm                  : median 5.60 s, worst 17.36 s
+  Alarm onsets per detected event: 1.00  (1.00 = no re-arming)
+  MISSED (6): ['Vertical Pull NO G/A_VPull_02.csv', 'Vertical Pull NO G/A_VPull_03.csv', 'Vertical Pull NO G/A_VPull_05.csv', 'Vertical Pull NO G/A_VPull_06.csv', 'Vertical Pull NO G/A_VPull_08.csv', 'PowerP/VP_5.csv']
+  FALSE ALARMS: [('N_base/N_Base_04.csv', 3), ('Brief Touch/N_Touch_01.csv', 3), ('Press/1_by_1.csv', 3)]
+
+  Operating curve (out-of-fold):
+     win  k hold     sens   FA/rec  alarms/h   latency
+       5  3    9    97.5%    24.4%      28.5     4.48s
+       3  3    0    97.5%    12.2%      20.7     4.48s
+       5  4    9    90.0%     7.3%       7.8     5.04s
+       7  5    9    85.0%     7.3%       7.8     5.60s  <- default
+       7  6    9    75.0%     4.9%       5.2     6.16s
+       5  5    9    75.0%     2.4%       2.6     5.04s
+  seed  42: acc  97.53%  macroF1 0.9652
+
+==============================================================
+RANDOM FOREST - leave-one-file-out cross validation
+==============================================================
+Files              : 81   Frames: 3349
+File-Level Accuracy: 97.53%
+Macro F1           : 0.9652
+
+                precision    recall  f1-score   support
+
+   0: Baseline       0.83      1.00      0.91         5
+1: Touch/Press       0.97      1.00      0.99        36
+       2: Peel       1.00      1.00      1.00        10
+       3: Pull       1.00      0.93      0.97        30
+
+      accuracy                           0.98        81
+     macro avg       0.95      0.98      0.97        81
+  weighted avg       0.98      0.98      0.98        81
+
+  false-alarm rate on normal files: 0.0%
+  metrics -> C:\Users\denpo\OneDrive\Desktop\Project2\Data\metrics.json
+  metrics -> C:\Users\denpo\OneDrive\Desktop\Project2\Data\METRICS.md

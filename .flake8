@@ -1,0 +1,9 @@
+[flake8]
+exclude =
+    .agents,
+    .pytest_cache,
+    __pycache__,
+    .git,
+    .venv,
+    venv
+max-line-length = 250

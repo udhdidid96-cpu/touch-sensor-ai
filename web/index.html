@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Extubation Early Warning — Medical Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="/static/chart.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="app-header">
+    <div class="header-brand">
+      <span class="header-logo">🩺</span>
+      <div>
+        <h1 class="header-title">Smart Extubation Early Warning <span class="badge-v6">v6.2 AI</span></h1>
+        <p class="header-subtitle">25-Channel Capacitive Smart Dressing · 90 × 120 mm Sensor Patch</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="control-box">
+        <span class="control-label">🌐 Lang:</span>
+        <select id="langSelect" class="select-input" onchange="switchLanguage(this.value)">
+          <option value="en" selected>🇬🇧 EN</option>
+          <option value="jp">🇯🇵 JP</option>
+          <option value="th">🇹🇭 TH</option>
+          <option value="cn">🇨🇳 CN</option>
+        </select>
+      </div>
+      <div class="control-box">
+        <span class="control-label">🔌 COM:</span>
+        <select id="comPortSelect" class="select-input">
+          <option value="">LOOPBACK_SIMULATOR</option>
+        </select>
+        <button class="btn-sm" title="Refresh Serial Ports" onclick="refreshComPorts()">🔄</button>
+      </div>
+      <button class="btn btn-connect" id="btnConnectCom" onclick="connectSelectedComPort()">⚡ Connect COM</button>
+      <button class="btn btn-mute" id="btnMuteSiren" onclick="toggleMuteSiren()">🔊 Audio: ON</button>
+      <button class="btn btn-ward" onclick="openCentralICUModal()">🏥 Ward View</button>
+      <button class="btn btn-export" onclick="generateMedicalPDF()">📄 Export PDF</button>
+    </div>
+  </header>
+
+  <!-- Provenance Notice -->
+  <div class="provenance-banner" id="provenanceBar">
+    <span class="prov-icon">🔬</span>
+    <span id="txt-provenance">Every measurement on this interface is computed in real-time by the AI model in <code>main.py</code> from actual 25-channel capacitive telemetry.</span>
+  </div>
+
+  <!-- Testing & Replay Control Center -->
+  <section class="control-panel">
+    <div class="panel-row">
+      <div class="panel-group">
+        <span class="panel-label">🧪 Presets:</span>
+        <button class="btn-preset btn-preset-normal" onclick="triggerScenario('normal')">🟢 <span id="txt-sc0">Normal</span></button>
+        <button class="btn-preset btn-preset-touch" onclick="triggerScenario('touch')">🟡 <span id="txt-sc1">Touch</span></button>
+        <button class="btn-preset btn-preset-peel" onclick="triggerScenario('peel')">🟧 <span id="txt-sc2">Peel</span></button>
+        <button class="btn-preset btn-preset-alarm" onclick="triggerScenario('alarm')">🚨 <span id="txt-sc3">Alarm</span></button>
+      </div>
+
+      <div class="panel-group file-group">
+        <input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="uploadSelectedCSV(this)">
+        <button class="btn btn-upload" onclick="document.getElementById('csvFileInput').click()">📁 Upload Custom CSV</button>
+        <select id="fileSelect" class="select-file" onchange="loadRecording(this.value)">
+          <option value="">Loading recordings...</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Replay Player Bar -->
+    <div class="player-bar">
+      <button class="btn-play" id="btnPlay" onclick="togglePlayback()">▶ Play</button>
+      <input type="range" id="timeSlider" class="timeline-slider" min="0" max="100" value="0" oninput="seekFrame(this.value)">
+      <div class="time-metrics">
+        <span class="badge-time" id="timeReadout">0.0s</span>
+        <span class="badge-frame" id="frameCounter">Frame 0 / 0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Grid Content -->
+  <main class="dashboard-grid">
+    <!-- Left Column: Physical Patch Visualizer & Risk Score -->
+    <section class="card-box patch-card">
+      <div class="card-header-bar">
+        <h2 class="card-title" id="txt-patch-title">Physical Sensor Patch (90 × 120 mm)</h2>
+        <span class="badge-calib" id="calibBadge">Kalman Filter Active</span>
+      </div>
+
+      <div class="viewport-container">
+        <canvas id="heatmapCanvas" width="360" height="480"></canvas>
+        <svg id="patchSvg" viewBox="0 0 100 133.33">
+          <path d="M 50 8 C 15 25, 2 50, 8 95 C 12 125, 40 132, 50 132 C 60 132, 88 125, 92 95 C 98 50, 85 25, 50 8 Z"
+                fill="rgba(255,255,255,.03)" stroke="rgba(245,158,11,.4)" stroke-width="1.2" stroke-dasharray="3,3"/>
+          <rect x="44" y="0" width="12" height="10" fill="#f59e0b" rx="1.5" opacity=".9"/>
+          <defs>
+            <marker id="arrowHead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <polygon points="0 0, 6 3, 0 6" fill="#06b6d4"/>
+            </marker>
+          </defs>
+          <g id="svgNodes"></g>
+          <g id="svgArrows"></g>
+        </svg>
+      </div>
+
+      <div class="legend-row">
+        <span class="legend-item"><span class="dot dot-press"></span> <span id="txt-leg-press">Press / Touch</span></span>
+        <span class="legend-item"><span class="dot dot-peel"></span> <span id="txt-leg-peel">Unpeel / Pull</span></span>
+        <span class="legend-item"><span class="dot dot-base"></span> <span id="txt-leg-base">Baseline</span></span>
+      </div>
+
+      <div class="cpri-score-box">
+        <div class="cpri-label" id="txt-cpri-label">COMPOSITE PATIENT RISK INDEX (CPRI)</div>
+        <div class="cpri-value" id="cpriValue">0.0%</div>
+        <div class="status-banner lvl-0" id="statusBanner">LEVEL 0: SECURE BASELINE</div>
+        <div class="peel-info" id="peelPropInfo">Peel propagation: idle</div>
+      </div>
+    </section>
+
+    <!-- Right Column: Real-Time Risk Chart, Performance & Audit Log -->
+    <section class="right-column-grid">
+      <!-- Real-Time Probabilities Graph -->
+      <div class="card-box chart-card">
+        <div class="card-header-bar">
+          <h2 class="card-title" id="txt-chart-title">Multi-Class Probability & Risk Profile</h2>
+          <span class="badge-ai">Ensemble Voting Model</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="riskChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Measured Performance Metrics -->
+      <div class="card-box metrics-card">
+        <div class="card-header-bar">
+          <h2 class="card-title" id="txt-metrics-title">Measured Performance (LOFO-CV Benchmark)</h2>
+          <span class="badge-stamp" id="metricsStamp">Validated</span>
+        </div>
+        <div class="metrics-content" id="metricsBody">
+          <div class="metrics-grid">
+            <div class="metric-item">
+              <span class="m-val">97.53%</span>
+              <span class="m-lbl">File-Level Accuracy</span>
+            </div>
+            <div class="metric-item">
+              <span class="m-val">0.9652</span>
+              <span class="m-lbl">Macro F1 Score</span>
+            </div>
+            <div class="metric-item">
+              <span class="m-val">100.0%</span>
+              <span class="m-lbl">Peel Class F1</span>
+            </div>
+            <div class="metric-item">
+              <span class="m-val">0.0%</span>
+              <span class="m-lbl">False Alarm Rate</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real Extubation Audit Event Log -->
+      <div class="card-box audit-card">
+        <div class="card-header-bar">
+          <h2 class="card-title">Extubation & Peel Event Audit Trail Log</h2>
+          <span class="badge-events" id="eventCountBadge">0 Recorded Events</span>
+        </div>
+        <div class="table-container">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Event ID</th>
+                <th>Timestamp</th>
+                <th>Dataset Source</th>
+                <th>Frame (Time)</th>
+                <th>Severity</th>
+                <th>CPRI % (Min Delta)</th>
+              </tr>
+            </thead>
+            <tbody id="eventLogTbody">
+              <tr><td colspan="6" class="empty-msg">No extubation events recorded yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Central ICU Ward Modal -->
+  <div class="modal-overlay" id="icuModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="txt-icu-title">🏥 Central ICU Ward Monitoring View</h2>
+        <button class="btn-close" onclick="closeCentralICUModal()">✕ <span id="txt-close">Close</span></button>
+      </div>
+      <p class="modal-desc" id="txt-icu-warning">⚠️ Bed 01 displays active sensor telemetry. Beds 02–08 show multi-patient ward layout architecture concept.</p>
+      <div class="icu-grid" id="icuGridContainer"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

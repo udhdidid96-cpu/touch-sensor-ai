@@ -1,0 +1,172 @@
+{
+  "generated": "unstamped",
+  "version": "6.2",
+  "dataset": {
+    "files": 81,
+    "frames": 3349,
+    "features": 9,
+    "sessions": 1,
+    "session_names": [
+      "S0"
+    ],
+    "files_per_class": {
+      "baseline": 5,
+      "incidental": 36,
+      "peel": 10,
+      "pull": 30
+    },
+    "column_conventions": {
+      "sensor": 81
+    },
+    "min_raw_count_by_class": {
+      "0": 27464.0,
+      "1": 27337.0,
+      "2": 27251.0,
+      "3": 27262.0
+    },
+    "skipped": []
+  },
+  "random_forest": {
+    "cv": "file",
+    "seeds": [
+      42
+    ],
+    "confusion_matrix_note": "pooled over 1 seed(s); accuracy over the pool equals the mean above",
+    "accuracy_mean": 0.9753086419753086,
+    "accuracy_sd": 0.0,
+    "macro_f1_mean": 0.9652273800833083,
+    "macro_f1_sd": 0.0,
+    "false_alarm_rate": 0.0,
+    "confusion_matrix": [
+      [
+        5,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        36,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        10,
+        0
+      ],
+      [
+        1,
+        1,
+        0,
+        28
+      ]
+    ]
+  },
+  "peel_gate": {
+    "min_pads": 3,
+    "mean_gate": -150.0,
+    "persist_frames": 3,
+    "note": "tuned on the round-1 corpus; treat as in-sample until re-validated"
+  },
+  "episode_level": {
+    "operating_point": {
+      "window": 7,
+      "votes": 5,
+      "hold": 9
+    },
+    "sensitivity": 0.85,
+    "sensitivity_ci": [
+      0.7092737396097997,
+      0.9293890829149257
+    ],
+    "false_alarm_rate": 0.07317073170731707,
+    "false_alarm_ci": [
+      0.02519737325256414,
+      0.19427740017211295
+    ],
+    "alarms_per_hour": 7.77336327517706,
+    "median_latency_s": 5.6000000000000005,
+    "max_latency_s": 17.360000000000003,
+    "missed": [
+      "Vertical Pull NO G/A_VPull_02.csv",
+      "Vertical Pull NO G/A_VPull_03.csv",
+      "Vertical Pull NO G/A_VPull_05.csv",
+      "Vertical Pull NO G/A_VPull_06.csv",
+      "Vertical Pull NO G/A_VPull_08.csv",
+      "PowerP/VP_5.csv"
+    ],
+    "curve": [
+      {
+        "window": 5,
+        "votes": 3,
+        "hold": 9,
+        "sensitivity": 0.975,
+        "false_alarm_rate": 0.24390243902439024,
+        "alarms_per_hour": 28.502332008982552,
+        "median_latency_s": 4.48,
+        "is_default": false
+      },
+      {
+        "window": 3,
+        "votes": 3,
+        "hold": 0,
+        "sensitivity": 0.975,
+        "false_alarm_rate": 0.12195121951219512,
+        "alarms_per_hour": 20.72896873380549,
+        "median_latency_s": 4.48,
+        "is_default": false
+      },
+      {
+        "window": 5,
+        "votes": 4,
+        "hold": 9,
+        "sensitivity": 0.9,
+        "false_alarm_rate": 0.07317073170731707,
+        "alarms_per_hour": 7.77336327517706,
+        "median_latency_s": 5.040000000000001,
+        "is_default": false
+      },
+      {
+        "window": 7,
+        "votes": 5,
+        "hold": 9,
+        "sensitivity": 0.85,
+        "false_alarm_rate": 0.07317073170731707,
+        "alarms_per_hour": 7.77336327517706,
+        "median_latency_s": 5.6000000000000005,
+        "is_default": true
+      },
+      {
+        "window": 7,
+        "votes": 6,
+        "hold": 9,
+        "sensitivity": 0.75,
+        "false_alarm_rate": 0.04878048780487805,
+        "alarms_per_hour": 5.182242183451373,
+        "median_latency_s": 6.16,
+        "is_default": false
+      },
+      {
+        "window": 5,
+        "votes": 5,
+        "hold": 9,
+        "sensitivity": 0.75,
+        "false_alarm_rate": 0.024390243902439025,
+        "alarms_per_hour": 2.5911210917256864,
+        "median_latency_s": 5.040000000000001,
+        "is_default": false
+      }
+    ]
+  },
+  "caveats": [
+    "The +/- on the file-level accuracy is RandomForest seed variation on a handful of borderline files, NOT sampling uncertainty. Quote the Wilson or bootstrap CI instead.",
+    "File-level majority vote depends on clip length: re-voting the same events padded to the round-2 SOP length of 60-120 s takes pull recall to 0.000 while episode detection stays at 1.000. Report episode-level metrics.",
+    "No anomaly file reaches the <= 25,000 count detachment spec (KES 2025 s2.1); deepest is 27,251. Check the fixation method used for these recordings before quoting a detachment claim.",
+    "LOOP 5 IMU signals are synthetic. No fusion number belongs in a results table.",
+    "Small classes: 0: Baseline n=5, 2: Peel n=10. A perfect 5/5 on the smallest of them carries a 95% CI of about 0.57-1.00, so it is not evidence of 100% performance.",
+    "All 81 recordings use Sensor-* columns, which the loader trusts as physical pad order without applying PAD_ORDER, while the live serial path always applies it. Accuracy figures are unaffected (the base features are permutation-invariant) but heatmaps, peel direction and the LOOP 3 figure depend on this unverified assumption. Confirm it on the bench before publishing a propagation direction.",
+    "Single sensor mounting (1 session). Nothing here shows generalisation to a re-attached patch."
+  ]
+}

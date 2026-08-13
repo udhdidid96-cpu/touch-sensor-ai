@@ -1,0 +1,14 @@
+{
+  "include": [
+    "main.py",
+    "tests",
+    "share_public.py"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    ".agents",
+    "GODMODE-master",
+    "_archive"
+  ]
+}

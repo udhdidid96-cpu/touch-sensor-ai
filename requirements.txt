@@ -1,0 +1,14 @@
+fastapi>=0.100.0
+uvicorn>=0.20.0
+scikit-learn>=1.2.0
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+pyserial>=3.5
+httpx>=0.24.0
+pytest>=7.4.0
+
+# Optional. LOOP 2 (1D-CNN + BiLSTM, --eval-temporal) is skipped with a printed
+# notice when this is absent; every other mode runs without it.
+#   torch>=2.0.0
