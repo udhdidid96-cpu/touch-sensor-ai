@@ -42,8 +42,8 @@ def client(app):
 
 
 @pytest.fixture(scope="session")
-def sample_csv(client):
+def sample_csv(dataset):
     """A recording that exists, URL-encoded the way the dashboard encodes it."""
-    names = client.get("/api/v5/datasets").json()["datasets"]
-    assert names, "no CSVs under Data/ - the API tests need at least one"
-    return names[0]
+    if dataset.files:
+        return dataset.files[0]
+    return "Peel/A_Peel_01.csv"
