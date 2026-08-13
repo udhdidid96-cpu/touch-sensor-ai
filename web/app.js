@@ -273,7 +273,13 @@ function renderFrame(fr, total) {
 
   const b = document.getElementById('statusBanner');
   b.className = 'status-banner lvl-' + fr.severity_level;
-  b.textContent = fr.status || `LEVEL ${fr.severity_level}`;
+  const statusTexts = {
+    0: '🟢 ปกติ (Baseline / Normal)',
+    1: '✋ คนไข้เอามือทับ / สัมผัส (Hand Press / Touch)',
+    2: '⚠️ คนไข้เริ่มลอกพลาสเตอร์ (Unpeel / Peel Warning)',
+    3: '🚨 คนไข้กำลังดึงพลาสเตอร์/ท่อหลุด! (Critical Pull Alarm)'
+  };
+  b.textContent = fr.status || statusTexts[fr.severity_level] || `LEVEL ${fr.severity_level}`;
 
   siren(fr.severity_level);
   if (fr.severity_level >= 2) logExtubationEvent(fr);

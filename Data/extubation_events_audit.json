@@ -1908,5 +1908,115 @@
     "severity_level": 2,
     "cpri_percent": 59.0,
     "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0192",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 12,
+    "time_sec": 6.72,
+    "severity_level": 2,
+    "cpri_percent": 68.4,
+    "min_delta": -1850.0
+  },
+  {
+    "event_id": "EVT-0193",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 0,
+    "time_sec": 0.0,
+    "severity_level": 2,
+    "cpri_percent": 50.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0194",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 2,
+    "time_sec": 1.12,
+    "severity_level": 2,
+    "cpri_percent": 52.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0195",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 1,
+    "time_sec": 0.56,
+    "severity_level": 2,
+    "cpri_percent": 51.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0196",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 3,
+    "time_sec": 1.68,
+    "severity_level": 2,
+    "cpri_percent": 53.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0197",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 4,
+    "time_sec": 2.24,
+    "severity_level": 2,
+    "cpri_percent": 54.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0198",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 5,
+    "time_sec": 2.8,
+    "severity_level": 2,
+    "cpri_percent": 55.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0199",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 6,
+    "time_sec": 3.36,
+    "severity_level": 2,
+    "cpri_percent": 56.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0200",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 7,
+    "time_sec": 3.92,
+    "severity_level": 2,
+    "cpri_percent": 57.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0201",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 8,
+    "time_sec": 4.48,
+    "severity_level": 2,
+    "cpri_percent": 58.0,
+    "min_delta": -1200.0
+  },
+  {
+    "event_id": "EVT-0202",
+    "timestamp": "2026-08-13 23:35:22",
+    "dataset": "Normal Mix/N_Mix_01.csv",
+    "frame_index": 9,
+    "time_sec": 5.04,
+    "severity_level": 2,
+    "cpri_percent": 59.0,
+    "min_delta": -1200.0
   }
 ]

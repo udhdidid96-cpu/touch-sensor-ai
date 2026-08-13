@@ -164,10 +164,10 @@ CLASS_MAPPING: Dict[str, Dict[str, Any]] = {
 CLASS_LABEL_NAMES: Tuple[str, ...] = ("0: Baseline", "1: Touch/Press", "2: Peel", "3: Pull")
 
 STATUS_TEXT_MAP: Dict[int, str] = {
-    0: "Level 0: SECURE NORMAL BASELINE",
-    1: "Level 1: INCIDENTAL TOUCH / PRESS / FRICTION (FILTERED)",
-    2: "Level 2: DRESSING UNPEEL WARNING",
-    3: "Level 3: CRITICAL EXTUBATION PULL ALARM",
+    0: "🟢 ปกติ (Baseline / Normal)",
+    1: "✋ คนไข้เอามือทับ / สัมผัส (Hand Press / Touch)",
+    2: "⚠️ คนไข้เริ่มลอกพลาสเตอร์ (Unpeel / Peel Warning)",
+    3: "🚨 คนไข้กำลังดึงพลาสเตอร์/ท่อหลุด! (Critical Pull Alarm)",
 }
 
 MIN_FRAMES_PER_FILE = 5          # files shorter than this cannot be calibrated
