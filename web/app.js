@@ -96,7 +96,7 @@ function populateFileDropdown() {
   if (!sel) return;
   sel.innerHTML = '';
   if (state.datasets.length === 0) {
-    sel.innerHTML = '<option value="">No recordings found</option>';
+    sel.innerHTML = '<option value="">📁 No uploaded CSV (Please Upload Custom CSV)</option>';
     return;
   }
   state.datasets.forEach(n => {

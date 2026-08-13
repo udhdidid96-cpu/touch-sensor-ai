@@ -1940,10 +1940,12 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
     @app.get("/api/v5/datasets")
     def datasets() -> Dict[str, List[str]]:
         found: List[str] = []
-        for root, _, names in os.walk(DATA_ROOT):
-            for nm in names:
-                if nm.endswith(".csv"):
-                    found.append(os.path.relpath(os.path.join(root, nm), DATA_ROOT).replace("\\", "/"))
+        custom_dir = os.path.join(DATA_ROOT, "Custom_Uploads")
+        if os.path.exists(custom_dir):
+            for root, _, names in os.walk(custom_dir):
+                for nm in names:
+                    if nm.endswith(".csv"):
+                        found.append(os.path.relpath(os.path.join(root, nm), DATA_ROOT).replace("\\", "/"))
         return {"datasets": sorted(found)}
 
     @app.post("/api/v6/upload-csv")
