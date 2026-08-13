@@ -2899,7 +2899,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="write Data/metrics.json and Data/METRICS.md")
     ap.add_argument("--host", default="127.0.0.1",
                     help="bind address; 0.0.0.0 exposes the dashboard to the network")
-    ap.add_argument("--port", type=int, default=8081)
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8081)),
+                    help="port to bind server")
     ap.add_argument("--no-serve", action="store_true", help="train and exit without starting the server")
     ap.add_argument("--stamp", default="", help="timestamp string recorded in the report")
     ap.add_argument("--temporal-seeds", type=int, default=3,
