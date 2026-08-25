@@ -20,6 +20,7 @@ import traceback
 from typing import Callable, List, Tuple
 
 import numpy as np
+import pytest
 import shutil
 import subprocess
 import tempfile
@@ -27,8 +28,21 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import main as M  # noqa: E402
 
-MIX_DIR = os.path.join(M.DATA_ROOT, "Normal Mix")
-MIX_FILES = sorted(glob.glob(os.path.join(MIX_DIR, "*.csv")))
+def _mix_dir() -> str:
+    """Resolved on every call, NOT captured at import.
+
+    conftest.py redirects M.DATA_ROOT to a disposable copy of the corpus for the
+    whole session, so the suite cannot evict the user's real uploads or write test
+    events into the real audit trail. That redirect happens after this module is
+    imported, so a module-level constant would still point at the real Data/ - and
+    os.path.relpath() against the sandboxed root would then hand
+    ReplayFrameSource a path that safe_data_path() correctly refuses.
+    """
+    return os.path.join(M.DATA_ROOT, "Normal Mix")
+
+
+def _mix_files() -> List[str]:
+    return sorted(glob.glob(os.path.join(_mix_dir(), "*.csv")))
 
 _results: List[Tuple[str, bool, str]] = []
 
@@ -215,7 +229,7 @@ def t_cpri_bounds() -> str:
 # ---------------------------------------------------------------------------
 @test("L4 Kalman tracks slow drift without absorbing a touch spike")
 def t_kalman_gate() -> str:
-    raw = M.read_raw_csv(MIX_FILES[0])
+    raw = M.read_raw_csv(_mix_files()[0])
     # inject 40 counts of linear drift across the file (sweat-like)
     drift = np.linspace(0, 40, len(raw))[:, None]
     drifted = raw + drift
@@ -238,7 +252,7 @@ def t_kalman_gate() -> str:
 
 @test("L4 Kalman baseline does not chase a sustained press")
 def t_kalman_sustained() -> str:
-    raw = M.read_raw_csv(MIX_FILES[0])
+    raw = M.read_raw_csv(_mix_files()[0])
     base = raw[:5].mean(axis=0)
     synth = np.tile(base, (40, 1))
     synth[10:35, 6] += 2500.0                 # 14 s press on one pad
@@ -330,7 +344,7 @@ def t_propagation_inactive() -> str:
 def t_replay_source() -> str:
     src = M.ReplayFrameSource("Normal Mix/N_Mix_01.csv", realtime=False)
     frames = list(src.frames())
-    raw = M.read_raw_csv(MIX_FILES[0])
+    raw = M.read_raw_csv(_mix_files()[0])
     assert len(frames) == len(raw), f"{len(frames)} != {len(raw)}"
     assert frames[0].shape == (25,), f"frame shape {frames[0].shape}"
     assert np.allclose(frames[0], raw[0]), "replay frame is not in pad order"
@@ -372,7 +386,7 @@ def t_warmup_guard() -> str:
     model = M._new_rf(42).fit(ds.X, ds.y)
     worst_raw = 0
     worst_out = 0
-    for f in MIX_FILES:
+    for f in _mix_files():
         rel = os.path.relpath(f, M.DATA_ROOT).replace(os.sep, "/")
         pipe = M.LivePipeline(model, False, fuse_imu=False)
         for k, frame in enumerate(M.ReplayFrameSource(rel, realtime=False).frames()):
@@ -389,7 +403,7 @@ def t_warmup_guard() -> str:
     # names the offending file. This test asserts only that the warmup window is
     # silent and that debouncing strictly reduces what reaches the annunciator.
     assert worst_out <= worst_raw, "debouncer raised a level the classifier never emitted"
-    return (f"{len(MIX_FILES)} files: warmup silent, raw peaked at L{worst_raw}, "
+    return (f"{len(_mix_files())} files: warmup silent, raw peaked at L{worst_raw}, "
             f"annunciated max L{worst_out}")
 
 
@@ -405,6 +419,7 @@ def t_debouncer() -> str:
     out_fire = {k: 0 for k in groups}
     totals = {k: 0 for k in groups}
     offenders: List[str] = []
+    unvotable: List[Tuple[str, int]] = []
     for f in ds.files:
         key = next((k for k, pre in groups.items() if f.startswith(pre)), None)
         if key is None:
@@ -422,14 +437,128 @@ def t_debouncer() -> str:
             out_fire[key] += 1
             if key == "normal":
                 offenders.append(f)
+        elif key != "normal":
+            # A k-of-n vote cannot annunciate an event that never has k
+            # supporting frames inside one window. Record whether this file
+            # failed because the annunciator dropped it, or because the
+            # RECORDING ends before the vote can be satisfied - those are
+            # different failures and only the first is a defect. See the
+            # assertion below.
+            post = raws[M.KALMAN_WARMUP:]
+            best = max((sum(1 for x in post[i:i + M.ALARM.window] if x >= 2)
+                        for i in range(max(1, len(post) - M.ALARM.window + 1))), default=0)
+            unvotable.append((f, best))
 
     assert out_fire["peel"] == totals["peel"], f"peel sensitivity dropped to {out_fire['peel']}/{totals['peel']}"
-    assert out_fire["pull"] == totals["pull"], f"pull sensitivity dropped to {out_fire['pull']}/{totals['pull']}"
+
+    # Every anomaly recording that CAN satisfy the vote must annunciate.
+    #
+    # This used to read `out_fire["pull"] == totals["pull"]`, i.e. 30/30. That
+    # is the right invariant for a detector and the wrong one for a corpus of
+    # 12-frame clips: at the 6-of-7 operating point adopted 2026-08-19,
+    # Vertical Pull NO G/A_VPull_06.csv is 12 frames long and its pull is the
+    # LAST FIVE of them - the classifier calls level 3 on every single event
+    # frame it is given, and then the recording stops one frame short of the
+    # sixth vote. Nothing is missed; the clip ends mid-event.
+    #
+    # Weakening the bound to 29/30 would have hidden a real regression behind a
+    # corpus artifact, so the check is stated properly instead: a file may only
+    # fail to annunciate if it never has ALARM.min_votes supporting frames
+    # inside one window, and the shortfall is reported by name.
+    droppable = [(f, best) for f, best in unvotable if best >= M.ALARM.min_votes]
+    assert not droppable, (
+        "annunciator dropped recording(s) that had enough supporting frames: "
+        + ", ".join(f"{f} ({best} frames >= L2 in a {M.ALARM.window}-frame window, "
+                    f"needs {M.ALARM.min_votes})" for f, best in droppable))
     assert out_fire["normal"] <= 2, f"{out_fire['normal']}/{totals['normal']} normal files still alarm: {offenders}"
     assert out_fire["normal"] < raw_fire["normal"], "debouncer changed nothing"
+    short = ", ".join(f"{f.split('/')[-1]} ({best}/{M.ALARM.min_votes} frames)"
+                      for f, best in unvotable)
     return (f"normal {raw_fire['normal']}/{totals['normal']} -> {out_fire['normal']}/{totals['normal']}"
             f"{' (' + ', '.join(offenders) + ')' if offenders else ''}; "
-            f"peel {out_fire['peel']}/{totals['peel']}, pull {out_fire['pull']}/{totals['pull']}")
+            f"peel {out_fire['peel']}/{totals['peel']}, pull {out_fire['pull']}/{totals['pull']}"
+            + (f"; clip too short to vote: {short}" if unvotable else ""))
+
+
+@test("R8b classify_deltas returns the model's own probabilities, unmodified")
+def t_no_handcoded_proba() -> str:
+    """The one classifier must not post-process what the model said.
+
+    On 2026-08-18 a four-branch "Physics-Gated Guard" was inserted after the
+    predict_proba call in classify_deltas() and overwrote `proba` with literals
+    ([0,0,0,1]; [0.05,0.90,0,0.05]; ...). Because compute_oof() and
+    evaluate_stream() call the model directly, every published figure described
+    the code WITHOUT that block, while every served frame went through it.
+    Measured in sample, replaying the corpus through LivePipeline with the same
+    fitted model, it took pull recordings annunciated from 30/30 to 13/30 and
+    normal recordings annunciated from 1/41 to 3/41 - worse on both axes.
+
+    This check compares classify_deltas() against the model output directly, so
+    any future branch that edits `proba` fails here rather than silently
+    de-coupling the served level from the measured one.
+    """
+    ds, _, clf = _oof()
+    model = M._new_rf(42).fit(ds.X, ds.y)
+    checked = active_n = 0
+    for fi in range(0, ds.n_files, 7):                  # a spread of every class
+        delta = ds.frames[fi]
+        proba, raw, risk = M.classify_deltas(model, delta, False)
+        d = np.atleast_2d(np.asarray(delta, dtype=float))
+        active = np.max(np.abs(d), axis=1) >= M.NOISE_GATE_COUNTS
+        expected = np.zeros_like(proba)
+        expected[:, 0] = 1.0
+        if active.any():
+            expected[active] = M.full_proba(model, M.extract_features(d[active], False))
+        assert np.allclose(proba, expected), (
+            f"{ds.files[fi]}: classify_deltas changed the model's probabilities on "
+            f"{int((~np.isclose(proba, expected).all(axis=1)).sum())} frame(s). "
+            f"Nothing may hand-code a probability - see R8b in main.py.")
+        assert np.allclose(raw, expected.argmax(axis=1))
+        assert np.allclose(risk[~active], 0.0), "risk must be 0 below the noise gate"
+        checked += len(d)
+        active_n += int(active.sum())
+    return f"{checked} frames over {len(range(0, ds.n_files, 7))} files, {active_n} above the gate, all unmodified"
+
+
+@test("R9 Data/metrics.json still describes the code that is running")
+def t_metrics_not_stale() -> str:
+    """The dashboard serves metrics.json verbatim, and only --report writes it.
+
+    Between 2026-08-13 and 2026-08-19 the committed file described a 9-feature
+    RandomForest while a 34-feature HistGradientBoosting was serving - the
+    dashboard printed 97.53% accuracy and a 0.0% false-alarm rate produced by an
+    estimator that no longer existed, and no test looked. `--verify-metrics`
+    re-measures the headline figures and diffs them; this runs it on the pass
+    the suite has already computed, so it costs nothing extra.
+    """
+    ds, oof, _ = _oof()
+    rep = M.verify_metrics(ds, oof=oof)
+    if rep["status"] == "absent":
+        return "skipped (no Data/metrics.json in this sandbox)"
+    assert rep["status"] == "current", (
+        "Data/metrics.json no longer reproduces - the dashboard is serving "
+        "numbers for code that has changed. Regenerate with "
+        "`python main.py --report --stream`. Drift: "
+        + "; ".join(f"{d['key']} {d['stored']} -> {d['measured']:.4f}" for d in rep["drift"]))
+    return f"all headline figures reproduce (fingerprint {rep['dataset_fingerprint'][:8]})"
+
+
+@test("R8c the detachment-spec audit label is derived from SPEC_DETACH_MAX")
+def t_spec_label_matches_constant() -> str:
+    """A revision raised SPEC_DETACH_MAX from 25,000 to 28,500 - which flipped the
+    corpus from failing the detachment spec to passing it - while the printed
+    check still read "<= 25,000 counts". A threshold and the label above it must
+    come from the same place."""
+    rep = M.audit_folder(M.DATA_ROOT)
+    labels = [c["check"] for c in rep["checks"] if "KES 2025" in c["check"]]
+    assert labels, "detachment-spec check missing from the audit"
+    want = f"{M.SPEC_DETACH_MAX:,.0f}"
+    for lab in labels:
+        assert want in lab, f"label {lab!r} does not quote SPEC_DETACH_MAX ({want})"
+    assert M.SPEC_DETACH_MAX == 25000.0, (
+        f"SPEC_DETACH_MAX is {M.SPEC_DETACH_MAX:,.0f}; KES 2025 s2.1 publishes 25,000. "
+        f"Moving a published threshold until the data clears it is not a fix.")
+    return f"{len(labels)} spec check(s) label {want} counts"
 
 
 @test("L1 serial port scan degrades gracefully with no hardware")
@@ -444,7 +573,7 @@ def t_serial_scan() -> str:
 # ---------------------------------------------------------------------------
 @test("L5 fusion never lowers risk and stays bounded")
 def t_fusion_bounds() -> str:
-    d = M.calibrate(M.read_raw_csv(MIX_FILES[0]), "static")
+    d = M.calibrate(M.read_raw_csv(_mix_files()[0]), "static")
     imu = M.synthesise_imu(d)
     base = np.linspace(0, 90, len(d))
     fused = M.FusionEngine().run(base, imu)
@@ -498,12 +627,14 @@ def t_mix_frame_level() -> str:
     escalated. File-level majority voting absorbs it (see the test above), and
     LOOP 2 addresses it directly - run with --temporal to measure that.
     """
-    ds = M.load_dataset("kalman", False, verbose=False)
-    assert ds is not None
-    res = M.evaluate_rf(ds, seeds=(42,), verbose=False)
+    # Was a third independent leave-one-file-out pass (evaluate_rf with one
+    # seed) purely to get frame-level out-of-fold predictions that _oof() has
+    # already computed. argmax of the out-of-fold proba is the out-of-fold
+    # prediction, so the shared array answers the same question for free.
+    ds, oof, _ = _oof()
     mix_files = [i for i, f in enumerate(ds.files) if f.startswith("Normal Mix/")]
     mask = np.isin(ds.groups, mix_files)
-    frame_pred = res["oof_proba"][mask].argmax(axis=1)
+    frame_pred = oof[mask]
     rate = 100.0 * (frame_pred >= 2).sum() / max(mask.sum(), 1)
     assert rate < 20.0, f"{rate:.1f}% escalated - worse than the documented baseline"
     return f"{rate:.1f}% of {int(mask.sum())} frames (file-level vote absorbs all of it)"
@@ -665,12 +796,17 @@ def t_report_consistency() -> str:
     from sklearn.metrics import confusion_matrix
     ds = M.load_dataset("kalman", False, verbose=False)
     assert ds is not None
-    res = M.evaluate_rf(ds, seeds=(42, 43, 44), verbose=False)
+    # Two seeds, not three. This check is arithmetic - does the pooled
+    # confusion matrix agree with the headline mean - and two pools prove that
+    # as well as three. Each seed is a full leave-one-file-out pass, which with
+    # the HistGradientBoosting this project now ships costs about two minutes,
+    # and this was the single slowest test in the suite by a wide margin.
+    res = M.evaluate_rf(ds, seeds=(42, 43), verbose=False)
     cm = confusion_matrix(res["y_true"], res["y_pred"], labels=list(range(M.N_CLASSES)))
     from_cm = float(np.trace(cm) / cm.sum())
     assert abs(from_cm - res["accuracy_mean"]) < 1e-9, (
         f"matrix says {from_cm*100:.2f}%, headline says {res['accuracy_mean']*100:.2f}%")
-    assert len(res["y_true"]) == 3 * ds.n_files
+    assert len(res["y_true"]) == 2 * ds.n_files
     return f"{from_cm*100:.2f}% both ways over {len(res['y_true'])} predictions"
 
 
@@ -770,10 +906,20 @@ def _oof() -> Any:
 
 
 def _stream() -> Any:
+    """Episode metrics over the SAME out-of-fold pass _oof() already paid for.
+
+    This used to call evaluate_stream() with no `oof`, which made it run its own
+    leave-one-file-out - a second full 81-fold pass over the corpus, identical
+    to the one _oof() had already cached. With the RandomForest that was merely
+    wasteful; with the HistGradientBoosting the project now ships it is minutes.
+    Sharing the pass also removes a real hazard: two independently computed
+    "out-of-fold" arrays in one suite can disagree after any change to the
+    estimator or the loader, and the failure would surface as an unexplainable
+    mismatch between two tests rather than as the change that caused it.
+    """
     if not _STREAM_CACHE:
-        ds = M.load_dataset("kalman", False, verbose=False)
-        assert ds is not None
-        _STREAM_CACHE.append((ds, M.evaluate_stream(ds, verbose=False)))
+        ds, oof, _ = _oof()
+        _STREAM_CACHE.append((ds, M.evaluate_stream(ds, verbose=False, oof=oof)))
     return _STREAM_CACHE[0]
 
 
@@ -995,31 +1141,39 @@ def t_contact_check_not_pooled() -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_regression_suite() -> None:
-    """Run all 51 checks under pytest, reporting every failure at once.
+def _registered_checks():
+    """Every @test-decorated check in this module, in a stable order."""
+    return [(k, v) for k, v in sorted(globals().items())
+            if k.startswith("t_") and callable(v)]
 
-    The checks below are registered with this file's own @test decorator rather
-    than being pytest functions, because they were written to run standalone as
-    a single readable PASS/FAIL table. This wrapper is what makes
-    `pytest tests/` cover them too, so there is one command to run rather than
-    two - `python tests/test_regressions.py` still prints the table.
+
+@pytest.mark.parametrize("check_name", [k for k, _ in _registered_checks()])
+def test_regression_check(check_name: str) -> None:
+    """One pytest case per registered check.
+
+    The checks in this file are written with its own @test decorator so that
+    `python tests/test_regressions.py` still prints a single readable PASS/FAIL
+    table. They used to reach pytest through one wrapper that ran all 51 and
+    asserted on the collected failures - so CI reported "1 failed" for five
+    unrelated defects in a single traceback, and there was no way to see which of
+    them a given commit fixed or broke, or which one was making the job slow.
+    Parametrising gives each check its own name, result and duration while
+    keeping the standalone table working.
     """
-    assert MIX_FILES, f"no Normal Mix CSVs under {MIX_DIR}"
-    _results.clear()
-    for fn in [v for k, v in sorted(globals().items())
-               if k.startswith("t_") and callable(v)]:
-        fn()
-    failed = [(n, m) for n, ok, m in _results if not ok]
-    assert not failed, f"{len(failed)} of {len(_results)} checks failed:\n" + \
-        "\n".join(f"  {n}\n      {m}" for n, m in failed)
+    assert _mix_files(), f"no Normal Mix CSVs under {_mix_dir()}"
+    fn = dict(_registered_checks())[check_name]
+    before = len(_results)
+    fn()
+    for name, ok, msg in _results[before:]:
+        assert ok, f"{name}: {msg}"
 
 
 def run_all() -> int:
-    if not MIX_FILES:
-        print(f"No Normal Mix CSVs under {MIX_DIR}")
+    if not _mix_files():
+        print(f"No Normal Mix CSVs under {_mix_dir()}")
         return 1
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_") and callable(v)]
-    print(f"Regression suite  ({len(MIX_FILES)} Normal Mix files, {len(tests)} checks)\n" + "=" * 78)
+    print(f"Regression suite  ({len(_mix_files())} Normal Mix files, {len(tests)} checks)\n" + "=" * 78)
     for fn in tests:
         fn()
     width = max(len(n) for n, _, _ in _results)

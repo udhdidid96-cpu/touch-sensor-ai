@@ -1,13 +1,30 @@
-fastapi>=0.100.0
-uvicorn>=0.20.0
-scikit-learn>=1.2.0
-numpy>=1.24.0
-pandas>=2.0.0
-scipy>=1.10.0
-matplotlib>=3.7.0
-pyserial>=3.5
-httpx>=0.24.0
-pytest>=7.4.0
+# Upper bounds are deliberate. This project's whole claim is that its numbers are
+# reproducible, and an unbounded `>=` range does not pin the code that produces
+# them: scikit-learn in particular changes tree internals and pickle format
+# across minors, which both moves the measured accuracy and invalidates
+# Data/trained_model.joblib. Widen a ceiling on purpose, then re-run
+# `python main.py --report --stream --seeds 5` and check METRICS.md still matches.
+fastapi>=0.100.0,<1.0
+uvicorn>=0.20.0,<1.0
+scikit-learn>=1.2.0,<1.9
+numpy>=1.24.0,<3.0
+pandas>=2.0.0,<3.0
+scipy>=1.10.0,<2.0
+matplotlib>=3.7.0,<4.0
+
+# joblib is imported at module scope in main.py for the model cache. It arrives
+# transitively with scikit-learn, which is why the missing declaration never
+# broke a build - but a direct import belongs in the direct dependencies.
+joblib>=1.2.0,<2.0
+
+pyserial>=3.5,<4.0
+python-multipart>=0.0.6,<1.0
+websockets>=12.0,<16.0
+
+# Test-only. Kept here rather than in a separate file because CI installs this
+# one list; httpx backs fastapi.testclient.
+httpx>=0.24.0,<1.0
+pytest>=7.4.0,<9.0
 
 # Optional. LOOP 2 (1D-CNN + BiLSTM, --eval-temporal) is skipped with a printed
 # notice when this is absent; every other mode runs without it.

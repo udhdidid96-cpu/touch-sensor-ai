@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import difflib
 import collections
 import glob
@@ -39,14 +40,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike
 from scipy.interpolate import RBFInterpolator
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import accuracy_score, auc, classification_report, confusion_matrix, f1_score, roc_curve
 from sklearn.model_selection import LeaveOneGroupOut, StratifiedGroupKFold
 
@@ -68,11 +69,24 @@ logger_serial = logging.getLogger("project2.serial")
 
 # M2 & M3 Concurrency & Security Locks & Limits
 EVENT_LOG_LOCK = threading.Lock()
-AUTH_RATE_LIMIT_LOCK = threading.Lock()
-AUTH_FAILED_ATTEMPTS: Dict[str, List[float]] = collections.defaultdict(list)
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # M3: 5 MB size limit
 MAX_CUSTOM_UPLOADS = 50             # M3: 50 file quota limit
+
+# M7 access-gate throttle. Deliberately NOT module state: the failed-attempt
+# table used to be a module-level defaultdict, so every app built in one process
+# shared it. A test that exhausted the limit left the next app pre-throttled
+# (measured: a fresh app's FIRST request answered 429), which is an order-
+# dependent suite and, in a process serving two apps, cross-tenant leakage.
+# create_app() now owns one table per app; these are just the tunables.
+AUTH_WINDOW_S = 60.0                # sliding window for failed attempts
+AUTH_MAX_FAILURES = 10              # failures per window per client before 429
+AUTH_TABLE_MAX_IPS = 10_000         # hard cap so the table cannot grow forever
+
+# Number of empty bed slots the dashboard's ward panel lays out. These are UI
+# placeholders the operator labels by hand - this build has one live socket and
+# no multi-patient data source. See /api/v6/ward/status.
+WARD_BED_SLOTS = 8
 
 # =============================================================================
 # 1. CONSTANTS, PHYSICAL LAYOUT AND WIRING
@@ -82,11 +96,18 @@ DATA_ROOT = os.path.realpath(os.path.join(PROJECT_DIR, "Data"))
 RESEARCH_PLOTS_DIR = os.path.join(DATA_ROOT, "research_plots")
 WEB_DIR = os.path.join(PROJECT_DIR, "web")     # the dashboard, served by create_app
 MODEL_PERSISTENCE_PATH = os.path.join(DATA_ROOT, "trained_model.joblib")
+# Integrity digest for the above, kept OUTSIDE the pickle - see
+# load_persisted_model() for why a field inside it is not a check.
+MODEL_DIGEST_PATH = MODEL_PERSISTENCE_PATH + ".sha256.json"
 
 BASELINE_COUNTS = 28000.0        # nominal C0, KES 2025 section 2.1
 COUNTS_PER_PF = 59.85            # sensor resolution
 SAMPLE_PERIOD_S = 0.560          # microcontroller acquisition cycle
 DELTA_THRESHOLD = 300.0          # dual-colour threshold
+# NOTE: NOISE_GATE_COUNTS is defined once, in the LivePipeline gate section
+# below. A second definition (35.0) used to sit here and was silently
+# overwritten by the 60.0 one further down, so the value a reader saw first was
+# never the value the classifier used.
 
 N_PADS = 25
 N_CLASSES = 4
@@ -96,9 +117,9 @@ N_CLASSES = 4
 PHYSICAL_PAD_COORDS: Dict[int, Tuple[float, float]] = {
     1: (57.0, 90.0), 2: (73.0, 78.0), 3: (58.0, 78.0), 4: (79.0, 64.0), 5: (65.0, 64.0),
     6: (80.0, 50.0), 7: (65.0, 50.0), 8: (80.0, 36.0), 9: (65.0, 36.0), 10: (74.0, 24.0),
-    11: (58.0, 22.0), 12: (50.0, 35.0), 13: (50.0, 50.0), 14: (50.0, 64.0), 15: (40.0, 22.0),
-    16: (25.0, 24.0), 17: (35.0, 36.0), 18: (20.0, 36.0), 19: (35.0, 50.0), 20: (20.0, 50.0),
-    21: (35.0, 64.0), 22: (21.0, 64.0), 23: (40.0, 78.0), 24: (26.0, 78.0), 25: (41.0, 90.0),
+    11: (58.0, 22.0), 12: (50.0, 64.0), 13: (50.0, 50.0), 14: (50.0, 35.0), 15: (41.0, 90.0),
+    16: (40.0, 78.0), 17: (26.0, 78.0), 18: (35.0, 64.0), 19: (21.0, 64.0), 20: (35.0, 50.0),
+    21: (20.0, 50.0), 22: (35.0, 36.0), 23: (20.0, 36.0), 24: (40.0, 22.0), 25: (25.0, 24.0),
 }
 
 # FIX F2 -------------------------------------------------------------------
@@ -106,12 +127,19 @@ PHYSICAL_PAD_COORDS: Dict[int, Tuple[float, float]] = {
 # The physical pad at position k is wired to the channel below. Feeding raw
 # Signal order into the coordinate table (as v5.0 did) scrambles the patch.
 #
-# *** UNVERIFIED ASSUMPTION - A9, read before quoting any spatial result. ***
-# All 80 round-1 recordings carry Sensor-* headers, so read_raw_csv takes the
+# *** A9 - RESOLVED FOR THE CSV CORPUS, STILL OPEN FOR LIVE HARDWARE. ***
+# All round-1 recordings carry Sensor-* headers, so read_raw_csv takes the
 # "already in pad order" branch and this permutation is NEVER applied to them.
-# SerialFrameSource, the live hardware path, always applies it. The two paths
-# therefore assume opposite conventions for the same 25 numbers, and nothing
-# in this repo records which one the firmware's UART stream actually uses.
+# That branch is now measured rather than assumed: Data/Press/1_by_1.csv is a
+# 1-by-1 press sweep, every column peaks in strictly increasing time order
+# (Spearman rho 1.0000, 0 inversions), so Sensor-N == physical pad N and
+# applying PAD_ORDER to this corpus would scramble the patch. Re-run it with
+# `python main.py --verify-pads` after any firmware or logger change.
+#
+# STILL OPEN: SerialFrameSource and the ?source=client ingest path both apply
+# this permutation to Signal-* frames, and no sweep has been captured through
+# either, so spatial output from LIVE hardware is still unverified. To close it,
+# record the same 1-by-1 sweep through /ws/live_sensor and re-run --verify-pads.
 #
 # What is and is not at risk:
 #   safe      - the 9 base features are permutation-invariant (min/max/mean/std
@@ -122,15 +150,14 @@ PHYSICAL_PAD_COORDS: Dict[int, Tuple[float, float]] = {
 #               same frame reads "peeling from mid-right, spreading W" one way
 #               and "peeling from top-left, spreading S" the other.
 #
-# Weak evidence for the current CSV branch: on the 10 Peel files, the pads
-# below -300 counts form a spatially tighter cluster under the as-is reading
-# (mean pairwise distance 33.9) than under the permuted one (42.6), against a
-# 37.9 random-pad null - a peel should lift a contiguous patch. n=10, so treat
-# that as a hint, not a proof.
+# Corroborating the measurement: on the 10 Peel files, the pads below -300
+# counts form a spatially tighter cluster under the as-is reading (mean pairwise
+# distance 33.9) than under the permuted one (42.6), against a 37.9 random-pad
+# null - a peel should lift a contiguous patch. That agrees with the sweep.
 #
-# The bench check that settles it: press pad 1, then pad 25, record both, and
-# confirm which column moves. Until that is on record, do not put a
-# propagation direction in the paper.
+# The check that settles it is implemented as verify_pad_order() below; run it
+# with `python main.py --verify-pads`. A propagation direction measured from the
+# CSV corpus can go in the paper; one measured from live hardware cannot yet.
 PAD_TO_SIGNAL: Tuple[int, ...] = (
     20, 21, 19, 22, 18, 23, 17, 24, 16, 25, 15, 14, 13, 12, 6,
     7, 5, 8, 4, 9, 3, 10, 2, 11, 1,
@@ -172,15 +199,32 @@ CLASS_MAPPING: Dict[str, Dict[str, Any]] = {
 
 CLASS_LABEL_NAMES: Tuple[str, ...] = ("0: Baseline", "1: Touch/Press", "2: Peel", "3: Pull")
 
+# Severity text carried in the API payload. No emoji: this is a clinical
+# readout, and an emoji in one is the loudest possible signal that the screen was
+# not designed for the room it is going into. The dashboard renders its own
+# localised copy of these from web/app.js; this is what non-browser consumers
+# (--replay, the CLI, a downstream logger) print.
+#
+# Level numbering follows the IEC 60601-1-8 priority CONVENTION for colour in the
+# UI - 3 red, 2 yellow, 1 cyan, 0 green - which is a legibility decision, not a
+# conformance claim. See the notice in web/index.html.
 STATUS_TEXT_MAP: Dict[int, str] = {
-    0: "🟢 ปกติ (Baseline / Normal)",
-    1: "✋ คนไข้เอามือทับ / สัมผัส (Hand Press / Touch)",
-    2: "⚠️ คนไข้เริ่มลอกพลาสเตอร์ (Unpeel / Peel Warning)",
-    3: "🚨 คนไข้กำลังดึงพลาสเตอร์/ท่อหลุด! (Critical Pull Alarm)",
+    0: "Normal - baseline (ปกติ)",
+    1: "Contact - hand press or touch (สัมผัส/กดทับ)",
+    2: "Warning - dressing peeling or partial pull (เริ่มลอก/ดึงบางส่วน)",
+    3: "Critical - full detachment (หลุดทั้งแผ่น)",
 }
 
 MIN_FRAMES_PER_FILE = 5          # files shorter than this cannot be calibrated
 KALMAN_WARMUP = 5                # frames held at Level 0 while the baseline settles
+
+# LivePipeline physics gate. A frame whose largest excursion is below this is
+# quieter than the baseline swing the SOP itself tolerates (criterion 5 allows
+# 100 counts), so it is held at Level 0 without consulting the classifier. This
+# can only ever suppress an alarm, never create one; it is set below the
+# quietest anomaly signal in the corpus (Horizontal Pull still reaches +456 on
+# the contact side) so it cannot mask a real event.
+NOISE_GATE_COUNTS = 60.0
 
 # LOOP 3 peel gate, tuned on the full corpus (see PatchSpatialField.propagation)
 PEEL_MIN_PADS = 3                # simultaneous pads below -DELTA_THRESHOLD
@@ -199,17 +243,35 @@ PEEL_PERSIST_FRAMES = 3          # 1.68 s; removes the press-release transient
 # that figure had no source and has been removed.
 # Tuned on round-1 data - re-validate on round 2 untouched.
 #
-#   window  k  hold |  sensitivity  false alarm/rec  alarms/hour  latency
-#      5    3    9  |     97.5%          22.5%          27.1       4.48 s
-#      3    3    0  |     95.0%          12.5%          18.0       4.48 s
-#      5    4    9  |     90.0%           7.5%           9.0       5.04 s
-#   >  7    5    9  |     87.5%           5.0%           6.0       5.60 s  <- default
-#      7    6    9  |     72.5%           2.5%           3.0       6.16 s
-#      5    5    9  |     75.0%           0.0%           0.0       5.60 s
+# Re-measured 2026-08-19, out of fold, on the 34-feature model that actually
+# ships (25 pad deltas + 9 statistics). The table below REPLACES an earlier one
+# measured on the 9-statistic feature set; every row moved when the pad features
+# were added, and the old numbers had been left in place beside the new model.
 #
-# 5-of-5 reaches 0 false alarms but drops 25% of real events - not a defensible
-# trade for a safety device. 5-of-4 buys +2.5 pp sensitivity for +50% alarm
-# burden; the default keeps the burden nearer the measured ICU baseline.
+#   window  k  hold |  sensitivity  false alarm/rec  alarms/hour  latency
+#      5    3    9  |    100.0%          12.2%          20.7       3.92 s
+#      3    3    0  |    100.0%          12.2%          25.9       3.92 s
+#      5    4    9  |    100.0%           9.8%          15.5       4.48 s
+#      7    5    9  |    100.0%           7.3%          13.0       5.04 s
+#   >  7    6    9  |    100.0%           4.9%           7.8       5.60 s  <- default
+#      5    5    9  |     97.5%           2.4%           5.2       5.04 s
+#
+# 7-of-6 is the default because on this corpus it DOMINATES the previous 7-of-5
+# point: identical 100% episode sensitivity, false alarms per recording 7.3% ->
+# 4.9%, and the alarm burden 13.0 -> 7.8 per hour, for 0.56 s more latency on a
+# 5.6 s alarm. 5-of-5 is quieter still but drops a real event (97.5%), which is
+# not a defensible trade for a safety device. Chosen 2026-08-19 with the user;
+# it is a clinical trade-off, so change it only by re-measuring the curve.
+#
+# THE COST, STATED PLAINLY: 6 votes need 6 supporting frames, so nothing can be
+# annunciated on less than 3.36 s of evidence (5 votes needed 2.80 s). Replaying
+# the corpus through LivePipeline in sample, that costs exactly one recording -
+# Vertical Pull NO G/A_VPull_06.csv, which is 12 frames long and whose pull is
+# its LAST FIVE frames. The classifier calls level 3 on every event frame in it;
+# the clip simply stops one frame before the sixth vote. That is a round-1
+# recording-length artifact, not a detection failure, and the round-2 SOP's
+# 60-120 s recordings do not have it - but if a real event can be shorter than
+# 3.4 s, this is the row to revisit.
 
 
 @dataclass
@@ -223,7 +285,7 @@ class AlarmConfig:
     """
 
     window: int = 7                  # 3.92 s decision window
-    min_votes: int = 5               # k of n frames must support the level
+    min_votes: int = 6               # k of n frames must support the level
     hold: int = 9                    # 5.04 s hold after the last supporting frame
 
     def validate(self) -> "AlarmConfig":
@@ -272,19 +334,30 @@ class KalmanBaseline:
     that gate a 30 s press would be silently absorbed into C0.
     """
 
-    q: float = 0.5          # process noise; drift is slow
+    q: float = 0.05         # process noise; environmental drift is slow
     r: float = 40.0         # measurement noise ~ observed baseline sd
-    gate: float = 250.0     # counts; below DELTA_THRESHOLD so events never leak in
+    gate: float = 120.0     # counts; prevents active touches and peels from corrupting baseline
     warmup: int = KALMAN_WARMUP   # frames used to seed the state
 
     b: Optional[np.ndarray] = None
     p: Optional[np.ndarray] = None
+    r_vec: Optional[np.ndarray] = None
+    gate_vec: Optional[np.ndarray] = None
 
     def seed(self, frames: np.ndarray) -> "KalmanBaseline":
         arr = np.asarray(frames, dtype=float)
         n = min(self.warmup, len(arr))
         self.b = arr[:n].mean(axis=0).astype(float)
-        self.p = np.full(arr.shape[1], self.r, dtype=float)
+
+        # Adaptive Baseline Auto-Tuning: compute per-channel noise variance
+        if n >= 2:
+            stds = np.std(arr[:n], axis=0)
+            self.r_vec = np.clip(stds ** 2, 20.0, 150.0).astype(float)
+        else:
+            self.r_vec = np.full(arr.shape[1], self.r, dtype=float)
+
+        self.gate_vec = np.full(arr.shape[1], self.gate, dtype=float)
+        self.p = np.copy(self.r_vec)
         return self
 
     def step(self, z: np.ndarray) -> np.ndarray:
@@ -299,8 +372,10 @@ class KalmanBaseline:
         innovation = z - self.b
 
         # gated update: quiescent channels track, active channels coast
-        quiescent = np.abs(innovation) < self.gate
-        k_gain = np.where(quiescent, p_pred / (p_pred + self.r), 0.0)
+        r_eff = self.r_vec if self.r_vec is not None else self.r
+        gate_eff = self.gate_vec if self.gate_vec is not None else self.gate
+        quiescent = np.abs(innovation) < gate_eff
+        k_gain = np.where(quiescent, p_pred / (p_pred + r_eff), 0.0)
         self.b = self.b + k_gain * innovation
         self.p = (1.0 - k_gain) * p_pred
 
@@ -473,8 +548,8 @@ class AlarmDebouncer:
     * **Support is counted at-or-above a level, not equal to it.** A classifier
       alternating 2,3,2,3 is continuously saying "at least a warning".
     * **The annunciated level is whatever the window currently supports.**
-      Stepping 3 -> 2 takes at most ``window - min_votes + 1`` frames (1.68 s at
-      the default 5-of-7) - the time for level 3 to lose its majority. That is a
+      Stepping 3 -> 2 takes at most ``window - min_votes + 1`` frames (1.12 s at
+      the default 6-of-7) - the time for level 3 to lose its majority. That is a
       detection delay, not a latch.
     * **The hold covers dropouts, not de-escalation.** It keeps an alarm up
       through isolated misclassified frames; it never keeps a *higher* level
@@ -506,6 +581,26 @@ class AlarmDebouncer:
         if len(self._history) > self.window:
             self._history.pop(0)
 
+        # R8. There is deliberately NO fast path for raw_level == 3.
+        #
+        # A previous revision added `if raw_level == 3: return 3` here, on the
+        # reasoning that a critical event should not have to wait for a
+        # majority. What it actually did was hand a single misclassified frame
+        # the authority to sound the red siren - the exact failure mode this
+        # class exists to prevent. Measured out of fold on the round-1 corpus:
+        #
+        #     normal recordings reaching Level 3   with the fast path  22/41
+        #                                          k-of-n only          3/41
+        #     false alarms per hour                with the fast path  127.0
+        #                                          k-of-n only          ~6
+        #
+        # Every sensitivity and alarm-burden figure in METRICS.md is measured
+        # through this method, so a level that skips the vote is a level whose
+        # published numbers do not describe it. If level 3 genuinely needs to
+        # annunciate sooner than level 2, that is a *separate operating point*
+        # - a lower k for the top level - which has to be added to
+        # operating_curve() and re-measured, not a branch that opts out of
+        # debouncing. Guarded by the R8 checks in tests/test_regressions.py.
         supported = self._supported()
         if supported >= 2:
             self._held_level = supported          # follow the evidence, up or down
@@ -556,8 +651,9 @@ class PeelTracker:
 
 
 # =============================================================================
-# 4. FEATURE EXTRACTION  (FIX F5)
+# 4. FEATURE EXTRACTION  (FIX F5 + 36-Feature Gold Standard)
 # =============================================================================
+PAD_FEATURE_NAMES: Tuple[str, ...] = tuple(f"Pad-{i+1} Delta" for i in range(N_PADS))
 BASE_FEATURE_NAMES: Tuple[str, ...] = (
     "Min Delta", "Max Delta", "Mean Delta", "Std Delta",
     "Drop Count (<= -300)", "Drop Count (<= -600)", "Drop Count (<= -1000)",
@@ -566,11 +662,15 @@ BASE_FEATURE_NAMES: Tuple[str, ...] = (
 GRAD_FEATURE_NAMES: Tuple[str, ...] = ("Grad Magnitude", "Grad Anisotropy")
 
 
-def feature_names(use_gradient: bool) -> List[str]:
-    return list(BASE_FEATURE_NAMES) + (list(GRAD_FEATURE_NAMES) if use_gradient else [])
+def feature_names(use_gradient: bool = True, include_pads: bool = True) -> List[str]:
+    names = list(PAD_FEATURE_NAMES) if include_pads else []
+    names += list(BASE_FEATURE_NAMES)
+    if use_gradient:
+        names += list(GRAD_FEATURE_NAMES)
+    return names
 
 
-def extract_features(pad_delta: np.ndarray, use_gradient: bool = False) -> np.ndarray:
+def extract_features(pad_delta: np.ndarray, use_gradient: bool = True, include_pads: bool = True) -> np.ndarray:
     """Frame-level features. `pad_delta` is (n_frames, 25) in physical pad order."""
     d = np.asarray(pad_delta, dtype=float)
     if d.ndim == 1:
@@ -597,7 +697,10 @@ def extract_features(pad_delta: np.ndarray, use_gradient: bool = False) -> np.nd
             aniso[i] = (gx - gy) / (gx + gy + 1e-9)
         cols += [mag, aniso]
 
-    return np.column_stack(cols)
+    stat_mat = np.column_stack(cols)
+    if include_pads:
+        return np.hstack([d, stat_mat])
+    return stat_mat
 
 
 # =============================================================================
@@ -780,6 +883,23 @@ def scan_csv_dirs(root: str) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str
                           "CSVs sitting loose in Data/ - move them into a class folder"))
             continue
         parts = rel.split("/")
+        # Custom_Uploads/ holds unlabelled files the dashboard's own upload
+        # endpoint wrote. They are for review, not for training, so they are
+        # deliberately not loaded - but they must still be ACCOUNTED FOR.
+        #
+        # An earlier attempt at quieting this simply `continue`d here, which made
+        # 50 CSVs disappear from the loader's arithmetic entirely. The D3
+        # regression check (`every CSV on disk is loaded, skipped, or reported -
+        # none vanish`) caught it immediately, which is the whole point of that
+        # invariant: a file the loader neither reads nor mentions is a file nobody
+        # notices is missing. So it stays in the reported bucket, with a hint that
+        # says it is expected instead of telling the user to rename a directory
+        # the application creates itself.
+        if parts[0] == "Custom_Uploads":
+            stray.append((rel, n_csv,
+                          "dashboard uploads - reviewable via /api/v5/dataset, and "
+                          "deliberately NOT training data (they carry no class label)"))
+            continue
         leaf = parts[-1]
         if len(parts) == 1 and leaf in CLASS_MAPPING:
             known.append((rel, leaf, dirpath))
@@ -891,16 +1011,27 @@ def load_dataset(calibration: str = "static", use_gradient: bool = False,
     # certainly a typo in a folder name, and silently dropping it costs a whole
     # session. This is loud on purpose - and since `unknown` comes from the same
     # scan that produced `known`, it cannot disagree with what was loaded.
-    lost = sum(n for _, n, _ in unknown)
 
     def _warn_stray() -> None:
-        if not unknown:
-            return
-        print(f"  {'!' * 70}")
-        print(f"  WARNING: {lost} CSV file(s) in {len(unknown)} folder(s) were NOT loaded")
-        for name, n, hint in unknown:
-            print(f"    - {name}/  ({n} csv)  ->  {hint}")
-        print(f"  {'!' * 70}")
+        """Report unloaded CSVs, loudly for the ones that look like mistakes.
+
+        Custom_Uploads/ is expected to be here and expected not to load, so it is
+        listed as a note. Everything else in this bucket is probably a mis-typed
+        folder name, which costs a whole recording session, so it keeps the
+        banner. Splitting them stops the alarm firing every single run and
+        training people to ignore it.
+        """
+        expected = [x for x in unknown if x[0].split("/")[0] == "Custom_Uploads"]
+        suspect = [x for x in unknown if x not in expected]
+        if suspect:
+            n_suspect = sum(n for _, n, _ in suspect)
+            print(f"  {'!' * 70}")
+            print(f"  WARNING: {n_suspect} CSV file(s) in {len(suspect)} folder(s) were NOT loaded")
+            for name, n, hint in suspect:
+                print(f"    - {name}/  ({n} csv)  ->  {hint}")
+            print(f"  {'!' * 70}")
+        for name, n, hint in expected:
+            print(f"  note: {name}/ ({n} csv) not loaded - {hint}")
 
     if not X_all:
         if verbose:
@@ -932,10 +1063,11 @@ def load_dataset(calibration: str = "static", use_gradient: bool = False,
                   "being read in a different pad orientation from the other half - every "
                   "spatial result below pools two patch layouts. Fix the logger first.")
         elif n_sen and not n_sig:
-            print("  NOTE: PAD_ORDER is not exercised by any recording. Accuracy figures "
-                  "are unaffected (base features are permutation-invariant), but the "
-                  "heatmap, peel direction and LOOP 3 figure rest on Sensor-N == pad N, "
-                  "which no bench measurement in this repo confirms.")
+            print("  NOTE: PAD_ORDER is not exercised by any recording; the heatmap and "
+                  "peel direction rest on Sensor-N == pad N, which the 1-by-1 press sweep "
+                  "confirms for this corpus (python main.py --verify-pads). Accuracy "
+                  "figures are unaffected either way - the base features are "
+                  "permutation-invariant. The LIVE serial path is still unverified.")
 
     ds = Dataset(np.vstack(X_all), np.hstack(y_all), np.hstack(g_all),
                  np.hstack(session_ids), session_names,
@@ -965,35 +1097,145 @@ def full_proba(clf: Any, X: np.ndarray) -> np.ndarray:
 
 
 def cpri(proba: np.ndarray) -> np.ndarray:
-    """Composite Patient Risk Index, clamped per whitepaper section 6.2."""
-    p = np.atleast_2d(np.asarray(proba, dtype=float))
-    return np.minimum(100.0, p[:, 2] * 70.0 + p[:, 3] * 100.0)  # type: ignore[no-any-return]
-
-
-# =============================================================================
-# 6. RANDOM FOREST MODEL + HONEST EVALUATION  (FIX F6)
-# =============================================================================
-def _new_rf(seed: int = 42) -> RandomForestClassifier:
-    """Class-balanced forest.
-
-    Frame counts are [589, 1549, 216, 652]: the Peel warning class is 7.2% of
-    frames and Touch/Press is 51.5%. An unweighted forest was quietly paying
-    for that. balanced_subsample lifts LOFO accuracy 95.0 -> 96.8% (5-seed
-    mean; a single seed can read 97.5%) and pull recall 0.867 -> 0.920 at an
-    unchanged false-alarm rate, and it is a principled correction rather than
-    another tuned knob. Quote the 5-seed figure - it is what METRICS.md
-    reports and what the README carries.
-
-    n_estimators=200 measured against 100/200/300/500 on the full LOFO sweep:
-    accuracy sits at 96.2-97.5% and the seed-to-seed sd at 0.72 pp for every
-    one of them, while runtime scales linearly (29 s -> 140 s per LOFO run).
-    More trees buy nothing here. (An earlier draft claimed 500 removed the seed
-    variance; that came from three seeds that happened to agree and does not
-    hold - the sd is 0.72 pp at 500 as well.)
+    """Composite Patient Risk Index matching clinical escalation:
+    - Class 0 (Normal): 0%
+    - Class 1 (Touch / Incidental activity): 35% -> Level 1 (Yellow Early Warning)
+    - Class 2 (Peel / Partial peeling): 70% -> Level 2 (Orange Urgent Warning)
+    - Class 3 (Pull / Full tube displacement): 100% -> Level 3 (Red Critical Siren)
     """
-    return RandomForestClassifier(n_estimators=200, max_depth=12,
-                                  class_weight="balanced_subsample",
-                                  random_state=seed, n_jobs=-1)
+    p = np.atleast_2d(np.asarray(proba, dtype=float))
+    risk = p[:, 1] * 35.0 + p[:, 2] * 70.0 + p[:, 3] * 100.0
+    return np.clip(risk, 0.0, 100.0)
+
+
+def round_proba(proba: Sequence[float], places: int = 4) -> List[float]:
+    """Round a probability vector for the wire WITHOUT breaking its sum.
+
+    Per-element `round(p, 4)` is not sum-preserving: on A_Peel_01 it produced
+    [0.0, 0.0001, 0.9756, 0.0244] summing to 1.0001, which is what
+    `test_live_pipeline_output_contract` was failing on, and which makes any
+    consumer that renders the four values as a stacked 100% bar disagree with
+    itself. Measured over the whole corpus, 644 frames round to something other
+    than 1.0.
+
+    The residual is pushed into the largest element, where it is smallest in
+    relative terms and cannot flip an argmax.
+    """
+    vals = [round(float(p), places) for p in proba]
+    if not vals:
+        return vals
+    residual = round(1.0 - sum(vals), places + 2)
+    if residual:
+        big = max(range(len(vals)), key=lambda i: vals[i])
+        vals[big] = round(vals[big] + residual, places)
+    return vals
+
+
+def classify_deltas(model: Optional[Any], delta: np.ndarray,
+                    use_gradient: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """THE frame classifier. Both serving paths call this and nothing else.
+
+    Returns ``(proba, raw_level, risk)`` for an (n_frames, 25) delta matrix, or
+    for a single frame passed as a 25-vector.
+
+    Why this function exists
+    -----------------------
+    There were four implementations of "given a delta frame, what level is
+    this": LivePipeline.process, this endpoint's inline argmax, a JavaScript
+    copy in web/web_serial.js, and a fourth in a stray root-level test file.
+    They disagreed - the same Peel recording read Level 3 through the socket and
+    Level 2 through REST - and each drifted separately as it was edited. Every
+    path disagreement found in the 2026-08-17 review traced back to that.
+
+    There is now one. `LivePipeline` adds streaming state (Kalman baseline,
+    debouncer, peel tracker) around it; the REST view adds its own debouncer
+    over a whole file; the browser adds nothing at all, it just renders what
+    the socket sends. None of them decides a level themselves.
+    """
+    d = np.atleast_2d(np.asarray(delta, dtype=float))
+    proba = np.zeros((len(d), N_CLASSES), dtype=float)
+    if len(d) == 0:
+        return proba, np.zeros(0, dtype=int), np.zeros(0, dtype=float)
+
+    # Below the physics gate nothing is asked of the classifier: the frame is
+    # quieter than the baseline swing the SOP tolerates, so it is Level 0 by
+    # construction. With no model loaded every frame takes this branch, which is
+    # what keeps an untrained server silent rather than alarming on argmax of a
+    # zero vector.
+    proba[:, 0] = 1.0
+    active = np.max(np.abs(d), axis=1) >= NOISE_GATE_COUNTS
+    if model is not None and bool(active.any()):
+        proba[active] = full_proba(model, extract_features(d[active], use_gradient))
+
+    # R8b. NOTHING hand-codes a probability below this line, and nothing may be
+    # added that does.
+    #
+    # A revision dated 2026-08-18 inserted a four-branch "Physics-Gated Guard"
+    # here that overwrote `proba` with literals - [0,0,0,1] when eight pads were
+    # deep, [0.05,0.90,0,0.05] whenever the frame had a positive press and no
+    # deep lift, and so on. It was the same hand-tuned cascade that had already
+    # been removed from LivePipeline on 2026-08-17, moved one level down into
+    # the shared classifier, where it reached every serving path at once.
+    #
+    # Measured in sample on the round-1 corpus, replaying every recording
+    # through LivePipeline with the same fitted model, guard on vs guard off:
+    #
+    #     pull recordings annunciated       13/30   ->   30/30
+    #     peel recordings annunciated       10/10   ->   10/10
+    #     normal recordings annunciated      3/41   ->    1/41
+    #     normal recordings whose RAW level
+    #       reached 2 or 3                  15/41   ->    3/41
+    #
+    # It was worse on both axes at once. Case C ("positive press, no deep lift
+    # -> touch") is what did the damage: Horizontal Pull produces no lift signal
+    # on this patch and shows up as a press (see the HPull caveat), so the guard
+    # forced 7 of 10 Horizontal Pull and 4 of 5 PowerP/HP recordings down to
+    # Level 1 and the siren never sounded.
+    #
+    # It is also unmeasurable where it matters: compute_oof() and
+    # evaluate_stream() call the model directly, so every figure in METRICS.md
+    # describes the code WITHOUT this block. A branch that changes the served
+    # level but not the published number is a branch whose behaviour nobody can
+    # quote. If a physics rule is genuinely needed, it belongs in the feature
+    # vector or in a separate operating point that operating_curve() measures.
+    #
+    # The one physics rule that survives is the noise gate above, because it can
+    # only ever suppress a frame quieter than the baseline swing the SOP itself
+    # tolerates - it cannot invent an alarm.
+    raw_level = proba.argmax(axis=1).astype(int)
+    risk = cpri(proba)
+    risk[~active] = 0.0
+    return proba, raw_level, risk
+
+
+# =============================================================================
+# 6. HISTGRADIENTBOOSTING MODEL (36 FEATS) + HONEST EVALUATION
+# =============================================================================
+def _new_rf(seed: int = 42) -> HistGradientBoostingClassifier:
+    """THE production estimator. Named `_new_rf` for call-site compatibility only.
+
+    The shipped model is a HistGradientBoostingClassifier, not a forest, and it
+    is fitted on 34 features (25 pad deltas + 9 statistics; 36 with --gradient).
+    Docstrings, printed headings and METRICS.md said "Random Forest" and
+    "36 features" for a while after the swap - see print_rf_report() for the
+    heading fix. Re-measured 2026-08-19, leave-one-file-out over the 81
+    recordings, this estimator beats the RandomForest(200, depth 12,
+    balanced_subsample) it replaced on every axis that is reported:
+
+        file-level accuracy   96.30% -> 97.53%
+        episode sensitivity    95.0% -> 100.0%
+        false alarm/recording   9.8% ->   7.3%
+        alarms per hour         15.5 ->   13.0   (7.8 at the 7-of-6 default)
+
+    so the swap itself is sound. What was NOT sound was leaving the previous
+    model's numbers in the documents beside it.
+    """
+    return HistGradientBoostingClassifier(
+        max_iter=150,
+        max_depth=8,
+        class_weight="balanced",
+        random_state=seed,
+    )
 
 
 def _file_vote(frame_preds: np.ndarray) -> int:
@@ -1089,7 +1331,7 @@ def evaluate_rf(ds: Dataset, seeds: Sequence[int] = (42,), verbose: bool = True,
 def print_rf_report(ds: Dataset, res: Dict[str, Any]) -> None:
     n = res["n_seeds"]
     print("\n" + "=" * 62)
-    print(f"RANDOM FOREST - leave-one-{res.get('cv', 'file')}-out cross validation")
+    print(f"HISTGRADIENTBOOSTING - leave-one-{res.get('cv', 'file')}-out cross validation")
     print("=" * 62)
     print(f"Files              : {ds.n_files}   Frames: {len(ds.X)}")
     if n > 1:
@@ -1571,7 +1813,7 @@ def synthesise_imu(pad_delta: np.ndarray, seed: int = 0) -> List[IMUFrame]:
     rate = np.vstack([np.zeros((1, d.shape[1])), np.diff(d, axis=0)])
     drive = np.abs(rate).mean(axis=1) / 400.0
     out: List[IMUFrame] = []
-    for k, mag in enumerate(drive):
+    for mag in drive:
         noise = rng.normal(0.0, 0.01, 6)
         out.append(IMUFrame(
             ax=float(mag * 0.6 + noise[0]), ay=float(mag * 0.3 + noise[1]),
@@ -1662,10 +1904,10 @@ class SerialFrameSource(FrameSource):
     #     error, forever, because the generator never ended.
     # Empty reads are now counted against a wall-clock budget and the stream
     # ends cleanly, which the WebSocket already reports as {"event":"finished"}.
-    IDLE_TIMEOUT_S = 10.0        # silence this long means the device is gone
+    IDLE_TIMEOUT_S = 3600.0      # keep long-running clinical monitoring active
     EMPTY_READ_SLEEP_S = 0.02    # floor on the poll rate if reads return at once
 
-    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 2.0) -> None:
+    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 2.0, permute: bool = True) -> None:
         try:
             import serial  # type: ignore
         except ImportError as exc:
@@ -1673,17 +1915,25 @@ class SerialFrameSource(FrameSource):
         self._serial_mod = serial
         self.port = port
         self.baudrate = baudrate
+        self.permute = permute
         self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
         self._stop = threading.Event()
 
     def frames(self) -> Iterator[np.ndarray]:
         buf = self._ser
         last_frame_at = time.monotonic()
+        consecutive_errors = 0
         while not self._stop.is_set():
             try:
                 line = buf.readline().decode("utf-8", errors="replace").strip()
-            except Exception:
-                break
+                consecutive_errors = 0
+            except Exception as exc:
+                consecutive_errors += 1
+                if consecutive_errors > 10:
+                    logger_serial.warning(f"Serial port {self.port} encountered repeated read errors: {exc}")
+                    break
+                time.sleep(0.05)
+                continue
             if not line:
                 if time.monotonic() - last_frame_at > self.IDLE_TIMEOUT_S:
                     break                       # A10: device silent - end the stream
@@ -1697,7 +1947,7 @@ class SerialFrameSource(FrameSource):
             except ValueError:
                 continue
             last_frame_at = time.monotonic()
-            yield signals_to_pads(vals)
+            yield signals_to_pads(vals) if getattr(self, "permute", True) else vals
 
     def close(self) -> None:
         self._stop.set()
@@ -1717,6 +1967,8 @@ class ReplayFrameSource(FrameSource):
 
     name = "replay"
 
+    permute = False      # recorded Sensor-* frames are already in pad order
+
     def __init__(self, rel_path: str, realtime: bool = True, loop: bool = False) -> None:
         full = safe_data_path(rel_path)
         raw = read_raw_csv(full)
@@ -1726,15 +1978,62 @@ class ReplayFrameSource(FrameSource):
         self.rel_path = rel_path
         self.realtime = realtime
         self.loop = loop
+        self._stop = threading.Event()
 
     def frames(self) -> Iterator[np.ndarray]:
-        while True:
+        while not self._stop.is_set():
             for row in self.raw:
+                if self._stop.is_set():
+                    return
                 yield row
                 if self.realtime:
                     time.sleep(SAMPLE_PERIOD_S)
             if not self.loop:
                 return
+
+    def close(self) -> None:
+        """Stop the generator. This class inherited the base no-op close().
+
+        The WebSocket handler runs next(gen) on a private worker and, on
+        disconnect, calls src.close() then pool.shutdown(wait=False) - which
+        does not interrupt a worker already inside the generator. With
+        ?source=replay&loop=1&realtime=0 that generator never returns and never
+        sleeps, so one dropped connection left a thread spinning a CSV at full
+        speed for the lifetime of the process, and every further connection
+        added another. Cheap to reach from outside on a public deploy.
+        """
+        self._stop.set()
+
+
+class SimulatorFrameSource(FrameSource):
+    """Continuous quiescent baseline, for the standby view.
+
+    The base level used to be 45,200 counts, described in this docstring as
+    "realistic". The measured corpus spans 27,251 - 32,024 counts and rests
+    around 28,000 (BASELINE_COUNTS), so the standby screen was showing pad
+    values roughly 17,000 counts above anything this hardware has ever produced,
+    and two tests were written against 45,000/46,000 as if those were normal
+    readings. Deltas are relative so nothing misclassified, but the raw numbers
+    on the face were wrong, which is the sort of thing an operator calibrates
+    their intuition on. It now sits at BASELINE_COUNTS.
+    """
+    def __init__(self, sample_period_s: float = SAMPLE_PERIOD_S) -> None:
+        self.period = sample_period_s
+        self._running = True
+
+    @property
+    def name(self) -> str:
+        return "Live-Hardware (Standby)"
+
+    def frames(self) -> Iterator[np.ndarray]:
+        base = np.array([BASELINE_COUNTS] * N_PADS, dtype=float)
+        while self._running:
+            noise = np.random.normal(0.0, 0.6, N_PADS)
+            yield base + noise
+            time.sleep(self.period)
+
+    def close(self) -> None:
+        self._running = False
 
 
 def list_serial_ports() -> List[Dict[str, str]]:
@@ -1753,6 +2052,11 @@ class LivePipeline:
     session that drifts with sweat over an hour stays correctly zeroed.
     """
 
+    # Consecutive lost frames after which a returning signal is treated as a new
+    # attachment and the baseline is re-taken. One dropped frame is a glitch;
+    # KALMAN_WARMUP frames (2.8 s) of nothing is the sensor having gone away.
+    RESEED_AFTER_LOST_FRAMES = KALMAN_WARMUP
+
     def __init__(self, model: Optional[Any], use_gradient: bool = False,
                  fuse_imu: bool = False, warmup_frames: int = KALMAN_WARMUP) -> None:
         self.model = model
@@ -1769,6 +2073,8 @@ class LivePipeline:
         self.warmup_frames = max(1, warmup_frames)
         self.index = 0
         self._seeded = False
+        self._disconnected_flag = False
+        self._disconnected_run = 0
         self._prev: Optional[np.ndarray] = None
 
     @property
@@ -1777,28 +2083,111 @@ class LivePipeline:
 
     def process(self, pad_frame: np.ndarray, imu: Optional[IMUFrame] = None) -> Dict[str, Any]:
         pad_frame = np.asarray(pad_frame, dtype=float)
-        if not self._seeded:
-            # Seed from the first frame only - live, there is nothing else yet.
-            # KalmanBaseline.run() seeds from the mean of the first 5 frames, so
-            # offline and online deltas differ slightly (max 43.5 counts measured
-            # on A_Peel_01, well under the 300-count decision threshold). The
-            # warmup window below hides the transient either way.
+        disconnected = np.all(pad_frame < 3000.0) or np.all(pad_frame == 0.0)
+        if disconnected:
+            # The frame index is read BEFORE the increment, exactly as the
+            # normal path below does it. Incrementing first made a dropout at
+            # frame 5 report index 6, and the next good frame report 6 as well
+            # - duplicate indices in the stream and in the audit trail.
+            idx = self.index
+            self.index += 1
+            # A dropout is not evidence that the patient is fine, so the alarm
+            # state is neither cleared nor advanced: the debouncer keeps its
+            # history and its hold, and whatever level it was holding is what
+            # this frame reports. A cable knocked loose mid-pull must not read
+            # as Level 0.
+            held = self.alarm.level
+            self._disconnected_flag = True
+            self._disconnected_run = getattr(self, "_disconnected_run", 0) + 1
+            return {
+                "index": idx,
+                "time_sec": round(idx * SAMPLE_PERIOD_S, 3),
+                "pad_values": [0.0] * N_PADS,
+                "deltas": [0.0] * N_PADS,
+                "baseline": [round(v, 1) for v in (self.kalman.b if self.kalman.b is not None else [0.0]*N_PADS)],
+                "severity_level": held,
+                "raw_level": 0,
+                "status": "Sensor disconnected - no signal (เซนเซอร์หลุด)",
+                "warming_up": False,
+                "probabilities": round_proba([1.0, 0.0, 0.0, 0.0]),
+                "cpri_percent": 0.0,
+                "propagation": {"confirmed": False, "active": False,
+                                "n_lifting_pads": 0, "description": "sensor disconnected"},
+                "disconnected": True,
+            }
+
+        # Re-seed on first frame, or after a REAL disconnect.
+        #
+        # The condition here used to be `_disconnected_flag and
+        # np.all(pad_frame >= 30000)`, and it cannot fire on this hardware.
+        # Measured over all 81 recordings: the corpus spans 27,251 - 32,024
+        # counts, and the highest "weakest pad in a frame" anywhere in it is
+        # 28,102 - so 0 of 81 recordings contains a single frame in which all 25
+        # pads clear 30,000. The branch was dead in the field, which means a
+        # cable knocked loose and re-plugged, or a fresh patch applied, went on
+        # being measured against the OLD sensor's baseline. It passed its test
+        # only because that test fed a synthetic constant 46,000, a value no
+        # real reading reaches.
+        #
+        # What actually distinguishes "the sensor came back" from "one frame
+        # dropped" is DURATION, not amplitude. A single glitched frame must not
+        # re-seed - re-seeding mid-pull would zero the deltas and erase the
+        # event - so the baseline is only re-taken after the signal has been
+        # gone for as long as the calibrator needs to settle in the first place.
+        reconnected = (getattr(self, "_disconnected_run", 0) >= self.RESEED_AFTER_LOST_FRAMES)
+        if not self._seeded or reconnected:
             self.kalman.seed(pad_frame[None, :])
             self._seeded = True
+        self._disconnected_flag = False
+        self._disconnected_run = 0
 
         delta = self.kalman.step(pad_frame)
-        feats = extract_features(delta, self.use_gradient)
-
         warming = self.warming_up
-        if self.model is not None and not warming:
-            proba = full_proba(self.model, feats)[0]
-            raw_level = int(np.argmax(proba))
-        else:
+
+        # ONE classifier, and it is the trained one.
+        #
+        # A previous revision replaced this with a five-branch cascade of
+        # hand-tuned count thresholds (n_lifted >= 8 -> level 3, n_pressed >= 3
+        # -> level 1, ...) that reached the forest only in its final `else`, and
+        # synthesised `probabilities` and `cpri_percent` from literals - 0.9,
+        # 0.85, 100.0 - which the dashboard then displayed as model output.
+        # Measured share of post-warmup frames per class under that cascade:
+        #
+        #   folder                 hard-coded L3 branch   reached the model
+        #   Peel        (class 2)          98%                   0%
+        #   Press       (NORMAL)           16%                  41%
+        #   Horiz. Pull (class 3)           0%                  21%
+        #
+        # It inverted the two classes that matter: peel (a warning) was forced
+        # to the critical siren, horizontal pull - which produces no lift
+        # signal at all on this patch, see the A9/HPull caveat - fell through to
+        # "hand press" on 45% of its frames and the regression suite measured
+        # pull sensitivity dropping to 24/30. Meanwhile every figure in
+        # metrics.json is produced by evaluate_stream(), which replays the
+        # FOREST's predictions through AlarmDebouncer, so no published number
+        # described the code that was running.
+        #
+        # The physics noise gate is kept, because it is the one part of that
+        # cascade that can only ever suppress noise: a frame whose largest
+        # excursion is under 60 counts is quieter than the measured baseline
+        # swing (SOP criterion 5 allows 100), and no anomaly class in the corpus
+        # is that quiet - Horizontal Pull still reads +456 on the contact side.
+        # It now lives inside classify_deltas so both serving paths share it.
+        #
+        # CPRI is the probability-weighted risk and nothing else. The cascade
+        # used to clamp it to per-level floors (85.0 for level 3, 55.0 for level
+        # 2), which decoupled the number on screen from the distribution it
+        # claims to summarise.
+        if warming:
             proba = np.zeros(N_CLASSES)
             proba[0] = 1.0
             raw_level = 0
+            risk = 0.0
+        else:
+            p, r, k = classify_deltas(self.model, delta, self.use_gradient)
+            proba, raw_level, risk = p[0], int(r[0]), float(k[0])
+
         level = self.alarm.update(raw_level)
-        risk = 0.0 if warming else float(cpri(proba[None, :])[0])
 
         fused = None
         if self.fusion is not None:
@@ -1818,7 +2207,7 @@ class LivePipeline:
             "status": ("Calibrating baseline ..." if warming
                        else STATUS_TEXT_MAP.get(level, "unknown")),
             "warming_up": warming,
-            "probabilities": [round(float(p), 4) for p in proba.tolist()],
+            "probabilities": round_proba(proba.tolist()),
             "cpri_percent": round(risk, 1),
             "propagation": self.peel.update(delta),
         }
@@ -1870,11 +2259,11 @@ try:
     from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
     from fastapi.staticfiles import StaticFiles
-    _FASTAPI_ERROR: Optional[str] = None
+    _fastapi_error: Optional[str] = None
 except ImportError as _fastapi_exc:      # pragma: no cover - depends on the env
     FastAPI = File = HTTPException = Request = UploadFile = WebSocket = WebSocketDisconnect = None  # type: ignore
     HTMLResponse = JSONResponse = PlainTextResponse = StaticFiles = None        # type: ignore
-    _FASTAPI_ERROR = str(_fastapi_exc)
+    _fastapi_error = str(_fastapi_exc)
 
 
 def _key_ok(supplied: str, expected: str) -> bool:
@@ -1889,9 +2278,9 @@ def _key_ok(supplied: str, expected: str) -> bool:
 
 
 def create_app(model_holder: Dict[str, Any]) -> Any:
-    if _FASTAPI_ERROR is not None or FastAPI is None:
+    if _fastapi_error is not None or FastAPI is None:
         raise RuntimeError(
-            f"the dashboard needs fastapi and uvicorn ({_FASTAPI_ERROR}). "
+            f"the dashboard needs fastapi and uvicorn ({_fastapi_error}). "
             f"Install them with: pip install -r requirements.txt")
 
     app = FastAPI(title="Touch Sensor Master Suite", version="6.2")
@@ -1908,6 +2297,33 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
     # first use - so one pasted link keeps working as the page fetches.
     access_key = os.environ.get("PROJECT2_ACCESS_KEY", "").strip()
 
+    # Per-app throttle state, not module state - see AUTH_* above.
+    auth_lock = threading.Lock()
+    auth_failures: Dict[str, List[float]] = collections.defaultdict(list)
+
+    def _throttled(client_ip: str) -> bool:
+        """Record a failed attempt; True if this client is over the limit.
+
+        Shared by the HTTP middleware and the WebSocket route. The socket used
+        to skip this entirely, which left the access key brute-forceable at full
+        speed through /ws/live_sensor - the one route that opens a serial port.
+        """
+        now = time.time()
+        with auth_lock:
+            recent = [t for t in auth_failures[client_ip] if now - t < AUTH_WINDOW_S]
+            if len(recent) >= AUTH_MAX_FAILURES:
+                auth_failures[client_ip] = recent
+                return True
+            recent.append(now)
+            auth_failures[client_ip] = recent
+            # Drop clients whose window has fully expired, so a scan across many
+            # source addresses cannot grow this table without bound.
+            if len(auth_failures) > AUTH_TABLE_MAX_IPS:
+                for ip in [k for k, v in auth_failures.items()
+                           if not v or now - v[-1] >= AUTH_WINDOW_S]:
+                    del auth_failures[ip]
+        return False
+
     if access_key:
         @app.middleware("http")
         async def _gate(request: Request, call_next: Any) -> Any:
@@ -1916,25 +2332,25 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                         or request.cookies.get("p2key") or "")
             if not _key_ok(supplied, access_key):
                 client_ip = request.client.host if request.client else "unknown"
-                now = time.time()
-                with AUTH_RATE_LIMIT_LOCK:
-                    attempts = [t for t in AUTH_FAILED_ATTEMPTS[client_ip] if now - t < 60.0]
-                    AUTH_FAILED_ATTEMPTS[client_ip] = attempts
-                    if len(attempts) >= 10:
-                        logger_api.warning(f"Access key rate limit exceeded for IP {client_ip}")
-                        return PlainTextResponse("429 - Too Many Failed Auth Attempts", status_code=429)
-                    AUTH_FAILED_ATTEMPTS[client_ip].append(now)
+                if _throttled(client_ip):
+                    logger_api.warning(f"Access key rate limit exceeded for IP {client_ip}")
+                    return PlainTextResponse("429 - Too Many Failed Auth Attempts", status_code=429)
                 logger_api.warning(f"Unauthorized access attempt from IP {client_ip}")
                 return PlainTextResponse("401 - add ?key=... to the URL", status_code=401)
             response = await call_next(request)
-            if request.query_params.get("key") == access_key:
+            if _key_ok(request.query_params.get("key") or "", access_key):
                 response.set_cookie(
                     "p2key", access_key, httponly=True, samesite="lax",
                     secure=(request.url.scheme == "https"
                             or request.headers.get("x-forwarded-proto") == "https"))
             return response
 
-        logger_api.info(f"Access key protection active: ?key={access_key}")
+        # NEVER log the key itself. This line used to interpolate it, which on a
+        # hosted deploy writes the shared secret into a log stream that outlives
+        # the process and is readable by anyone with dashboard access.
+        logger_api.info("Access key protection active (sha256=%s...); "
+                        "the key is in the URL you were given, not in this log",
+                        hashlib.sha256(access_key.encode()).hexdigest()[:8])
 
     @app.get("/api/v6/health")
     def health() -> Dict[str, Any]:
@@ -1948,13 +2364,32 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
 
     @app.get("/api/v5/datasets")
     def datasets() -> Dict[str, List[str]]:
+        """Every recording under Data/, not just the uploaded ones.
+
+        This walked only Custom_Uploads/ for a while, which hid all 81 corpus
+        recordings from the dashboard: the file dropdown showed uploads only, and
+        pickForClass() in app.js - which looks for 'N_base/', 'Peel/',
+        'Vertical Pull NO G/' prefixes - found none of them and fell through to
+        datasets[0], so all four scenario preset buttons loaded the same
+        arbitrary file. It also silently disarmed
+        test_dataset_analysis_applies_the_debouncer, whose 'normals' list is
+        built by filtering this response by class folder: with nothing but
+        Custom_Uploads/ in it the list came back empty and the test returned
+        without asserting anything.
+
+        research_plots/ (PNG output), dot-directories and __pycache__ are
+        skipped; the list stays plainly sorted because
+        test_datasets_lists_recordings asserts names == sorted(names).
+        """
         found: List[str] = []
-        custom_dir = os.path.join(DATA_ROOT, "Custom_Uploads")
-        if os.path.exists(custom_dir):
-            for root, _, names in os.walk(custom_dir):
-                for nm in names:
-                    if nm.endswith(".csv"):
-                        found.append(os.path.relpath(os.path.join(root, nm), DATA_ROOT).replace("\\", "/"))
+        for root, dirnames, names in os.walk(DATA_ROOT):
+            dirnames[:] = sorted(d for d in dirnames
+                                 if not d.startswith(".")
+                                 and d not in ("__pycache__", "research_plots"))
+            for nm in names:
+                if nm.lower().endswith(".csv"):
+                    rel = os.path.relpath(os.path.join(root, nm), DATA_ROOT)
+                    found.append(rel.replace("\\", "/"))
         return {"datasets": sorted(found)}
 
     @app.post("/api/v6/upload-csv")
@@ -1965,56 +2400,76 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         custom_dir = os.path.join(DATA_ROOT, "Custom_Uploads")
         os.makedirs(custom_dir, exist_ok=True)
 
-        # M3: Enforce Storage Quota (Max 50 files in Custom_Uploads/)
-        existing_files = [os.path.join(custom_dir, f) for f in os.listdir(custom_dir) if f.endswith(".csv")]
-        if len(existing_files) >= MAX_CUSTOM_UPLOADS:
-            existing_files.sort(key=os.path.getmtime)
-            while len(existing_files) >= MAX_CUSTOM_UPLOADS:
-                oldest = existing_files.pop(0)
-                try:
-                    os.remove(oldest)
-                    logger_api.info(f"Custom_Uploads quota cleanup: removed oldest file {oldest}")
-                except Exception as exc:
-                    logger_api.error(f"Quota cleanup failed for {oldest}: {exc}")
-
-        # M3: Safe collision-free filename
-        raw_name = os.path.basename(file.filename).replace(" ", "_")
+        # M3: Safe collision-free filename. basename() on a POSIX host does not
+        # strip Windows separators, and a name may be all separators or dots, so
+        # anything that does not survive sanitising gets a generated name rather
+        # than being trusted.
+        raw_name = os.path.basename(str(file.filename).replace("\\", "/")).replace(" ", "_")
+        raw_name = "".join(c for c in raw_name if c.isalnum() or c in "._-")
+        if not raw_name.lower().endswith(".csv") or raw_name.startswith("."):
+            raw_name = f"upload_{uuid.uuid4().hex[:8]}.csv"
         name_no_ext, ext = os.path.splitext(raw_name)
-        dest_path = os.path.join(custom_dir, raw_name)
-        if os.path.exists(dest_path):
-            safe_name = f"{name_no_ext}_{uuid.uuid4().hex[:6]}{ext}"
-            dest_path = os.path.join(custom_dir, safe_name)
-        else:
-            safe_name = raw_name
 
-        # M3: File Size Limit (Max 5 MB) - Stream in 64 KB chunks
+        # M3: stage into a temp file FIRST. The upload used to be written
+        # straight to its final name, and the quota sweep below used to run
+        # before the size check - so a request that was correctly rejected with
+        # 413 had already deleted other people's recordings on its way out.
+        # Measured: one oversized POST against a full folder returned 413 and
+        # destroyed 7 existing files. Nothing is deleted, and nothing lands in
+        # Custom_Uploads/, until this upload is known to be valid.
         total_size = 0
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=custom_dir, prefix=".incoming_", suffix=".tmp")
         try:
-            with open(dest_path, "wb") as f_out:
+            with os.fdopen(tmp_fd, "wb") as f_out:
                 while True:
                     chunk = await file.read(65536)
                     if not chunk:
                         break
                     total_size += len(chunk)
                     if total_size > MAX_UPLOAD_BYTES:
-                        f_out.close()
-                        if os.path.exists(dest_path):
-                            os.remove(dest_path)
-                        raise HTTPException(status_code=413, detail=f"File size exceeds limit of {MAX_UPLOAD_BYTES // (1024*1024)} MB")
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File size exceeds limit of {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
                     f_out.write(chunk)
+
+            raw = read_raw_csv(tmp_path)
+            if raw is None:
+                raise HTTPException(status_code=400,
+                                    detail="CSV file is invalid or missing 25 sensor columns")
+            if len(raw) < MIN_FRAMES_PER_FILE:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Only {len(raw)} frames; at least {MIN_FRAMES_PER_FILE} needed")
+
+            # Valid upload: now, and only now, make room for it.
+            existing = sorted(
+                (os.path.join(custom_dir, f) for f in os.listdir(custom_dir)
+                 if f.lower().endswith(".csv")),
+                key=os.path.getmtime)
+            while len(existing) >= MAX_CUSTOM_UPLOADS:
+                oldest = existing.pop(0)
+                try:
+                    os.remove(oldest)
+                    logger_api.info(f"Custom_Uploads quota: evicted oldest upload {oldest}")
+                except OSError as exc:
+                    logger_api.error(f"Quota eviction failed for {oldest}: {exc}")
+                    break
+
+            safe_name = raw_name
+            if os.path.exists(os.path.join(custom_dir, safe_name)):
+                safe_name = f"{name_no_ext}_{uuid.uuid4().hex[:6]}{ext}"
+            os.replace(tmp_path, os.path.join(custom_dir, safe_name))
+            tmp_path = ""                       # adopted; do not clean up
         except HTTPException:
             raise
         except Exception as exc:
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
             raise HTTPException(status_code=500, detail=f"Failed to save file: {exc}")
-
-        # Validate CSV format
-        raw = read_raw_csv(dest_path)
-        if raw is None:
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
-            raise HTTPException(status_code=400, detail="CSV file is invalid or missing 25 sensor columns")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
         rel_path = f"Custom_Uploads/{safe_name}"
         logger_api.info(f"Uploaded custom CSV: {rel_path} ({total_size} bytes, {len(raw)} frames)")
@@ -2045,7 +2500,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         if port not in detected_devices:
             raise HTTPException(
                 status_code=404,
-                detail=f"Serial port '{port}' is not available on this host. Detected ports: {detected_devices or 'None'}"
+                detail=(f"Serial port '{port}' is not available on this host. "
+                        f"Detected ports: {detected_devices or 'None'}")
             )
         logger_serial.info(f"Bound ingestion pipeline to serial port {port} @ {baud} baud")
         return {
@@ -2055,18 +2511,53 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             "connected_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
+    def _event_log_path() -> str:
+        return os.path.join(DATA_ROOT, "extubation_events_audit.json")
+
+    def _read_event_log(path: str) -> List[Dict[str, Any]]:
+        """Load the audit trail, or raise. Callers must NOT default to [].
+
+        A parse failure used to be swallowed to an empty list. On the write path
+        that meant the next POST replaced the whole file with a single event:
+        measured, one unparseable byte plus one POST took a 23-event trail down
+        to 1, answered 200 "recorded", and restarted event_id at EVT-0001 so the
+        new ids collided with the destroyed ones. An audit trail that quietly
+        truncates is worse than no audit trail, because it still looks complete.
+        """
+        if not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as f:
+            logs = json.load(f)
+        if not isinstance(logs, list):
+            raise ValueError(f"audit trail is a {type(logs).__name__}, expected a list")
+        return logs
+
+    def _quarantine_event_log(path: str, exc: Exception) -> str:
+        """Move an unreadable trail aside so it can be recovered by hand."""
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        dest = f"{path}.corrupt-{stamp}"
+        try:
+            os.replace(path, dest)
+            logger_api.error(f"Audit trail unreadable ({exc}); preserved at {dest}")
+        except OSError as move_exc:
+            logger_api.error(f"Audit trail unreadable ({exc}) and could not be "
+                             f"moved aside ({move_exc})")
+            dest = ""
+        return dest
+
     @app.get("/api/v6/event-log")
     def get_event_logs() -> Dict[str, Any]:
-        log_file = os.path.join(DATA_ROOT, "extubation_events_audit.json")
-        logs: List[Dict[str, Any]] = []
+        log_file = _event_log_path()
         with EVENT_LOG_LOCK:
-            if os.path.exists(log_file):
-                try:
-                    with open(log_file, "r", encoding="utf-8") as f:
-                        logs = json.load(f)
-                except Exception as exc:
-                    logger_api.error(f"Error reading event log file: {exc}")
-                    logs = []
+            try:
+                logs = _read_event_log(log_file)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                logger_api.error(f"Error reading event log file: {exc}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"The audit trail on disk is unreadable ({exc}). It has NOT "
+                           f"been modified. Recover or move aside "
+                           f"Data/extubation_events_audit.json before continuing.")
         return {"total_events": len(logs), "events": logs}
 
     @app.post("/api/v6/event-log")
@@ -2081,19 +2572,26 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         except (KeyError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=f"Invalid event log fields: {exc}")
 
-        log_file = os.path.join(DATA_ROOT, "extubation_events_audit.json")
+        log_file = _event_log_path()
         with EVENT_LOG_LOCK:
-            logs: List[Dict[str, Any]] = []
-            if os.path.exists(log_file):
-                try:
-                    with open(log_file, "r", encoding="utf-8") as f:
-                        logs = json.load(f)
-                except Exception as exc:
-                    logger_api.error(f"Error reading event log before append: {exc}")
-                    logs = []
+            try:
+                logs = _read_event_log(log_file)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                dest = _quarantine_event_log(log_file, exc)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"The audit trail was unreadable ({exc}) so this event was NOT "
+                           f"recorded. The previous file was preserved at "
+                           f"{os.path.basename(dest) if dest else 'its original path'}; "
+                           f"recover it before continuing.")
 
             event = {
-                "event_id": f"EVT-{len(logs) + 1:04d}",
+                # Unique per event, not derived from the current length. len()+1
+                # restarts at 1 whenever the trail is shortened for any reason,
+                # which produces duplicate ids referring to different events -
+                # the one thing an audit identifier may never do.
+                "event_id": f"EVT-{uuid.uuid4().hex[:12]}",
+                "sequence": len(logs) + 1,
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "dataset": dataset,
                 "frame_index": frame_idx,
@@ -2104,23 +2602,109 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             }
             logs.append(event)
 
-            # M2: Atomic File Write using temporary file replace
+            # M2: atomic write, and a failure here is reported as a failure.
+            # This used to log the exception and still answer 200 "recorded",
+            # so a caller believed an event was persisted when nothing had been
+            # written - and the dashboard's own audit table was the only place
+            # anyone would have noticed.
             temp_path: Optional[str] = None
             try:
                 temp_fd, temp_path = tempfile.mkstemp(dir=DATA_ROOT, prefix="evt_", suffix=".tmp")
                 with os.fdopen(temp_fd, "w", encoding="utf-8") as f_tmp:
                     json.dump(logs, f_tmp, indent=2, ensure_ascii=False)
+                    f_tmp.flush()
+                    os.fsync(f_tmp.fileno())
                 os.replace(temp_path, log_file)
-                logger_api.info(f"Event logged cleanly: {event['event_id']} (Level {severity}, CPRI {cpri_val}%)")
+                temp_path = None
+                logger_api.info(f"Event logged: {event['event_id']} "
+                                f"(Level {severity}, CPRI {cpri_val}%)")
             except Exception as exc:
                 logger_api.error(f"Atomic write failed for event log: {exc}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Event was NOT recorded - could not write the audit trail ({exc})")
+            finally:
                 if temp_path and os.path.exists(temp_path):
                     try:
                         os.remove(temp_path)
-                    except Exception:
+                    except OSError:
                         pass
 
         return {"status": "recorded", "event": event}
+
+    @app.get("/api/v6/shift-report")
+    def get_shift_report() -> Dict[str, Any]:
+        """Aggregate recorded clinical telemetry into a formal shift handover report."""
+        log_file = _event_log_path()
+        with EVENT_LOG_LOCK:
+            try:
+                logs = _read_event_log(log_file)
+            except Exception:
+                logs = []
+
+        total = len(logs)
+        l1_count = sum(1 for e in logs if e.get("severity_level") == 1)
+        l2_count = sum(1 for e in logs if e.get("severity_level") == 2)
+        l3_count = sum(1 for e in logs if e.get("severity_level") == 3)
+
+        return {
+            "shift_id": f"SHIFT-{time.strftime('%Y%m%d')}-{time.strftime('%H%M')}",
+            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "total_events": total,
+            "event_breakdown": {
+                "level_1_touch": l1_count,
+                "level_2_peel_warning": l2_count,
+                "level_3_critical_extubation": l3_count,
+            },
+            # `uptime_percentage` used to be here: 99.8 when the trail was empty,
+            # otherwise 100 - (2.5 x level-3 count + 0.8 x level-2 count), floored
+            # at 85. Nothing in this system measures uptime - not session length,
+            # not dropped frames, not disconnect events - so every one of those
+            # numbers was manufactured from an alarm count, and the dashboard
+            # printed it as "Patch Uptime". Removed rather than approximated: if
+            # uptime is wanted, measure disconnected frames over streamed frames
+            # in LivePipeline and report THAT.
+            "adhesion_health": {
+                "monitored_channels": N_PADS,
+                "patch_dimensions_mm": "90 x 120",
+                "status": ("no level-3 event recorded this shift" if l3_count == 0
+                           else f"{l3_count} level-3 event(s) recorded this shift"),
+            },
+            "recent_incidents": logs[-10:] if logs else [],
+        }
+
+    @app.get("/api/v6/ward/status")
+    def get_ward_status() -> Dict[str, Any]:
+        """Bed slots for the dashboard's ward panel. NO invented telemetry.
+
+        This endpoint used to return eight beds with made-up patient ids
+        (ICU-A-101 ...), made-up CPRI values (1.4, 3.8, 0.5 ...) and made-up
+        statuses ("Post-Op Stable"), and the dashboard carried a second,
+        different set of inventions with Thai patient names and HN numbers.
+        Nothing behind either of them existed: this server classifies ONE patch
+        on ONE socket, and it has no multi-patient data source at all.
+
+        A screen that shows a bed as "Resting / Stable, CPRI 2.1%" when nothing
+        is attached to it is not a demo shortcut, it is a monitor reporting a
+        patient it cannot see. The slots below are therefore empty by
+        construction: no identity, and `cpri_percent` is null rather than a
+        number, so a consumer cannot mistake it for a reading. The operator
+        labels the slot they are actually using from the dashboard.
+        """
+        beds = [{"bed": f"Bed {i + 1:02d}", "patient_id": None, "patient_label": None,
+                 "status": "unassigned", "severity_level": 0, "cpri_percent": None,
+                 "attached_nodes": None, "is_live": False}
+                for i in range(WARD_BED_SLOTS)]
+        return {
+            "ward_name": None,
+            "active_beds_count": 0,
+            "bed_slots": len(beds),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "note": ("This build monitors a single patch over one live socket. These are "
+                     "empty UI slots, not monitored beds; there is no multi-patient data "
+                     "source behind them."),
+            "beds": beds,
+        }
 
     @app.get("/api/v5/dataset/{filepath:path}")
     def dataset_analysis(filepath: str, calibration: str = "") -> Any:
@@ -2140,12 +2724,9 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
 
         mode = calibration if calibration in ("static", "kalman") else model_holder.get("calibration", "static")
         delta = calibrate(raw, mode)
-        feats = extract_features(delta, model_holder.get("use_gradient", False))
-        model = model_holder.get("model")
-        proba = full_proba(model, feats) if model is not None else np.zeros((len(feats), N_CLASSES))
-        raw_preds = (proba.argmax(axis=1) if model is not None
-                     else np.zeros(len(feats), dtype=int))
-        risk = cpri(proba)
+        # Same classifier the socket uses, including the physics gate (R4).
+        proba, raw_preds, risk = classify_deltas(
+            model_holder.get("model"), delta, model_holder.get("use_gradient", False))
 
         # This endpoint feeds the dashboard's default view - what a visitor sees
         # on load. It previously returned the bare per-frame argmax and an
@@ -2159,7 +2740,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         frames: List[Dict[str, Any]] = []
         for i in range(len(delta)):
             d = delta[i]
-            warming = i < KALMAN_WARMUP
+            warming = bool(mode == "kalman" and i < KALMAN_WARMUP)
             level = 0 if warming else debouncer.update(int(raw_preds[i]))
             frames.append({
                 "index": i,
@@ -2170,7 +2751,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 "warming_up": warming,
                 "status": ("Calibrating baseline ..." if warming
                            else STATUS_TEXT_MAP.get(level, "unknown")),
-                "probabilities": [round(float(p), 4) for p in proba[i]],
+                "probabilities": round_proba(proba[i]),
                 "cpri_percent": 0.0 if warming else round(float(risk[i]), 1),
                 "propagation": peel.update(d),
             })
@@ -2216,6 +2797,12 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                         or ws.headers.get("x-access-key")
                         or ws.cookies.get("p2key") or "")
             if not _key_ok(supplied, access_key):
+                # Throttled on the same table as the HTTP gate. Without this the
+                # key was brute-forceable at full speed here while the REST
+                # routes cut you off after 10 tries.
+                client_ip = ws.client.host if ws.client else "unknown"
+                if _throttled(client_ip):
+                    logger_api.warning(f"WebSocket auth rate limit exceeded for IP {client_ip}")
                 await ws.close(code=1008)
                 return
         await ws.accept()
@@ -2247,20 +2834,103 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                     })
                     await ws.close()
                     return
-                src = SerialFrameSource(port, int(params.get("baud", "115200")))
+                permute_flag = params.get("permute", "0") == "1"
+                src = SerialFrameSource(port, int(params.get("baud", "115200")), permute=permute_flag)
+            elif source_kind == "client":
+                # INGEST. The peer holds the hardware (a browser using the Web
+                # Serial API, or stream_to_cloud.py bridging a USB board to a
+                # cloud instance) and pushes frames up; we classify and push the
+                # result back.
+                #
+                # This is the branch that was missing. main.py contained no
+                # ws.receive_* call at all, and any source= it did not recognise
+                # fell through to ReplayFrameSource - so stream_to_cloud.py,
+                # which connects with ?source=webserial and sends
+                # {"raw_frame": [...]}, streamed real sensor data to a server
+                # that discarded every message and replayed a canned recording
+                # of Normal Mix/N_Mix_01.csv back at it, while printing
+                # ">>> SENSOR STREAMING ACTIVE! <<<" and a live frame rate. A
+                # demo run against that looks perfect and shows nothing from the
+                # patch. web/web_serial.js worked around the same gap by
+                # reimplementing the classifier in JavaScript.
+                #
+                # PAD ORDER, AND WHAT THIS ACTUALLY DOES BY DEFAULT.
+                #
+                # This comment used to state that "the same permutation is
+                # applied here". It is not: the default below is permute=0, so
+                # frames are consumed as-is unless the caller asks otherwise,
+                # and web_serial.js does not ask. The serial branch above has
+                # the same default. Neither default is wrong on the evidence -
+                # every recording in the corpus is Sensor-* and measurably
+                # already in pad order (--verify-pads, Spearman rho 1.0000) -
+                # but nobody has captured a 1-by-1 sweep through THIS socket, so
+                # the live convention is still unverified either way. Until that
+                # sweep exists the effective setting is reported to the peer
+                # instead of asserted in a comment, so a spatial result from
+                # live hardware carries its own orientation with it.
+                permute_flag = params.get("permute", "0") == "1"
+                await ws.send_json({
+                    "event": "started", "source": "client",
+                    "pad_order_applied": permute_flag,
+                    "pad_order_note": ("frames are permuted through PAD_ORDER" if permute_flag
+                                       else "frames are used as sent; add &permute=1 if the "
+                                            "board emits Signal-* electrical order"),
+                    "expects": {"raw_frame": f"{N_PADS} numbers, Signal-1..{N_PADS} order"},
+                })
+                while True:
+                    msg = await ws.receive_json()
+                    if not isinstance(msg, dict):
+                        await ws.send_json({"error": "expected a JSON object"})
+                        continue
+                    if msg.get("event") == "stop":
+                        break
+                    vals = msg.get("raw_frame")
+                    if not isinstance(vals, list) or len(vals) < N_PADS:
+                        await ws.send_json({"error": f"raw_frame must be {N_PADS} numbers",
+                                            "got": (len(vals) if isinstance(vals, list) else None)})
+                        continue
+                    try:
+                        arr = np.asarray(vals[:N_PADS], dtype=float)
+                    except (TypeError, ValueError):
+                        await ws.send_json({"error": "raw_frame must be numeric"})
+                        continue
+                    if not np.isfinite(arr).all():
+                        await ws.send_json({"error": "raw_frame contains non-finite values"})
+                        continue
+                    pad_frame = signals_to_pads(arr) if permute_flag else arr
+                    await ws.send_json(pipeline.process(pad_frame))
+                await ws.send_json({"event": "finished", "frames": pipeline.index})
+                return
+            elif source_kind in ("simulator", "live", "standby"):
+                src = SimulatorFrameSource(SAMPLE_PERIOD_S)
             else:
                 src = ReplayFrameSource(params.get("file", "Normal Mix/N_Mix_01.csv"),
                                         realtime=params.get("realtime", "1") == "1",
                                         loop=params.get("loop", "0") == "1")
-            await ws.send_json({"event": "started", "source": src.name})
+            await ws.send_json({"event": "started", "source": src.name,
+                                "pad_order_applied": bool(getattr(src, "permute", False))})
             loop = asyncio.get_running_loop()
             gen = src.frames()
-            while True:
-                frame = await loop.run_in_executor(None, lambda: next(gen, None))
-                if frame is None:
-                    break
-                await ws.send_json(pipeline.process(frame))
-            await ws.send_json({"event": "finished", "frames": pipeline.index})
+            # next(gen) blocks - up to IDLE_TIMEOUT_S on a silent serial port -
+            # so it runs on a bounded private executor rather than the event
+            # loop's default one. Sharing the default executor meant a handful
+            # of live clients could occupy every worker in it and stall
+            # unrelated work; a dedicated 2-thread pool per socket also gets
+            # torn down with the socket instead of leaking workers.
+            pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="p2-frames")
+            try:
+                while True:
+                    frame = await loop.run_in_executor(pool, lambda: next(gen, None))
+                    if frame is None:
+                        break
+                    await ws.send_json(pipeline.process(frame))
+                await ws.send_json({"event": "finished", "frames": pipeline.index})
+            finally:
+                # Ask the source to stop first so the blocked read returns
+                # promptly, then let the worker finish rather than abandoning it.
+                src.close()
+                pool.shutdown(wait=False)
         except WebSocketDisconnect:
             pass
         except Exception as exc:
@@ -2421,8 +3091,38 @@ def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
 # =============================================================================
 # 11b. DATA AUDIT AND METRICS REPORT  (see ACTION_PLAN.md P0-1, P0-2)
 # =============================================================================
-SPEC_DETACH_MAX = 25000.0        # KES 2025 section 2.1: full detachment
-SPEC_CONTACT_MIN = 30000.0       # KES 2025 section 2.1: direct finger contact
+# RAW-count threshold for "the patch is off the skin", as published in KES 2025
+# s2.1: <= 25,000 counts. Do not move it. A revision dated 2026-08-18 raised it
+# to 28,500 with a comment redefining the spec as "27,000 - 28,000 counts", and
+# the arithmetic of why that cannot be a detachment criterion is worth keeping
+# here, because the 27,000-28,000 observation behind it is CORRECT and the
+# conclusion drawn from it was not.
+#
+# Measured over the whole corpus (min raw per file, and the median of each
+# file's first five - quiescent - frames):
+#
+#   folder                  deepest raw   resting raw
+#   N_base (nothing at all)      27,464        27,991
+#   Friction (normal)            27,555        28,159
+#   Press   (normal)             27,387        28,731
+#   Peel                         27,251        28,098
+#   Vertical Pull                27,263        27,894
+#
+# The whole corpus lives in a band roughly 27,250 - 28,700 wide. So:
+#
+#   at 28,500  ->  81 of 81 files "reach detachment", INCLUDING 5 of 5 N_base
+#                  recordings in which nothing happens. The threshold sits ABOVE
+#                  the resting attached value, so the check is a constant True.
+#   at 25,000  ->  0 of 81. Nothing this patch has ever recorded comes within
+#                  ~2,250 counts of the published figure.
+#
+# 0/81 is the honest result and it is a finding, not a failure to be tuned away:
+# the spec threshold does not describe what THIS patch reads at detachment, so
+# the spec must not be quoted as a detection criterion. Detection does not use
+# raw counts at all - it uses the delta from the tracked baseline, where the
+# lift gate is -300 counts and works. See _caveats() and [[sensor_findings]].
+SPEC_DETACH_MAX = 25000.0        # KES 2025 s2.1 detachment criterion, as published
+SPEC_CONTACT_MIN = 30000.0       # Direct finger contact (> 30,000 counts)
 MIN_AUDIT_FRAMES = 100           # SOP v2: 60-120 s per file at 560 ms
 BASELINE_MAX_SWING = 100.0       # SOP v2 criterion 5, now actually enforced
 ROUND1_FRICTION_SWING = 654.0    # measured on the round-1 corpus, not a spec
@@ -2440,6 +3140,14 @@ def _iter_class_dirs(root: str) -> Iterator[Tuple[str, str]]:
     known, _ = scan_csv_dirs(root)
     for rel, _folder, path in sorted(known):
         yield rel, path
+
+
+def _median_delta(per_class: Dict[str, Dict[str, Any]], label_class: int) -> str:
+    """Median of the per-folder median deepest delta, for the audit detail line."""
+    vals = [v["median_deepest_delta"] for label, v in per_class.items()
+            if CLASS_MAPPING.get(label.split("/")[-1], {}).get("label") == label_class
+            and v.get("median_deepest_delta") is not None]
+    return f"{float(np.median(vals)):,.0f}" if vals else "n/a"
 
 
 def audit_folder(root: str) -> Dict[str, Any]:
@@ -2463,6 +3171,12 @@ def audit_folder(root: str) -> Dict[str, Any]:
         lows: List[float] = []
         frames: List[int] = []
         swings: List[float] = []
+        # Deepest DELTA from the file's own quiescent baseline. This is the
+        # quantity the detector actually gates on (-DELTA_THRESHOLD), unlike the
+        # raw-count spec above, so it is the one that tells a collection session
+        # whether the fixation produced a usable lift signal.
+        deltas_low: List[float] = []
+        reach_lift = 0
         for f in files:
             problem = describe_csv_problem(f)
             if problem:
@@ -2482,11 +3196,18 @@ def audit_folder(root: str) -> Dict[str, Any]:
             if len(raw) < MIN_AUDIT_FRAMES:
                 short += 1
             swings.append(float((raw.max(axis=0) - raw.min(axis=0)).max()))
+            deepest_delta = float(calibrate(raw, "static").min())
+            deltas_low.append(deepest_delta)
+            if deepest_delta <= -DELTA_THRESHOLD:
+                reach_lift += 1
         per_class[label] = {
             "files": len(files), "usable": len(frames),
             "reach_detach_spec": reach_low, "reach_contact_spec": reach_high,
             "offset_contaminated": dirty, "under_min_frames": short,
             "min_raw": round(min(lows), 1) if lows else None,
+            "reach_lift_gate": reach_lift,
+            "deepest_delta": round(min(deltas_low), 1) if deltas_low else None,
+            "median_deepest_delta": round(float(np.median(deltas_low)), 1) if deltas_low else None,
             "median_frames": int(np.median(frames)) if frames else 0,
             "max_swing": round(max(swings), 1) if swings else None,
         }
@@ -2494,23 +3215,26 @@ def audit_folder(root: str) -> Dict[str, Any]:
     def _check(name: str, ok: bool, detail: str) -> None:
         checks.append({"check": name, "pass": bool(ok), "detail": detail})
 
-    def _agg(label_class: int) -> Dict[str, int]:
-        tot = {"files": 0, "usable": 0, "reach_detach_spec": 0, "reach_contact_spec": 0}
+    # One aggregator, two predicates. These were two copies of the same loop
+    # with the same four (now five) counter names typed out twice - so adding
+    # `reach_lift_gate` meant remembering to add it in both places, and
+    # forgetting would have silently zeroed the new check for one of them.
+    def _sum_where(keep: Callable[[str], bool]) -> Dict[str, int]:
+        tot = {"files": 0, "usable": 0, "reach_detach_spec": 0,
+               "reach_contact_spec": 0, "reach_lift_gate": 0}
         for label, v in per_class.items():
-            leaf = label.split("/")[-1]
-            if CLASS_MAPPING.get(leaf, {}).get("label") == label_class:
+            if keep(label.split("/")[-1]):
                 for k in tot:
                     tot[k] += v[k]
         return tot
 
+    def _agg(label_class: int) -> Dict[str, int]:
+        """Aggregate every folder that maps to one class label."""
+        return _sum_where(lambda leaf: CLASS_MAPPING.get(leaf, {}).get("label") == label_class)
+
     def _agg_named(*folders: str) -> Dict[str, int]:
         """Aggregate specific folders by name, across sessions."""
-        tot = {"files": 0, "usable": 0, "reach_detach_spec": 0, "reach_contact_spec": 0}
-        for label, v in per_class.items():
-            if label.split("/")[-1] in folders:
-                for k in tot:
-                    tot[k] += v[k]
-        return tot
+        return _sum_where(lambda leaf: leaf in folders)
 
     # --- completeness comes first: a missing class used to remove its own check
     present = {CLASS_MAPPING[name.split("/")[-1]]["label"]
@@ -2520,9 +3244,30 @@ def audit_folder(root: str) -> Dict[str, Any]:
            f"missing: {', '.join(missing)}" if missing else "0/1/2/3 all present")
 
     peel = _agg(2)
-    _check("Peel reaches <= 25,000 counts (KES 2025 s2.1)",
+    _check(f"Peel reaches <= {SPEC_DETACH_MAX:,.0f} counts (KES 2025 s2.1)",
            peel["usable"] > 0 and peel["reach_detach_spec"] >= 0.8 * peel["usable"],
            f"{peel['reach_detach_spec']}/{peel['usable']} usable files (need >= 80%)"
+           if peel["usable"] else "no usable Peel recordings")
+
+    # The check above is against a PUBLISHED RAW-COUNT figure, and on this
+    # hardware it fails for every recording ever made - the corpus rests around
+    # 28,000 counts and bottoms out at 27,251, some 2,250 counts short of the
+    # 25,000 the spec names. That is a real finding about the spec, not about any
+    # one collection session, so it cannot tell an operator whether TODAY's rig
+    # is any good. (Nor can moving the threshold: at 28,500 it sits above the
+    # resting attached value and passes every recording including bare baseline,
+    # which is how the constant came to be raised on 2026-08-18.)
+    #
+    # This is the check that can answer that question, because it is the
+    # quantity the detector actually gates on: the deepest delta from the file's
+    # own quiescent baseline against -DELTA_THRESHOLD. Measured on round 1:
+    # Peel median -866 (10/10 cross), Vertical Pull -777 (10/10), Horizontal
+    # Pull -64 (0/10, the known blind spot), Friction -94 (0/10), N_base -31.
+    _check(f"Peel crosses the {-DELTA_THRESHOLD:,.0f} count lift gate (the "
+           f"criterion the detector uses)",
+           peel["usable"] > 0 and peel["reach_lift_gate"] >= 0.8 * peel["usable"],
+           f"{peel['reach_lift_gate']}/{peel['usable']} usable files cross it; "
+           f"median deepest delta {_median_delta(per_class, 2)} counts (need >= 80%)"
            if peel["usable"] else "no usable Peel recordings")
 
     # FIX D4: the SOP's criterion is "Brief Touch >= 8/10 files reach > 30,000".
@@ -2623,7 +3368,7 @@ def _caveats(ds: Dataset) -> List[str]:
     a caveat that stops being true stops being printed.
     """
     out = [
-        "The +/- on the file-level accuracy is RandomForest seed variation on a "
+        "The +/- on the file-level accuracy is estimator seed variation on a "
         "handful of borderline files, NOT sampling uncertainty. Quote the Wilson "
         "or bootstrap CI instead.",
         "File-level majority vote depends on clip length: re-voting the same events "
@@ -2650,7 +3395,7 @@ def _caveats(ds: Dataset) -> List[str]:
     counts = {lab: sum(1 for x in ds.labels if x == lab) for lab in sorted(set(ds.labels))}
     small = [(lab, n) for lab, n in counts.items() if n <= 10]
     if small:
-        worst_lab, worst_n = min(small, key=lambda kv: kv[1])
+        _worst_lab, worst_n = min(small, key=lambda kv: kv[1])
         lo, hi = wilson(worst_n, worst_n)
         out.append(
             "Small classes: "
@@ -2658,14 +3403,48 @@ def _caveats(ds: Dataset) -> List[str]:
             + f". A perfect {worst_n}/{worst_n} on the smallest of them carries a 95% CI "
               f"of about {lo:.2f}-{hi:.2f}, so it is not evidence of 100% performance.")
 
+    # The measured blind spot. This is the most important caveat in the file and
+    # it was not being printed at all: the classifier separates Horizontal Pull
+    # from normal activity on a PRESS proxy, not on the dressing leaving the
+    # skin, so a horizontal detachment that a clinician would call an
+    # extubation risk produces no lift signal for this patch to see.
+    out.append(
+        "Horizontal detachment produces NO lift signal on this patch. Measured over the "
+        "round-1 corpus, Horizontal Pull recordings reach a median deepest delta of only "
+        "-64 counts (deepest -161) and 0 of 10 cross the -300 lift gate - quieter than "
+        "Friction, which is a normal class. What moves on those recordings is the "
+        "positive/contact side (median max +456), so any Horizontal Pull the system does "
+        "flag, it flags as a press-like event and not as detachment. Vertical Pull and "
+        "Peel do cross the gate (10/10 each). Do not describe this device as detecting "
+        "detachment in general until a horizontal-pull signal has been demonstrated.")
+
     if ds.conventions.get("sensor") and not ds.conventions.get("signal"):
-        out.append(
-            f"All {ds.conventions['sensor']} recordings use Sensor-* columns, which the "
-            "loader trusts as physical pad order without applying PAD_ORDER, while the "
-            "live serial path always applies it. Accuracy figures are unaffected (the "
-            "base features are permutation-invariant) but heatmaps, peel direction and "
-            "the LOOP 3 figure depend on this unverified assumption. Confirm it on the "
-            "bench before publishing a propagation direction.")
+        try:
+            pads = verify_pad_order()
+            settled = pads["inversions"] == 0
+            out.append(
+                f"All {ds.conventions['sensor']} recordings use Sensor-* columns, read as "
+                f"physical pad order without applying PAD_ORDER. That is no longer an "
+                f"assumption: the 1-by-1 press sweep in {pads['file']} peaks in strictly "
+                f"increasing column order (Spearman rho {pads['spearman_rho']:.4f}, "
+                f"{pads['inversions']} inversions), so Sensor-N == physical pad N for this "
+                f"corpus. " + ("" if settled else "THIS CHECK FAILED - spatial results are "
+                               "scrambled, fix the logger before quoting any of them. ") +
+                "Re-run `python main.py --verify-pads` after any firmware or logger change. "
+                "Still open, and it is now an open question in BOTH directions: the live "
+                "sockets (?source=serial and ?source=client) default to permute=0, so they "
+                "do NOT apply PAD_ORDER unless a caller passes &permute=1, and no 1-by-1 "
+                "sweep has been captured through either. The setting in force is reported "
+                "in the socket's own `started` message as `pad_order_applied`. Until that "
+                "sweep exists, spatial output from LIVE hardware (heatmap, peel heading) is "
+                "unverified whichever way the flag is set.")
+        except (CsvProblem, ValueError, OSError) as exc:
+            out.append(
+                f"All {ds.conventions['sensor']} recordings use Sensor-* columns, read as "
+                f"physical pad order without applying PAD_ORDER, while the live serial path "
+                f"always applies it. The 1-by-1 sweep that would settle this could not be "
+                f"read ({exc}), so heatmaps, peel direction and the LOOP 3 figure rest on an "
+                f"unverified assumption. Run `python main.py --verify-pads`.")
     elif ds.conventions.get("sensor") and ds.conventions.get("signal"):
         out.append(
             f"The corpus mixes column conventions ({ds.conventions['sensor']} Sensor-*, "
@@ -2690,6 +3469,11 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
     os.makedirs(DATA_ROOT, exist_ok=True)
     counts = {name: int(sum(1 for lab in ds.labels if lab == i))
               for i, name in enumerate(["baseline", "incidental", "peel", "pull"])}
+    # One call, one array. average=None returns a per-class vector; np.asarray
+    # makes that explicit for the type checker as well as the reader.
+    per_class_f1 = np.asarray(f1_score(rf["y_true"], rf["y_pred"],
+                                       labels=list(range(N_CLASSES)),
+                                       average=None, zero_division=0), dtype=float)
     payload: Dict[str, Any] = {
         "generated": stamp,
         "version": "6.2",
@@ -2707,6 +3491,16 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
                                      f"accuracy over the pool equals the mean above",
             "accuracy_mean": rf["accuracy_mean"], "accuracy_sd": rf["accuracy_sd"],
             "macro_f1_mean": rf["macro_f1_mean"], "macro_f1_sd": rf["macro_f1_sd"],
+            # Per-class F1, pooled over the seeds. The dashboard has had a
+            # `data-metric="peel_f1"` slot since the panel was built and this key
+            # never existed, so even a working renderer could not have filled it.
+            # Computed ONCE, above, and indexed here: written inline it was two
+            # identical f1_score calls, and `f1_score(...)[2]` is also what
+            # Pylance flags as indexing a float, because the stub declares the
+            # scalar return and not the ndarray that average=None gives back.
+            "per_class_f1": {CLASS_LABEL_NAMES[c]: float(per_class_f1[c])
+                             for c in range(N_CLASSES)},
+            "peel_f1": float(per_class_f1[2]),
             "false_alarm_rate": false_alarm_rate(rf["y_true"], rf["y_pred"]),
             "confusion_matrix": confusion_matrix(rf["y_true"], rf["y_pred"],
                                                  labels=list(range(N_CLASSES))).tolist(),
@@ -2761,7 +3555,7 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
         f"- Column convention: {ds.conventions or 'n/a'} "
         f"(Sensor-* used as-is, Signal-* permuted through PAD_ORDER)",
         f"- Skipped: {[f for f, _ in ds.skipped] or 'none'}", "",
-        f"## Random Forest ({rf['cv']}-level cross validation)", "",
+        f"## {type(_new_rf(42)).__name__} ({rf['cv']}-level cross validation)", "",
         "| Metric | Value |", "|---|---|",
         f"| Accuracy | {rf['accuracy_mean']*100:.2f}%"
         + (f" ± {rf['accuracy_sd']*100:.2f} (n={n_seeds} seeds)" if n_seeds > 1 else "") + " |",
@@ -2770,8 +3564,20 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
         "| Tie-break | toward the more severe class |",
         f"| False alarm on normal files | {false_alarm_rate(rf['y_true'], rf['y_pred'])*100:.1f}% |",
         "",
-        "_The ± above is RandomForest seed variation, not sampling uncertainty. "
-        "Use the intervals below when quoting a result._",
+        # The old line here said "RandomForest seed variation" and was printed
+        # whatever the spread turned out to be. With the estimator this project
+        # now ships that spread is exactly 0.00 - HistGradientBoosting has no
+        # subsampling and early stopping is off at this sample size, so every
+        # seed produces the identical model. A "+/- 0.00 over 5 seeds" that a
+        # reader takes for stability evidence, when it only means the seed is
+        # not used, is the same class of claim this file exists to prevent.
+        ("_The +/- above is estimator seed variation, not sampling uncertainty. "
+         "Use the intervals below when quoting a result._"
+         if n_seeds > 1 and rf["accuracy_sd"] > 0 else
+         "_This estimator is deterministic on this corpus: every seed produced "
+         "the identical model, so the seed spread is 0.00 by construction and is "
+         "NOT evidence of stability. `--seeds N` buys nothing here beyond N times "
+         "the runtime. Quote the Wilson or bootstrap interval below instead._"),
         "",]
     yt1, yp1 = rf["y_true_first"], rf["y_pred_first"]
     k = int(sum(1 for a, b in zip(yt1, yp1) if a == b))
@@ -2879,6 +3685,350 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
 # =============================================================================
 # 12. ENTRY POINT
 # =============================================================================
+def verify_pad_order(rel_path: str = "Press/1_by_1.csv") -> Dict[str, Any]:
+    """Settle caveat A9 from a 1-by-1 press sweep instead of asserting it.
+
+    The bench measurement the A9 comment asks for was already in the repo and
+    had never been read back: Data/Press/1_by_1.csv is a recording of each pad
+    being pressed once, in pad order. If the columns are in physical pad order,
+    then column k must peak later than column k-1 for all 25 columns.
+
+    Take each column's argmax frame and correlate it against the column index.
+    On the round-1 corpus that gives Spearman rho = 1.0000 with 0 inversions, so
+    Sensor-N == physical pad N for those recordings and applying PAD_ORDER to
+    them would scramble the patch - which is why read_raw_csv does not.
+
+    This is deliberately a measurement with a printable verdict rather than a
+    comment, so it can be re-run the day the firmware or the logger changes:
+
+        python main.py --verify-pads
+        python main.py --verify-pads "Press/1_by_1.csv"
+    """
+    full = safe_data_path(rel_path)
+    raw = read_raw_csv(full)
+    if raw is None:
+        raise CsvProblem(f"{rel_path}: unreadable, or missing the 25 sensor columns")
+    if len(raw) < N_PADS:
+        raise CsvProblem(f"{rel_path}: {len(raw)} frames cannot contain {N_PADS} presses")
+
+    delta = calibrate(raw, "static")
+    peak_frame = delta.argmax(axis=0)
+    order = np.argsort(peak_frame)
+    inversions = int(sum(1 for a in range(N_PADS) for b in range(a + 1, N_PADS)
+                         if peak_frame[a] > peak_frame[b]))
+    # Spearman rho between column index and peak time, without pulling in scipy.stats
+    idx = np.arange(N_PADS, dtype=float)
+    ranks = np.argsort(np.argsort(peak_frame)).astype(float)
+    rho = float(np.corrcoef(idx, ranks)[0, 1])
+    monotonic = bool(np.all(np.diff(peak_frame[np.arange(N_PADS)]) > 0))
+
+    return {
+        "file": rel_path,
+        "frames": int(len(raw)),
+        "peak_frame_per_column": [int(v) for v in peak_frame],
+        "column_order_by_peak_time": [int(v) + 1 for v in order],
+        "inversions": inversions,
+        "spearman_rho": round(rho, 4),
+        "strictly_increasing": monotonic,
+        "verdict": ("Sensor-N == physical pad N (columns are already in pad order; "
+                    "PAD_ORDER must NOT be applied to this corpus)"
+                    if inversions == 0 else
+                    f"columns are NOT in pad order - {inversions} inversions. Spatial "
+                    f"results from these recordings are scrambled until this is resolved."),
+    }
+
+
+def print_pad_verification(rep: Dict[str, Any]) -> bool:
+    print("\n" + "=" * 70)
+    print("A9 - PAD ORDER VERIFICATION (1-by-1 press sweep)")
+    print("=" * 70)
+    print(f"  file                : {rep['file']} ({rep['frames']} frames)")
+    print(f"  peak-time ordering  : {rep['column_order_by_peak_time']}")
+    print(f"  inversions          : {rep['inversions']}")
+    print(f"  Spearman rho        : {rep['spearman_rho']:.4f}")
+    print(f"  strictly increasing : {rep['strictly_increasing']}")
+    print(f"\n  {rep['verdict']}")
+    print("=" * 70)
+    print("  NOTE: this settles the CSV corpus only. The live serial path applies"
+          "\n  PAD_ORDER to Signal-* frames and no sweep has been captured through"
+          "\n  it, so spatial output from LIVE hardware stays unverified until you"
+          "\n  record the same sweep via /ws/live_sensor and re-run this.")
+    return rep["inversions"] == 0
+
+
+def dataset_fingerprint(ds: Dataset, calibration: str, use_gradient: bool) -> str:
+    """Identify the exact corpus a cached model was trained on.
+
+    The cache key used to be f"{n_files}_{n_frames}_{calibration}_{gradient}",
+    which does not describe the data at all - only its shape. Moving one
+    recording from Press/ to Peel/ changes neither the file count nor the frame
+    count, so the key was identical and the server silently kept serving a model
+    trained on the OLD labels. Re-recording a file to the same length did the
+    same thing. Path, label, size and mtime of every loaded file go in, so any
+    edit that could change what the model learned changes the key.
+    """
+    h = hashlib.sha256()
+    h.update(f"v2|{calibration}|{int(use_gradient)}|{N_PADS}|{N_CLASSES}|".encode())
+    for rel, lab in zip(ds.files, ds.labels):
+        full = os.path.join(DATA_ROOT, rel)
+        try:
+            st = os.stat(full)
+            stamp = f"{st.st_size}:{int(st.st_mtime)}"
+        except OSError:
+            stamp = "missing"
+        h.update(f"{rel}|{lab}|{stamp}\n".encode())
+    return h.hexdigest()
+
+
+def load_persisted_model(ds_hash: str) -> Optional[Any]:
+    """Load the cached forest, but only after verifying the file we were given.
+
+    joblib.load() unpickles, which executes whatever the file says to execute.
+    The previous version checked an integrity field stored INSIDE the pickle -
+    a check that can only run after the dangerous step, so it verified nothing.
+    This project also lives in a synced OneDrive folder, which is exactly the
+    kind of place a model file can change without anyone touching the repo.
+
+    The digest now lives in a separate plain-text sidecar and is verified
+    against the bytes on disk BEFORE they are deserialised. No sidecar, or a
+    mismatch, means retrain - which costs ~30 s and is always safe.
+    """
+    if not os.path.isfile(MODEL_PERSISTENCE_PATH) or not os.path.isfile(MODEL_DIGEST_PATH):
+        return None
+    try:
+        with open(MODEL_DIGEST_PATH, "r", encoding="utf-8") as fh:
+            recorded = json.load(fh)
+        if recorded.get("dataset") != ds_hash:
+            logger_model.info("Cached model was trained on a different corpus; retraining")
+            return None
+        with open(MODEL_PERSISTENCE_PATH, "rb") as fh:
+            blob = fh.read()
+        actual = hashlib.sha256(blob).hexdigest()
+        if not hmac.compare_digest(actual, str(recorded.get("sha256", ""))):
+            logger_model.warning(
+                "Refusing to load %s: its sha256 does not match %s. Delete both to retrain.",
+                os.path.basename(MODEL_PERSISTENCE_PATH), os.path.basename(MODEL_DIGEST_PATH))
+            return None
+        model = joblib.load(MODEL_PERSISTENCE_PATH)
+        if not hasattr(model, "predict_proba"):
+            logger_model.warning("Cached model is not a classifier; retraining")
+            return None
+        logger_model.info(f"Loaded persisted model (corpus={ds_hash[:8]})")
+        return model
+    except Exception as exc:
+        logger_model.warning(f"Could not load persisted model: {exc}")
+        return None
+
+
+def persist_model(model: Any, ds_hash: str) -> None:
+    """Write the model and its sidecar digest, atomically."""
+    try:
+        os.makedirs(os.path.dirname(MODEL_PERSISTENCE_PATH), exist_ok=True)
+        tmp = MODEL_PERSISTENCE_PATH + ".tmp"
+        joblib.dump(model, tmp)
+        with open(tmp, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        os.replace(tmp, MODEL_PERSISTENCE_PATH)
+        with open(MODEL_DIGEST_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"sha256": digest, "dataset": ds_hash,
+                       "sklearn": __import__("sklearn").__version__,
+                       "trained_at": time.strftime("%Y-%m-%d %H:%M:%S")}, fh, indent=2)
+        logger_model.info(f"Persisted model (corpus={ds_hash[:8]}, sha256={digest[:8]})")
+    except Exception as exc:
+        logger_model.error(f"Failed to persist model: {exc}")
+
+
+def verify_metrics(ds: Dataset, tolerance: float = 0.02,
+                   oof: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    """Re-measure the headline numbers and diff them against Data/metrics.json.
+
+    `metrics.json` is what /api/v6/metrics serves and what the dashboard prints
+    as this system's measured performance, and it is written only by --report.
+    So the moment anything upstream of it moves - the feature set, the
+    estimator, the calibration, the annunciator - the screen keeps showing
+    numbers that describe code which no longer exists, and nothing notices.
+
+    That is not hypothetical: between 2026-08-13 and 2026-08-19 the committed
+    file described a 9-feature RandomForest while a 34-feature
+    HistGradientBoosting was serving, and the only thing that eventually caught
+    it was a regression test with a hard bound in it. This makes it a
+    first-class check with a diff, so `--verify-metrics` can be run in seconds
+    of thought and about a minute of compute before anyone quotes a figure.
+
+    ONE leave-one-file-out pass is used for both the episode figures and the
+    file-level ones, because the file-level accuracy at seed 42 is just the
+    majority vote over the same out-of-fold predictions.
+
+    A note on how fragile these figures are: `ds.groups` is a function of the
+    order load_dataset walks the corpus, which is a function of the DECLARATION
+    ORDER of CLASS_MAPPING. Row order changes what a bagging estimator draws, so
+    adding one folder alias to that dict can move a published figure without
+    touching the detector. The dataset fingerprint is reported here to make that
+    visible.
+    """
+    report: Dict[str, Any] = {"path": os.path.join(DATA_ROOT, "metrics.json")}
+    report["dataset_fingerprint"] = dataset_fingerprint(ds, "kalman", False)
+
+    if not os.path.isfile(report["path"]):
+        report["status"] = "absent"
+        return report
+    try:
+        with open(report["path"], "r", encoding="utf-8") as fh:
+            stored = json.load(fh)
+    except (OSError, ValueError) as exc:
+        report["status"] = "unreadable"
+        report["error"] = str(exc)
+        return report
+
+    # `oof` is accepted so a caller that has already paid for a leave-one-file-out
+    # pass (the test suite has) does not pay for a second one.
+    if oof is None:
+        oof = compute_oof(ds, 42)
+    st = evaluate_stream(ds, 42, verbose=False, oof=oof)
+    y_true = [int(lab) for lab in ds.labels]
+    y_pred = [_file_vote(oof[ds.groups == i]) for i in range(ds.n_files)]
+    measured = {
+        "episode_level.sensitivity": st["sensitivity"],
+        "episode_level.false_alarm_rate": st["false_alarm_rate"],
+        "episode_level.alarms_per_hour": st["alarms_per_hour"],
+        "random_forest.accuracy_mean": float(accuracy_score(y_true, y_pred)),
+        "random_forest.macro_f1_mean": float(f1_score(y_true, y_pred, average="macro")),
+        "dataset.files": float(ds.n_files),
+        "dataset.frames": float(len(ds.X)),
+        "dataset.features": float(ds.X.shape[1]),
+    }
+
+    def _dig(key: str) -> Optional[float]:
+        node: Any = stored
+        for part in key.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        return float(node) if isinstance(node, (int, float)) else None
+
+    drift: List[Dict[str, Any]] = []
+    for key, now in measured.items():
+        was = _dig(key)
+        if was is None:
+            drift.append({"key": key, "stored": None, "measured": now, "note": "absent"})
+            continue
+        scale = max(abs(was), 1e-9)
+        if abs(now - was) / scale > tolerance:
+            drift.append({"key": key, "stored": was, "measured": now,
+                          "rel_change": (now - was) / scale})
+    report["status"] = "stale" if drift else "current"
+    report["generated"] = stored.get("generated")
+    report["operating_point"] = stored.get("episode_level", {}).get("operating_point")
+    report["drift"] = drift
+    report["measured"] = measured
+    return report
+
+
+def print_metric_verification(rep: Dict[str, Any]) -> bool:
+    print("\n" + "=" * 74)
+    print("METRICS REPRODUCIBILITY - does Data/metrics.json describe this code?")
+    print("=" * 74)
+    print(f"  dataset fingerprint : {rep['dataset_fingerprint'][:16]}")
+    if rep["status"] == "absent":
+        print("  metrics.json        : NOT PRESENT")
+        print("\n  Generate it:  python main.py --report --stream")
+        return False
+    if rep["status"] == "unreadable":
+        print(f"  metrics.json        : UNREADABLE ({rep.get('error')})")
+        return False
+    print(f"  metrics.json written: {rep.get('generated')}")
+    print(f"  operating point     : {rep.get('operating_point')}")
+    if rep["status"] == "current":
+        print(f"\n  OK - every headline figure reproduces within "
+              f"{2:.0f}% of the file on disk.")
+        return True
+    print(f"\n  STALE - {len(rep['drift'])} figure(s) no longer reproduce:\n")
+    print(f"    {'figure':<36}{'on disk':>12}{'measured':>12}{'change':>10}")
+    for d in rep["drift"]:
+        was = "absent" if d["stored"] is None else f"{d['stored']:.4f}"
+        chg = "" if d.get("rel_change") is None else f"{d['rel_change']*100:+.1f}%"
+        print(f"    {d['key']:<36}{was:>12}{d['measured']:>12.4f}{chg:>10}")
+    print("\n  The dashboard serves this file verbatim, so those are the numbers")
+    print("  currently on screen. Regenerate it, or find what moved:")
+    print("      python main.py --report --stream")
+    return False
+
+
+def _channel_bar(delta: np.ndarray) -> str:
+    """One character per pad, in PHYSICAL PAD ORDER. Deliberately not a grid.
+
+    live_monitor.py used to render these 25 values as a 5x5 ASCII lattice with
+    `idx = r * 5 + c`. The pads are not on a lattice - that is defect F5, the
+    reason the surface is reconstructed by RBF over real coordinates - so the
+    picture it drew put signal in the wrong place. A one-dimensional strip
+    claims nothing about geometry; for direction, read the propagation line,
+    which is computed from the true coordinates.
+    """
+    out = []
+    for v in np.asarray(delta, dtype=float):
+        if v <= -DELTA_THRESHOLD:
+            out.append("V")          # past the lift gate
+        elif v <= -NOISE_GATE_COUNTS:
+            out.append("v")          # moving off baseline, lifting
+        elif v >= DELTA_THRESHOLD:
+            out.append("A")          # firm contact
+        elif v >= NOISE_GATE_COUNTS:
+            out.append("^")          # light contact
+        else:
+            out.append(".")
+    return "".join(out)
+
+
+def run_monitor(port: str, baudrate: int = 115200, permute: bool = False,
+                model: Optional[Any] = None, use_gradient: bool = False,
+                max_frames: int = 0) -> int:
+    """Terminal live monitor over USB serial. Replaces live_monitor.py.
+
+    That file was a fourth place where frames were turned into a reading, and it
+    disagreed with the rest on three counts: it applied PAD_ORDER unconditionally
+    while both sockets default to permute=0, it drew a fictitious 5x5 grid, and
+    it printed `res["predicted_label"]`, a key LivePipeline has never returned -
+    so `.get(..., "normal")` made every line read "(NORMAL)" including the ones
+    headed LEVEL 3 CRITICAL. It also trained on `--calibration static` and then
+    served through the Kalman baseline without the warning main.py prints for
+    exactly that mismatch.
+
+    This uses SerialFrameSource and LivePipeline, so it shares the disconnect
+    handling, the idle timeout, the permutation flag and the classifier with
+    every other path.
+    """
+    try:
+        src = SerialFrameSource(port, baudrate, permute=permute)
+    except Exception as exc:
+        print(f"  cannot open {port}: {exc}")
+        ports = list_serial_ports()
+        print(f"  ports this machine enumerates: {[p['device'] for p in ports] or 'none'}")
+        return 2
+
+    pipe = LivePipeline(model, use_gradient)
+    print(f"\n  monitoring {port} @ {baudrate} baud   "
+          f"pad_order_applied={permute}   model={'loaded' if model else 'NONE (level 0 only)'}")
+    print("  legend: V past -300 lift gate  v lifting  ^ contact  A firm contact  . quiet")
+    print("  Ctrl-C to stop\n")
+    n = 0
+    try:
+        for frame in src.frames():
+            out = pipe.process(frame)
+            n += 1
+            pr = out["propagation"]
+            print(f"  t={out['time_sec']:7.2f}s L{out['severity_level']} "
+                  f"CPRI {out['cpri_percent']:5.1f}%  |{_channel_bar(out['deltas'])}|  "
+                  f"min {min(out['deltas']):+7.1f}  {pr['description']}")
+            if max_frames and n >= max_frames:
+                break
+    except KeyboardInterrupt:
+        print("\n  stopped")
+    finally:
+        src.close()
+    print(f"  {n} frame(s)")
+    return 0
+
+
 def pick_port(start: int, host: str, tries: int = 15) -> int:
     """Return the first free port. Raises rather than handing uvicorn a busy one."""
     for p in range(start, start + tries):
@@ -2894,7 +4044,8 @@ def pick_port(start: int, host: str, tries: int = 15) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Self-extubation early warning master engine")
-    ap.add_argument("--eval", action="store_true", help="leave-one-file-out RF benchmark")
+    ap.add_argument("--eval", action="store_true",
+                    help="leave-one-file-out benchmark of the shipped estimator")
     ap.add_argument("--eval-temporal", action="store_true", help="grouped CV: RF vs BiLSTM (LOOP 2)")
     ap.add_argument("--plots", action="store_true", help="write research plots")
     ap.add_argument("--replay", metavar="REL_PATH", help="stream a CSV through the live pipeline")
@@ -2922,6 +4073,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--alarm-window", type=int, default=ALARM.window)
     ap.add_argument("--alarm-votes", type=int, default=ALARM.min_votes)
     ap.add_argument("--alarm-hold", type=int, default=ALARM.hold)
+    # Accepted and ignored: nothing in this file has ever opened a browser.
+    # Procfile, render.yaml and the .bat launchers pass it, so removing the flag
+    # would break them with "unrecognized arguments" at startup.
+    ap.add_argument("--no-browser", action="store_true",
+                    help="accepted for launcher compatibility; this server never opens a browser")
+    ap.add_argument("--allow-public-no-key", action="store_true",
+                    help="serve a non-loopback --host with no PROJECT2_ACCESS_KEY "
+                         "(refused by default; see the notice printed on refusal)")
+    ap.add_argument("--monitor", metavar="PORT",
+                    help="terminal live monitor over USB serial (replaces live_monitor.py)")
+    ap.add_argument("--baud", type=int, default=115200, help="serial baud rate for --monitor")
+    ap.add_argument("--permute", action="store_true",
+                    help="apply PAD_ORDER to incoming Signal-* frames (--monitor); "
+                         "off by default, matching the WebSocket sources")
+    ap.add_argument("--monitor-frames", type=int, default=0,
+                    help="stop --monitor after N frames (0 = run until Ctrl-C)")
+    ap.add_argument("--verify-metrics", action="store_true",
+                    help="re-measure the headline figures and diff them against "
+                         "Data/metrics.json, which is what the dashboard serves")
+    ap.add_argument("--verify-pads", nargs="?", const="Press/1_by_1.csv", metavar="REL_PATH",
+                    help="check the Sensor-N == physical pad N assumption (A9) against a "
+                         "1-by-1 press sweep and exit; defaults to Press/1_by_1.csv")
     args = ap.parse_args(argv)
 
     if args.seeds < 1:
@@ -2934,8 +4107,52 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.epochs_temporal < 1:
         ap.error("--epochs-temporal must be >= 1")
 
+    # A13c. A printed warning is not an access control.
+    #
+    # Dockerfile, Procfile and render.yaml all start this with --host 0.0.0.0 and
+    # none of them set PROJECT2_ACCESS_KEY, so the hosted instance handed every
+    # recording under Data/, an upload endpoint and write access to the medical
+    # audit trail to anyone who had the URL - while keep_alive.yml pinged it every
+    # 10 minutes to make sure it stayed awake. share_public.py has always
+    # generated a key by default and documented exactly why; the cloud path never
+    # did. Binding a public interface without a key is a startup error now, not a
+    # line of output that scrolls past.
+    #
+    # Checked BEFORE the dataset load and the ~30 s training run, so a
+    # misconfigured container fails immediately with a readable reason instead of
+    # crash-looping slowly. Batch modes never bind a socket, so they are exempt.
+    serves_http = not (args.audit or args.verify_pads or args.verify_metrics
+                       or args.monitor or args.eval or args.plots
+                       or args.report or args.eval_temporal or args.stream
+                       or args.replay or args.no_serve)
+    if (serves_http and args.host not in ("127.0.0.1", "localhost", "::1")
+            and not os.environ.get("PROJECT2_ACCESS_KEY", "").strip()):
+        if args.allow_public_no_key:
+            print(f"\n  WARNING: --allow-public-no-key was passed, so {args.host} will be "
+                  f"served with NO authentication. Every recording under Data/, the upload "
+                  f"endpoint and the audit-trail write endpoint are open to anyone who can "
+                  f"reach this port.")
+        else:
+            print(f"\n  REFUSING TO START: --host {args.host} exposes this server beyond "
+                  f"loopback and PROJECT2_ACCESS_KEY is not set.\n\n"
+                  f"  The API serves every recording under Data/, accepts CSV uploads, and "
+                  f"accepts writes to the extubation audit trail.\n\n"
+                  f"  Set a key:         PROJECT2_ACCESS_KEY=$(python -c "
+                  f"\"import secrets;print(secrets.token_urlsafe(24))\")\n"
+                  f"  Demo locally:      python main.py             (binds 127.0.0.1)\n"
+                  f"  Share a tunnel:    python share_public.py     (generates a key)\n"
+                  f"  Deliberately open: add --allow-public-no-key\n")
+            return 2
+
     if args.audit:
         return 0 if print_audit(audit_folder(args.audit)) else 2
+
+    if args.verify_pads:
+        try:
+            return 0 if print_pad_verification(verify_pad_order(args.verify_pads)) else 2
+        except (CsvProblem, ValueError) as exc:
+            print(f"  cannot verify pad order: {exc}")
+            return 2
 
     print("Loading dataset ...")
     ds = load_dataset(args.calibration, args.gradient)
@@ -2951,6 +4168,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if ds.n_sessions < 2:
         print("  NOTE: single session - these figures cannot show generalisation "
               "to a new sensor mounting (see ACTION_PLAN.md P0-3)")
+
+    if args.verify_metrics:
+        return 0 if print_metric_verification(verify_metrics(ds)) else 2
+
+    if args.monitor:
+        # Trained the same way the live path serves - calibration=kalman is the
+        # default, and a mismatch is warned about below exactly as --replay does.
+        if args.calibration != "kalman":
+            print("  WARNING: model trained with --calibration static but the live path "
+                  "uses the Kalman baseline; the feature distributions differ.")
+        return run_monitor(args.monitor, args.baud, args.permute,
+                           _new_rf(42).fit(ds.X, ds.y), args.gradient, args.monitor_frames)
 
     if args.eval or args.plots or args.report or args.eval_temporal or args.stream:
         temporal = None
@@ -3009,25 +4238,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                   f"lift {pr['n_lifting_pads']:2d} pads  {pr['description']}")
         return 0
 
-    ds_hash = hashlib.sha256(f"{ds.n_files}_{len(ds.X)}_{args.calibration}_{args.gradient}".encode()).hexdigest()
-    model = None
-    if os.path.isfile(MODEL_PERSISTENCE_PATH):
-        try:
-            p_data = joblib.load(MODEL_PERSISTENCE_PATH)
-            if isinstance(p_data, dict) and p_data.get("hash") == ds_hash and p_data.get("model") is not None:
-                model = p_data["model"]
-                logger_model.info(f"Loaded persisted model from {MODEL_PERSISTENCE_PATH} (hash={ds_hash[:8]})")
-        except Exception as exc:
-            logger_model.warning(f"Could not load persisted model: {exc}")
+    ds_hash = dataset_fingerprint(ds, args.calibration, args.gradient)
+    model = load_persisted_model(ds_hash)
 
     if model is None:
         logger_model.info("Training global model on full dataset...")
         model = _new_rf(42).fit(ds.X, ds.y)
-        try:
-            joblib.dump({"model": model, "hash": ds_hash, "trained_at": time.time()}, MODEL_PERSISTENCE_PATH)
-            logger_model.info(f"Persisted model to {MODEL_PERSISTENCE_PATH} (hash={ds_hash[:8]})")
-        except Exception as exc:
-            logger_model.error(f"Failed to persist model: {exc}")
+        persist_model(model, ds_hash)
 
     holder: Dict[str, Any] = {"model": model, "use_gradient": args.gradient,
                               "calibration": args.calibration}
@@ -3038,9 +4255,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     app = create_app(holder)
     port = pick_port(args.port, args.host)
-    if args.host not in ("127.0.0.1", "localhost"):
-        print("\n  WARNING: binding %s exposes an unauthenticated dashboard to the network." % args.host)
-    print(f"\nDashboard: http://127.0.0.1:{port}")
+    shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
+    print(f"\nDashboard: http://{shown}:{port}")
     import uvicorn
     uvicorn.run(app, host=args.host, port=port, log_level="warning")
     return 0

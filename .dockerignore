@@ -1,0 +1,45 @@
+# Without this, `COPY . .` shipped ~250 MB of things that have no business in a
+# container image, including two 54 MB tunnel binaries, four screen recordings,
+# the whole git history, and every research recording under Data/.
+#
+# Keep it in sync with .gcloudignore.
+
+.git
+.gitignore
+.github
+
+# Tunnel binaries for local sharing (see share_public.py) - not used in a container
+cloudflared.exe
+cf.exe
+*.exe
+
+# Screen recordings and other large media
+*.mp4
+*.mov
+*.avi
+*.zip
+
+# Windows launchers
+*.bat
+
+# Agent scratch space and archived docs
+.agents/
+_archive/
+
+# Caches and local envs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+
+# Research corpus included for self-contained Cloud Run demo
+# Exclude only large non-essential plots
+Data/research_plots/
+
+# Reviews and local notes
+CODE_REVIEW_*.md
+ROADMAP.md

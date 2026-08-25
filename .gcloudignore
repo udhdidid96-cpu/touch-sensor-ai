@@ -1,0 +1,25 @@
+# Keep in sync with .dockerignore - same reasoning: without this, deploys upload
+# the git history, two 54 MB tunnel binaries, four screen recordings and the whole
+# research corpus.
+.git
+.gitignore
+.github
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+*.exe
+*.mp4
+*.mov
+*.avi
+*.zip
+*.bat
+
+.agents/
+_archive/
+tests/
+
+# Exclude only large non-essential plots
+Data/research_plots/
+
+CODE_REVIEW_*.md

@@ -38,6 +38,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 
 DEFAULT_PORT = 8081
 URL_RE = re.compile(r"https://[-\w.]+\.(?:trycloudflare\.com|loca\.lt)\S*")
@@ -77,6 +78,10 @@ def _announce(public_url: str, key: str) -> None:
     bar = "=" * 78
     print(f"\n{bar}\n  PUBLIC URL - send this exact link, the key is part of it:\n\n"
           f"    {full}\n\n{bar}")
+    try:
+        webbrowser.open(full)
+    except Exception:
+        pass
     if not key:
         print("  WARNING: no access key. Anyone with this URL can read Data/ and\n"
               "           open a serial port on this machine. Ctrl-C to stop.\n" + bar)
@@ -84,8 +89,14 @@ def _announce(public_url: str, key: str) -> None:
 
 def tunnel(port: int, key: str) -> int:
     exe = shutil.which("cloudflared")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if not exe and os.path.isfile(os.path.join(base_dir, "cloudflared.exe")):
+        exe = os.path.join(base_dir, "cloudflared.exe")
+    elif not exe and os.path.isfile(os.path.join(base_dir, "cf.exe")):
+        exe = os.path.join(base_dir, "cf.exe")
+
     if exe:
-        print("[+] cloudflared found - opening an HTTPS tunnel")
+        print(f"[+] cloudflared found ({exe}) - opening an HTTPS tunnel")
         cmd = [exe, "tunnel", "--url", f"http://127.0.0.1:{port}"]
     elif shutil.which("npx") or shutil.which("npx.cmd"):
         print("[+] cloudflared not found - falling back to npx localtunnel")

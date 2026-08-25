@@ -1,206 +1,598 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Smart Extubation Early Warning — Medical Dashboard</title>
+  <title>Smart Extubation Early Warning — Capacitive Touch Sensor Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sarabun:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/static/chart.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=20260821_neuro">
 </head>
-<body>
-  <!-- Header Bar -->
-  <header class="app-header">
-    <div class="header-brand">
-      <span class="header-logo">🩺</span>
-      <div>
-        <h1 class="header-title">Smart Extubation Early Warning <span class="badge-v6">v6.2 AI</span></h1>
-        <p class="header-subtitle">25-Channel Capacitive Smart Dressing · 90 × 120 mm Sensor Patch</p>
-      </div>
-    </div>
-    <div class="header-actions">
-      <div class="control-box">
-        <span class="control-label">🌐 Lang:</span>
-        <select id="langSelect" class="select-input" onchange="switchLanguage(this.value)">
-          <option value="en" selected>🇬🇧 EN</option>
-          <option value="jp">🇯🇵 JP</option>
-          <option value="th">🇹🇭 TH</option>
-          <option value="cn">🇨🇳 CN</option>
-        </select>
-      </div>
-      <div class="control-box">
-        <span class="control-label">🔌 COM:</span>
-        <select id="comPortSelect" class="select-input">
-          <option value="">LOOPBACK_SIMULATOR</option>
-        </select>
-        <button class="btn-sm" title="Refresh Serial Ports" onclick="refreshComPorts()">🔄</button>
-      </div>
-      <button class="btn btn-connect" id="btnConnectCom" onclick="connectSelectedComPort()">⚡ Connect COM</button>
-      <button class="btn btn-mute" id="btnMuteSiren" onclick="toggleMuteSiren()">🔊 Audio: ON</button>
-      <button class="btn btn-ward" onclick="openCentralICUModal()">🏥 Ward View</button>
-      <button class="btn btn-export" onclick="generateMedicalPDF()">📄 Export PDF</button>
-    </div>
-  </header>
+<body class="app" data-level="0">
 
-  <!-- Provenance Notice -->
-  <div class="provenance-banner" id="provenanceBar">
-    <span class="prov-icon">🔬</span>
-    <span id="txt-provenance">Every measurement on this interface is computed in real-time by the AI model in <code>main.py</code> from actual 25-channel capacitive telemetry.</span>
+<!-- ============================================================ TOP BAR == -->
+<header class="topbar">
+  <div class="topbar__brand">
+    <span class="brandmark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14h4l2-6 3 12 2.5-8 1.5 4h3"/>
+      </svg>
+    </span>
+    <span class="brandmark__text">
+      <strong>Smart Extubation Early Warning</strong>
+      <em data-i18n="brand_sub">Capacitive Touch-Sensor Dressing Console</em>
+    </span>
   </div>
 
-  <!-- Testing & Replay Control Center -->
-  <section class="control-panel">
-    <div class="panel-row">
-      <div class="panel-group">
-        <span class="panel-label">🧪 Presets:</span>
-        <button class="btn-preset btn-preset-normal" onclick="triggerScenario('normal')">🟢 <span id="txt-sc0">Normal</span></button>
-        <button class="btn-preset btn-preset-touch" onclick="triggerScenario('touch')">🟡 <span id="txt-sc1">Touch</span></button>
-        <button class="btn-preset btn-preset-peel" onclick="triggerScenario('peel')">🟧 <span id="txt-sc2">Peel</span></button>
-        <button class="btn-preset btn-preset-alarm" onclick="triggerScenario('alarm')">🚨 <span id="txt-sc3">Alarm</span></button>
-      </div>
+  <div class="topbar__meta" role="group" aria-label="Session context">
+    <div class="meta">
+      <span class="meta__k" data-i18n="meta_session">SESSION</span>
+      <span class="meta__v meta__v--link" id="hdrSessionId">&mdash;</span>
+    </div>
+    <div class="meta">
+      <span class="meta__k" data-i18n="meta_started">STARTED</span>
+      <span class="meta__v" id="hdrAcquired">&mdash;</span>
+    </div>
+    <div class="meta">
+      <span class="meta__k" data-i18n="meta_frame">FRAME</span>
+      <span class="meta__v mono" id="frameCounter">Frame 0 / 0</span>
+    </div>
+    <div class="meta">
+      <span class="meta__k" data-i18n="meta_protocol">PROTOCOL</span>
+      <span class="meta__v" id="hdrProtocol" data-i18n="protocol_live">Live telemetry (25-channel)</span>
+    </div>
+    <div class="meta">
+      <span class="meta__k" data-i18n="meta_operator">OPERATOR</span>
+      <span class="meta__v" id="topPatientBadge" tabindex="0" role="button" onclick="openPatientEditModal()">Bed 01</span>
+    </div>
+  </div>
 
-      <div class="panel-group file-group">
-        <input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="uploadSelectedCSV(this)">
-        <button class="btn btn-upload" onclick="document.getElementById('csvFileInput').click()">📁 Upload Custom CSV</button>
-        <select id="fileSelect" class="select-file" onchange="loadRecording(this.value)">
-          <option value="">Loading recordings...</option>
-        </select>
-      </div>
+  <div class="topbar__tools">
+    <select id="langSelect" class="tool-select" aria-label="Language" onchange="switchLanguage(this.value)">
+      <option value="th">TH</option>
+      <option value="en">EN</option>
+      <option value="jp">JP</option>
+    </select>
+    <button class="tool-btn" id="btnTheme" onclick="toggleTheme()" aria-label="Toggle dark mode" title="Dark / Light">
+      <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <button class="tool-btn" id="btnMuteSiren" onclick="toggleMuteSiren()" title="Alarm audio">Audio: ON</button>
+    <div class="device-chip" title="Hardware link">
+      <span class="device-chip__k" data-i18n="device_status">DEVICE STATUS</span>
+      <span class="device-chip__v"><span class="dot dot-live" id="deviceDot"></span><span id="hardwareLinkStatus">Standby</span></span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <!-- ========================================================= SIDEBAR == -->
+  <nav class="sidebar" aria-label="Main">
+    <ul class="nav">
+      <li><button class="nav__item is-active" data-view="dashboard" onclick="showView('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+        <span data-i18n="nav_dashboard">Dashboard</span></button></li>
+
+      <li><button class="nav__item" data-view="live" onclick="showView('live')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-7 4 14 2.5-7h5"/></svg>
+        <span data-i18n="nav_live">Live Monitor</span></button></li>
+
+      <li><button class="nav__item" data-view="replay" onclick="showView('replay')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z"/></svg>
+        <span data-i18n="nav_replay">Replay &amp; Audit</span></button></li>
+
+      <li><button class="nav__item" data-view="events" onclick="showView('events')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7"/><path d="M9 9h7M9 13h7M9 17h4"/></svg>
+        <span data-i18n="nav_events">Event Log</span></button></li>
+
+      <li><button class="nav__item" data-view="model" onclick="showView('model')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <span data-i18n="nav_model">Model Performance</span></button></li>
+
+      <li><button class="nav__item" data-view="ward" onclick="showView('ward')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M5 20V9l7-5 7 5v11"/><path d="M10 20v-5h4v5"/></svg>
+        <span data-i18n="nav_ward">Ward View</span></button></li>
+
+      <li><button class="nav__item" data-view="reports" onclick="showView('reports')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+        <span data-i18n="nav_reports">Reports &amp; Export</span></button></li>
+
+      <li><button class="nav__item" data-view="settings" onclick="showView('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 8.2 1V1a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1" transform="translate(2 2) scale(0.86)"/></svg>
+        <span data-i18n="nav_settings">System Settings</span></button></li>
+    </ul>
+
+    <div class="sidebar__note">
+      <span class="sidebar__note-k" data-i18n="disclaimer_k">DISCLAIMER</span>
+      <p id="txt-provenance">This prototype has not been assessed against IEC 62304. It is a screening aid and does not replace clinical judgement by qualified staff.</p>
     </div>
 
-    <!-- Replay Player Bar -->
-    <div class="player-bar">
-      <button class="btn-play" id="btnPlay" onclick="togglePlayback()">▶ Play</button>
-      <input type="range" id="timeSlider" class="timeline-slider" min="0" max="100" value="0" oninput="seekFrame(this.value)">
-      <div class="time-metrics">
-        <span class="badge-time" id="timeReadout">0.0s</span>
-        <span class="badge-frame" id="frameCounter">Frame 0 / 0</span>
-      </div>
+    <div class="sidebar__foot">
+      <span>Smart Extubation Lab</span>
+      <span data-i18n="foot_dept">Biomedical Engineering</span>
+      <span>Prince of Songkla University</span>
     </div>
-  </section>
+  </nav>
 
-  <!-- Main Grid Content -->
-  <main class="dashboard-grid">
-    <!-- Left Column: Physical Patch Visualizer & Risk Score -->
-    <section class="card-box patch-card">
-      <div class="card-header-bar">
-        <h2 class="card-title" id="txt-patch-title">Physical Sensor Patch (90 × 120 mm)</h2>
-        <span class="badge-calib" id="calibBadge">Kalman Filter Active</span>
-      </div>
+  <!-- ============================================================ MAIN == -->
+  <main class="main">
 
-      <div class="viewport-container">
-        <canvas id="heatmapCanvas" width="360" height="480"></canvas>
-        <svg id="patchSvg" viewBox="0 0 100 133.33">
-          <path d="M 50 8 C 15 25, 2 50, 8 95 C 12 125, 40 132, 50 132 C 60 132, 88 125, 92 95 C 98 50, 85 25, 50 8 Z"
-                fill="rgba(255,255,255,.03)" stroke="rgba(245,158,11,.4)" stroke-width="1.2" stroke-dasharray="3,3"/>
-          <rect x="44" y="0" width="12" height="10" fill="#f59e0b" rx="1.5" opacity=".9"/>
-          <defs>
-            <marker id="arrowHead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-              <polygon points="0 0, 6 3, 0 6" fill="#06b6d4"/>
-            </marker>
-          </defs>
-          <g id="svgNodes"></g>
-          <g id="svgArrows"></g>
-        </svg>
-      </div>
+    <!-- ================================================= VIEW: DASHBOARD == -->
+    <section class="view is-active" id="view-dashboard">
 
-      <div class="legend-row">
-        <span class="legend-item"><span class="dot dot-press"></span> <span id="txt-leg-press">Press / Touch</span></span>
-        <span class="legend-item"><span class="dot dot-peel"></span> <span id="txt-leg-peel">Unpeel / Peel</span></span>
-        <span class="legend-item"><span class="dot dot-pull"></span> <span id="txt-leg-pull">Pull Risk</span></span>
-        <span class="legend-item"><span class="dot dot-base"></span> <span id="txt-leg-base">Baseline</span></span>
-      </div>
-
-      <div class="cpri-score-box">
-        <div class="cpri-label" id="txt-cpri-label">COMPOSITE PATIENT RISK INDEX (CPRI)</div>
-        <div class="cpri-value" id="cpriValue">0.0%</div>
-        <div class="status-banner lvl-0" id="statusBanner">LEVEL 0: SECURE BASELINE</div>
-        <div class="peel-info" id="peelPropInfo">Peel propagation: idle</div>
-      </div>
-    </section>
-
-    <!-- Right Column: Real-Time Risk Chart, Performance & Audit Log -->
-    <section class="right-column-grid">
-      <!-- Real-Time Probabilities Graph -->
-      <div class="card-box chart-card">
-        <div class="card-header-bar">
-          <h2 class="card-title" id="txt-chart-title">Multi-Class Probability & Risk Profile</h2>
-          <span class="badge-ai">Ensemble Voting Model</span>
+      <!-- Operator control rail -->
+      <div class="rail">
+        <div class="segmented" role="tablist" aria-label="Acquisition mode">
+          <button class="segmented__btn active" id="btnModeLive" role="tab" aria-selected="true" onclick="setDashboardMode('live')">
+            <span class="dot dot-live"></span><span data-i18n="mode_live">Live</span>
+          </button>
+          <button class="segmented__btn" id="btnModeReplay" role="tab" aria-selected="false" onclick="setDashboardMode('replay')">
+            <span data-i18n="mode_replay">Replay</span>
+          </button>
         </div>
-        <div class="chart-container">
-          <canvas id="riskChart"></canvas>
+
+        <div class="rail__spacer"></div>
+
+        <div class="rail__group">
+          <label class="field">
+            <span class="field__k" data-i18n="f_bed">BED</span>
+            <select id="activeBedSelect" class="field__ctl" onchange="switchActiveBed(this.value)">
+              <option value="Bed 01">Bed 01</option><option value="Bed 02">Bed 02</option>
+              <option value="Bed 03">Bed 03</option><option value="Bed 04">Bed 04</option>
+              <option value="Bed 05">Bed 05</option><option value="Bed 06">Bed 06</option>
+              <option value="Bed 07">Bed 07</option><option value="Bed 08">Bed 08</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field__k" data-i18n="f_port">SERIAL PORT</span>
+            <select id="comPortSelect" class="field__ctl">
+              <option value="" data-i18n="opt_port">Select port…</option>
+            </select>
+          </label>
+          <button class="btn btn--ghost" onclick="refreshComPorts()" data-i18n="btn_rescan">Rescan</button>
+          <button class="btn btn--ghost" id="btnConnectCom" onclick="connectSelectedComPort()" data-i18n="btn_connect">Connect</button>
+          <button class="btn btn--ghost" id="btnWebSerial" onclick="toggleWebSerial()">USB Serial</button>
         </div>
       </div>
 
-      <!-- Measured Performance Metrics -->
-      <div class="card-box metrics-card">
-        <div class="card-header-bar">
-          <h2 class="card-title" id="txt-metrics-title">Measured Performance (LOFO-CV Benchmark)</h2>
-          <span class="badge-stamp" id="metricsStamp">Validated</span>
+      <!-- Live controls -->
+      <div class="rail rail--sub" id="liveControlsArea" style="display:flex;">
+        <div class="rail__group">
+          <button class="btn btn--ghost" id="btnCalibrateZero" onclick="resetLiveCalibration()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8"/><path d="M3 3v5h5"/></svg>
+            <span data-i18n="btn_zero">1. Attach patch &amp; calibrate zero</span>
+          </button>
+          <button class="btn btn--primary" id="btnToggleLiveStream" onclick="toggleLiveWebSocketStream()">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l13 8-13 8z"/></svg>
+            <span id="txtLiveStreamBtn" data-i18n="btn_start">2. Start live monitoring</span>
+          </button>
         </div>
-        <div class="metrics-content" id="metricsBody">
-          <div class="metrics-grid">
-            <div class="metric-item">
-              <span class="m-val">97.53%</span>
-              <span class="m-lbl">File-Level Accuracy</span>
-            </div>
-            <div class="metric-item">
-              <span class="m-val">0.9652</span>
-              <span class="m-lbl">Macro F1 Score</span>
-            </div>
-            <div class="metric-item">
-              <span class="m-val">100.0%</span>
-              <span class="m-lbl">Peel Class F1</span>
-            </div>
-            <div class="metric-item">
-              <span class="m-val">0.0%</span>
-              <span class="m-lbl">False Alarm Rate</span>
+        <div class="rail__spacer"></div>
+        <div class="rail__group" id="liveBadgeCluster">
+          <span class="tag" id="liveTelemetryStatusText">STREAMING: 560 ms (1.79 Hz)</span>
+          <span class="tag" id="livePacketCounter">Live Packets: 0</span>
+          <span class="tag" id="liveElapsedTimer">Live Time: 00:00</span>
+          <span class="tag tag--ok" id="calibStatusTag">Baseline locked (25 nodes)</span>
+        </div>
+      </div>
+
+      <!-- Replay controls -->
+      <div class="rail rail--sub" id="replayControlsArea" style="display:none;">
+        <div class="rail__group">
+          <span class="field__k" id="txt-preset-label" data-i18n="f_preset">SCENARIO</span>
+          <div class="segmented segmented--sm">
+            <button class="seg-pill btn-preset-normal" onclick="triggerScenario('normal')" id="txt-sc0">Normal</button>
+            <button class="seg-pill btn-preset-touch" onclick="triggerScenario('touch')" id="txt-sc1">Touch</button>
+            <button class="seg-pill btn-preset-peel" onclick="triggerScenario('peel')" id="txt-sc2">Peel</button>
+            <button class="seg-pill btn-preset-alarm" onclick="triggerScenario('alarm')" id="txt-sc3">Pull</button>
+          </div>
+          <input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="uploadSelectedCSV(this)">
+          <button class="btn btn--ghost" onclick="document.getElementById('csvFileInput').click()" id="txt-upload">Upload CSV</button>
+          <select id="fileSelect" class="field__ctl field__ctl--wide" aria-label="Recording" onchange="loadRecording(this.value)">
+            <option value="">Loading recordings…</option>
+          </select>
+        </div>
+        <div class="rail__spacer"></div>
+        <div class="rail__group scrubber" id="scrubberContainer">
+          <button class="btn btn--primary btn--sm" id="btnPlay" onclick="togglePlayback()">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l13 8-13 8z"/></svg><span>Play</span>
+          </button>
+          <input type="range" id="timeSlider" class="scrubber__range" min="0" max="100" value="0" aria-label="Timeline" oninput="seekFrame(this.value)">
+          <span class="tag mono" id="timeReadout">0.0s</span>
+        </div>
+      </div>
+
+      <!-- Row 1 -->
+      <div class="grid grid--main">
+
+        <!-- LIVE ANALYSIS -->
+        <section class="panel panel--analysis">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_analysis">LIVE ANALYSIS</h2>
+            <span class="chip" id="peelPropInfo" data-i18n="chip_dir">Peel direction: none</span>
+          </div>
+          <div class="panel__body">
+            <div class="stage">
+              <div class="stage__badge"><span id="txt-patch-title">25-node capacitive patch · 90 × 120 mm</span></div>
+              <div class="stage__frame">
+                <canvas id="heatmapCanvas" width="400" height="533"></canvas>
+                <svg id="patchSvg" viewBox="0 0 100 133.33" aria-label="Sensor patch map">
+                  <defs>
+                    <!-- The interpolated wash extrapolates past the outer pads.
+                         Without this clip it paints invented signal in bands
+                         outside the dressing outline. -->
+                    <clipPath id="patchClip" clipPathUnits="objectBoundingBox">
+                      <path d="M .5 .06 C .15 .1875, .02 .375, .08 .7125 C .12 .9375, .40 .99, .5 .99 C .60 .99, .88 .9375, .92 .7125 C .98 .375, .85 .1875, .5 .06 Z"/>
+                    </clipPath>
+                  </defs>
+                  <path class="patch-outline" d="M 50 8 C 15 25, 2 50, 8 95 C 12 125, 40 132, 50 132 C 60 132, 88 125, 92 95 C 98 50, 85 25, 50 8 Z"/>
+                  <rect class="patch-tab" x="44" y="0" width="12" height="10" rx="2"/>
+                  <g id="svgNodes"></g>
+                </svg>
+              </div>
+              <div class="legend">
+                <span class="legend__i"><i class="dot dot-deep"></i><span id="txt-leg-deep">Full detach</span></span>
+                <span class="legend__i"><i class="dot dot-peel"></i><span id="txt-leg-peel">Partial peel</span></span>
+                <span class="legend__i"><i class="dot dot-press"></i><span id="txt-leg-press">Touch / press</span></span>
+                <span class="legend__i"><i class="dot dot-normal"></i><span id="txt-leg-quiet">Attached</span></span>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
+
+        <!-- ASSESSMENT SUMMARY -->
+        <section class="panel panel--summary">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_summary">ASSESSMENT SUMMARY</h2>
+            <span class="chip" id="metricsStamp" data-i18n="chip_engine">Inference engine</span>
+          </div>
+          <div class="panel__body summary">
+
+            <div class="gauge-card">
+              <span class="gauge-card__k" id="txt-v2-label" data-i18n="v2_label">CAPACITIVE PEEL RISK INDEX (CPRI)</span>
+              <div class="gauge">
+                <svg viewBox="0 0 240 138" class="gauge__svg" aria-hidden="true">
+                  <path class="gauge__track" d="M 22 124 A 98 98 0 0 1 218 124"/>
+                  <path class="gauge__arc gauge__arc--g" d="M 22 124 A 98 98 0 0 1 71.1 39.1"/>
+                  <path class="gauge__arc gauge__arc--y" d="M 71.1 39.1 A 98 98 0 0 1 168.9 39.1"/>
+                  <path class="gauge__arc gauge__arc--r" d="M 168.9 39.1 A 98 98 0 0 1 218 124"/>
+                  <line class="gauge__needle" id="gaugeNeedle" x1="120" y1="124" x2="120" y2="52"/>
+                  <circle class="gauge__hub" cx="120" cy="124" r="6"/>
+                </svg>
+                <span class="gauge__min">0</span>
+                <span class="gauge__mid" data-i18n="gauge_mid">50</span>
+                <span class="gauge__max">100</span>
+                <span class="gauge__value" id="cpriValue">0.0%</span>
+                <span class="gauge__cat" id="cpriCategory" data-i18n="cat_0">Low risk (attached)</span>
+              </div>
+              <div class="threshold">
+                <span class="threshold__k" data-i18n="thr_k">ANNUNCIATOR</span>
+                <span class="threshold__v" data-i18n="thr_v">CPRI is a display index. The alarm is raised by the 7-of-6 vote window (hold 9), not by this dial.</span>
+              </div>
+            </div>
+
+            <div class="stat-stack">
+              <div class="stat" id="cardStatusWrapper">
+                <span class="stat__k" id="txt-v1-label" data-i18n="v1_label">ALARM STATE</span>
+                <span class="stat__v" id="statusBanner" data-i18n="status_0">Normal (baseline active)</span>
+                <span class="stat__s" id="statusDesc" data-i18n="desc_0">Dressing fully adhering to skin</span>
+                <span class="dot dot-normal stat__dot" id="statusDot"></span>
+              </div>
+              <div class="stat">
+                <span class="stat__k" data-i18n="v5_label">CONFIDENCE</span>
+                <span class="stat__v stat__v--ok" id="confValue">&mdash;</span>
+                <span class="stat__s" data-i18n="v5_sub">Top-class probability, this frame</span>
+              </div>
+              <div class="stat">
+                <span class="stat__k" id="txt-v3-label" data-i18n="v3_label">PADS ATTACHED</span>
+                <span class="stat__v stat__v--blue" id="patchIntegrityValue">25 / 25</span>
+                <span class="stat__s" id="patchIntegrityDesc" data-i18n="desc_gate_none">No pad past the −300 count lift gate</span>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <!-- Real Extubation Audit Event Log -->
-      <div class="card-box audit-card">
-        <div class="card-header-bar">
-          <h2 class="card-title">Extubation & Peel Event Audit Trail Log</h2>
-          <span class="badge-events" id="eventCountBadge">0 Recorded Events</span>
-        </div>
-        <div class="table-container">
-          <table class="audit-table">
-            <thead>
-              <tr>
-                <th>Event ID</th>
-                <th>Timestamp</th>
-                <th>Dataset Source</th>
-                <th>Frame (Time)</th>
-                <th>Severity</th>
-                <th>CPRI % (Min Delta)</th>
-              </tr>
-            </thead>
-            <tbody id="eventLogTbody">
-              <tr><td colspan="6" class="empty-msg">No extubation events recorded yet</td></tr>
-            </tbody>
-          </table>
-        </div>
+      <!-- Row 2 -->
+      <div class="grid grid--second">
+
+        <!-- PROCESSING PIPELINE -->
+        <section class="panel">
+          <div class="panel__head"><h2 class="panel__title" data-i18n="p_pipeline">PROCESSING PIPELINE</h2></div>
+          <div class="panel__body">
+            <ol class="pipe">
+              <li class="pipe__step">
+                <span class="pipe__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h6"/></svg></span>
+                <span class="pipe__n" data-i18n="pipe1">1. Serial ingest</span>
+                <span class="pipe__d" data-i18n="pipe1d">25 channels</span>
+                <span class="pipe__s" id="pipeRate">560 ms · 1.79 Hz</span>
+              </li>
+              <li class="pipe__step">
+                <span class="pipe__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 16c3 0 3-8 6-8s3 8 6 8 3-8 6-8"/></svg></span>
+                <span class="pipe__n" data-i18n="pipe2">2. Kalman baseline</span>
+                <span class="pipe__d" data-i18n="pipe2d">Zero-drift track</span>
+                <span class="pipe__s" id="calibBadge">Kalman filter</span>
+              </li>
+              <li class="pipe__step">
+                <span class="pipe__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h8M6 8v8M18 8v8M8 18h8"/></svg></span>
+                <span class="pipe__n" data-i18n="pipe3">3. Feature extraction</span>
+                <span class="pipe__d" data-i18n="pipe3d">Pad deltas + statistics</span>
+                <span class="pipe__s" data-i18n="pipe3s">34 features</span>
+              </li>
+              <li class="pipe__step">
+                <span class="pipe__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg></span>
+                <span class="pipe__n" data-i18n="pipe4">4. Classification</span>
+                <span class="pipe__d" data-i18n="pipe4d">Gradient-boosted trees</span>
+                <span class="pipe__s" data-i18n="pipe4s">4 classes</span>
+              </li>
+              <li class="pipe__step">
+                <span class="pipe__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4a6 6 0 0 0-6 6v4l-2 3h16l-2-3v-4a6 6 0 0 0-6-6z"/><path d="M10 20h4"/></svg></span>
+                <span class="pipe__n" data-i18n="pipe5">5. Annunciator</span>
+                <span class="pipe__d" data-i18n="pipe5d">Vote window + hold</span>
+                <span class="pipe__s" id="pipeOp">&mdash;</span>
+              </li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- MODEL VALIDATION -->
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_validation">MODEL VALIDATION</h2>
+            <span class="chip" data-i18n="chip_lofo">Leave-one-file-out, held out</span>
+          </div>
+          <div class="panel__body">
+            <div class="tiles" id="measuredMetrics">
+              <div class="tile"><span class="tile__k" data-i18n="m_acc">ACCURACY</span><b class="tile__v" data-metric="accuracy">&mdash;</b></div>
+              <div class="tile"><span class="tile__k" data-i18n="m_f1">MACRO F1</span><b class="tile__v" data-metric="macro_f1">&mdash;</b></div>
+              <div class="tile"><span class="tile__k" data-i18n="m_peel">PEEL F1</span><b class="tile__v" data-metric="peel_f1">&mdash;</b></div>
+              <div class="tile"><span class="tile__k" data-i18n="m_fa">FALSE ALARM / REC</span><b class="tile__v tile__v--warn" data-metric="false_alarm_rate">&mdash;</b></div>
+            </div>
+
+            <div class="split">
+              <div class="chartbox">
+                <span class="sub-k" id="txt-chart-title" data-i18n="chart_title">Class probability &amp; CPRI timeline</span>
+                <div class="chartbox__canvas"><canvas id="riskChart"></canvas></div>
+              </div>
+              <div class="details">
+                <span class="sub-k" data-i18n="d_title">MODEL DETAILS</span>
+                <dl class="kv">
+                  <dt data-i18n="d_est">Estimator</dt><dd>HistGradientBoosting</dd>
+                  <dt data-i18n="d_feat">Features</dt><dd data-i18n="d_feat_v">25 pad deltas + 9 statistics</dd>
+                  <dt data-i18n="d_cls">Classes</dt><dd data-i18n="d_cls_v">Normal · Touch · Peel · Pull</dd>
+                  <dt data-i18n="d_val">Validation</dt><dd data-i18n="d_val_v">Leave-one-file-out over the recording corpus</dd>
+                  <dt data-i18n="d_gen">Measured</dt><dd id="metricsGenerated">&mdash;</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="probs">
+              <div class="prob"><span class="prob__k" id="txt-p-norm">0. Normal</span><span class="prob__v" id="valProbNormal">100%</span><span class="prob__bar"><i class="bar-normal" id="barProbNormal" style="width:100%"></i></span></div>
+              <div class="prob"><span class="prob__k" id="txt-p-touch">1. Touch</span><span class="prob__v" id="valProbTouch">0%</span><span class="prob__bar"><i class="bar-touch" id="barProbTouch" style="width:0%"></i></span></div>
+              <div class="prob"><span class="prob__k" id="txt-p-peel">2. Peel</span><span class="prob__v" id="valProbPeel">0%</span><span class="prob__bar"><i class="bar-peel" id="barProbPeel" style="width:0%"></i></span></div>
+              <div class="prob"><span class="prob__k" id="txt-p-pull">3. Pull</span><span class="prob__v" id="valProbPull">0%</span><span class="prob__bar"><i class="bar-pull" id="barProbPull" style="width:0%"></i></span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Row 3 -->
+      <div class="grid grid--third">
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_history">ASSESSMENT HISTORY</h2>
+            <button class="linkbtn" onclick="showView('events')" data-i18n="view_all">View all</button>
+          </div>
+          <div class="panel__body panel__body--flush">
+            <div class="tablewrap">
+              <table class="table">
+                <thead><tr>
+                  <th data-i18n="th_id">Event ID</th><th data-i18n="th_time">Time</th><th data-i18n="th_src">Source</th>
+                  <th data-i18n="th_frame">Frame</th><th data-i18n="th_sev">Severity</th><th data-i18n="th_risk">Risk</th>
+                </tr></thead>
+                <tbody id="eventLogTbody">
+                  <tr><td colspan="6" class="table__empty" data-i18n="tbl_empty">No events recorded in this shift</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head"><h2 class="panel__title" data-i18n="p_notes">NOTES</h2></div>
+          <div class="panel__body">
+            <textarea class="notes" id="clinicalNotes" rows="7" data-i18n-ph="notes_ph" placeholder="Add clinical notes for this session…"></textarea>
+            <p class="hint" data-i18n="notes_hint">Held in this browser only. Nothing here is written to a patient record.</p>
+          </div>
+        </section>
       </div>
     </section>
-  </main>
 
-  <!-- Central ICU Ward Modal -->
-  <div class="modal-overlay" id="icuModal">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 id="txt-icu-title">🏥 Central ICU Ward Monitoring View</h2>
-        <button class="btn-close" onclick="closeCentralICUModal()">✕ <span id="txt-close">Close</span></button>
+    <!-- ==================================================== VIEW: EVENTS == -->
+    <section class="view" id="view-events">
+      <div class="grid grid--one">
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_eventlog">EVENT LOG</h2>
+            <span class="chip" data-i18n="chip_audit">Server-side audit trail</span>
+          </div>
+          <div class="panel__body panel__body--flush">
+            <div class="tablewrap">
+              <table class="table">
+                <thead><tr>
+                  <th data-i18n="th_id">Event ID</th><th data-i18n="th_time">Time</th><th data-i18n="th_src">Source</th>
+                  <th data-i18n="th_frame">Frame</th><th data-i18n="th_sev">Severity</th><th data-i18n="th_risk">Risk</th>
+                </tr></thead>
+                <tbody id="eventLogTbodyFull">
+                  <tr><td colspan="6" class="table__empty" data-i18n="tbl_empty">No events recorded in this shift</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel__foot">
+            <button class="btn btn--ghost" onclick="loadEventLogs()" data-i18n="btn_refresh">Refresh</button>
+            <p class="hint" data-i18n="events_hint">An entry is written on every change of alarm level. A failed write is surfaced as a toast, never swallowed.</p>
+          </div>
+        </section>
       </div>
-      <p class="modal-desc" id="txt-icu-warning">⚠️ Bed 01 displays active sensor telemetry. Beds 02–08 show multi-patient ward layout architecture concept.</p>
-      <div class="icu-grid" id="icuGridContainer"></div>
-    </div>
-  </div>
+    </section>
 
-  <script src="/static/app.js"></script>
+    <!-- ===================================================== VIEW: MODEL == -->
+    <section class="view" id="view-model">
+      <div class="grid grid--one">
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_modelperf">MODEL PERFORMANCE</h2>
+            <span class="chip" data-i18n="chip_lofo">Leave-one-file-out, held out</span>
+          </div>
+          <div class="panel__body">
+            <div class="tiles tiles--lg">
+              <div class="tile"><span class="tile__k" data-i18n="m_acc">ACCURACY</span><b class="tile__v" data-metric="accuracy">&mdash;</b><span class="tile__s" data-i18n="m_acc_s">Frame-level, out of fold</span></div>
+              <div class="tile"><span class="tile__k" data-i18n="m_f1">MACRO F1</span><b class="tile__v" data-metric="macro_f1">&mdash;</b><span class="tile__s" data-i18n="m_f1_s">Unweighted over four classes</span></div>
+              <div class="tile"><span class="tile__k" data-i18n="m_peel">PEEL F1</span><b class="tile__v" data-metric="peel_f1">&mdash;</b><span class="tile__s" data-i18n="m_peel_s">The class that buys warning time</span></div>
+              <div class="tile"><span class="tile__k" data-i18n="m_fa">FALSE ALARM / REC</span><b class="tile__v tile__v--warn" data-metric="false_alarm_rate">&mdash;</b><span class="tile__s" data-i18n="m_fa_s">Episode level, what a ward feels</span></div>
+            </div>
+            <div class="notice">
+              <span class="notice__k" data-i18n="notice_k">HOW TO READ THESE</span>
+              <p data-i18n="notice_v">Every figure is re-measured from the recording corpus and re-published with the model. None of them is typed into this page; if the API cannot answer, the slots stay blank rather than showing a remembered number.</p>
+            </div>
+            <div class="details details--wide">
+              <span class="sub-k" data-i18n="d_title">MODEL DETAILS</span>
+              <dl class="kv">
+                <dt data-i18n="d_est">Estimator</dt><dd>HistGradientBoosting</dd>
+                <dt data-i18n="d_feat">Features</dt><dd data-i18n="d_feat_v">25 pad deltas + 9 statistics</dd>
+                <dt data-i18n="d_cls">Classes</dt><dd data-i18n="d_cls_v">Normal · Touch · Peel · Pull</dd>
+                <dt data-i18n="d_val">Validation</dt><dd data-i18n="d_val_v">Leave-one-file-out over the recording corpus</dd>
+                <dt data-i18n="d_op">Operating point</dt><dd id="pipeOpFull">&mdash;</dd>
+                <dt data-i18n="d_gen">Measured</dt><dd id="metricsGeneratedFull">&mdash;</dd>
+              </dl>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ====================================================== VIEW: WARD == -->
+    <section class="view" id="view-ward">
+      <div class="grid grid--one">
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_ward">WARD VIEW</h2>
+            <span class="chip" data-i18n="chip_ward">One stream is live; the rest are empty slots</span>
+          </div>
+          <div class="panel__body">
+            <div class="ward" id="icuGridContainer"></div>
+            <p class="hint" data-i18n="ward_hint">Bed slots hold only what an operator types here. No identity, risk index or tube detail is generated for an unassigned slot.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- =================================================== VIEW: REPORTS == -->
+    <section class="view" id="view-reports">
+      <div class="grid grid--one">
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_reports">SHIFT REPORT &amp; EXPORT</h2>
+            <span class="chip" id="srStamp" data-i18n="chip_shift">Current shift</span>
+          </div>
+          <div class="panel__body">
+            <div class="tiles">
+              <div class="tile"><span class="tile__k" data-i18n="r_shift">SHIFT ID</span><b class="tile__v tile__v--sm" id="srShiftId">&mdash;</b></div>
+              <div class="tile"><span class="tile__k" data-i18n="r_total">TOTAL EVENTS</span><b class="tile__v tile__v--blue" id="srTotalEvents">0</b></div>
+              <div class="tile"><span class="tile__k" data-i18n="r_crit">CRITICAL ALARMS</span><b class="tile__v tile__v--bad" id="srL3Count">0</b></div>
+            </div>
+            <p class="hint" data-i18n="r_hint">Patch uptime is not reported here. Nothing in this system measures session length, dropped frames or disconnects, so no such figure is shown.</p>
+            <div class="rail__group">
+              <button class="btn btn--primary" onclick="generateMedicalPDF()" data-i18n="btn_print">Print / save as PDF</button>
+              <button class="btn btn--ghost" onclick="openShiftReportModal()" data-i18n="btn_refresh">Refresh</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================================================== VIEW: SETTINGS == -->
+    <section class="view" id="view-settings">
+      <div class="grid grid--one">
+        <section class="panel">
+          <div class="panel__head"><h2 class="panel__title" data-i18n="p_settings">SYSTEM SETTINGS</h2></div>
+          <div class="panel__body">
+            <div class="setgrid">
+              <label class="field field--row">
+                <span class="field__k" data-i18n="s_lang">INTERFACE LANGUAGE</span>
+                <select class="field__ctl" id="langSelect2" onchange="switchLanguage(this.value)">
+                  <option value="th">ไทย</option><option value="en">English</option><option value="jp">日本語</option>
+                </select>
+              </label>
+              <label class="field field--row">
+                <span class="field__k" data-i18n="s_theme">APPEARANCE</span>
+                <select class="field__ctl" id="themeSelect" onchange="applyTheme(this.value, true)">
+                  <option value="light" data-i18n="s_light">Light</option>
+                  <option value="dark" data-i18n="s_dark">Dark</option>
+                </select>
+              </label>
+              <label class="field field--row">
+                <span class="field__k" data-i18n="s_audio">ALARM AUDIO</span>
+                <button class="btn btn--ghost" onclick="toggleMuteSiren()" data-i18n="s_audio_btn">Toggle audio</button>
+              </label>
+            </div>
+            <div class="details details--wide">
+              <span class="sub-k" data-i18n="s_hw">ACQUISITION</span>
+              <dl class="kv">
+                <dt data-i18n="s_rate">Sample period</dt><dd id="hardwareLinkDetail">560 ms (1.79 Hz)</dd>
+                <dt data-i18n="s_ch">Channels</dt><dd data-i18n="s_ch_v">25 capacitive pads, 90 × 120 mm dressing</dd>
+                <dt data-i18n="s_gate">Lift gate</dt><dd data-i18n="s_gate_v">−300 counts per pad; noise gate 60 counts</dd>
+              </dl>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ================================================ PATIENT EDIT DIALOG == -->
+<div class="modal" id="patientEditModal" style="display:none;" role="dialog" aria-modal="true">
+  <div class="modal__box">
+    <div class="modal__head">
+      <div>
+        <h2 data-i18n="pe_title">Edit bed assignment</h2>
+        <p data-i18n="pe_sub">Only what you type here is stored, in this browser.</p>
+      </div>
+      <button class="modal__close" onclick="closePatientEditModal()" aria-label="Close">&times;</button>
+    </div>
+    <form onsubmit="savePatientEdit(event)" class="modal__body">
+      <label class="field"><span class="field__k" data-i18n="pe_bed">BED</span>
+        <select id="editBedSelect" class="field__ctl">
+          <option value="Bed 01">Bed 01</option><option value="Bed 02">Bed 02</option>
+          <option value="Bed 03">Bed 03</option><option value="Bed 04">Bed 04</option>
+          <option value="Bed 05">Bed 05</option><option value="Bed 06">Bed 06</option>
+          <option value="Bed 07">Bed 07</option><option value="Bed 08">Bed 08</option>
+        </select></label>
+      <label class="field"><span class="field__k" data-i18n="pe_id">PATIENT ID</span>
+        <input type="text" id="editPatientId" class="field__ctl" data-i18n-ph="pe_id_ph" placeholder="hospital number"></label>
+      <label class="field"><span class="field__k" data-i18n="pe_name">PATIENT NAME</span>
+        <input type="text" id="editPatientName" class="field__ctl" data-i18n-ph="pe_name_ph" placeholder="patient name"></label>
+      <label class="field"><span class="field__k" data-i18n="pe_tube">TUBE TYPE / SIZE</span>
+        <input type="text" id="editTubeType" class="field__ctl" data-i18n-ph="pe_tube_ph" placeholder="tube type and depth"></label>
+      <label class="field"><span class="field__k" data-i18n="pe_notes">NOTES</span>
+        <input type="text" id="editNotes" class="field__ctl" data-i18n-ph="pe_notes_ph" placeholder="short clinical note"></label>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" onclick="closePatientEditModal()" data-i18n="btn_cancel">Cancel</button>
+        <button type="submit" class="btn btn--primary" data-i18n="btn_save">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toastContainer" class="toasts" aria-live="polite"></div>
+
+<script src="/static/web_serial.js?v=20260825_live_v2"></script>
+<script src="/static/app.js?v=20260825_live_v2"></script>
 </body>
 </html>
