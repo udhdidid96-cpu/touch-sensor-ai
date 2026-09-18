@@ -1,14 +1,7 @@
 {
-  "generated": "2026-09-18 17:03:48",
+  "generated": "2026-09-18 16:52:20",
   "calibration": "kalman_norm",
-  "merged_from": [
-    "robustness_evaluation_kalman_norm.json",
-    "rob_kn_c1.json",
-    "rob_kn_c2.json",
-    "rob_kn_c3.json"
-  ],
-  "variants_missing": [],
-  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate() and extract_features(); merged from per-variant shards, identity cross-checked between shards",
+  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate(raw, 'kalman_norm') and extract_features(); 'kalman' is the offline path as shipped, 'kalman_norm' adds F10",
   "caveat": "robustness to MODELLED sensor variation on one mounting; not cross-session generalisation, which needs Data/S1..S3 and --cv session",
   "operating_point": {
     "window": 7,
@@ -33,76 +26,7 @@
       "n_normal": 41,
       "alarms_per_hour": 7.77336327517706,
       "missed": [],
-      "seconds": 202.0,
-      "_source": "robustness_evaluation_kalman_norm.json"
-    },
-    {
-      "variant": "gain_global_p10",
-      "calibration": "kalman_norm",
-      "files": 81,
-      "frames": 3349,
-      "sensitivity": 1.0,
-      "sensitivity_ci": [
-        0.9124,
-        1.0
-      ],
-      "detected": 40,
-      "n_anomaly": 40,
-      "false_alarm_rate": 0.07317073170731707,
-      "fa_files": 3,
-      "n_normal": 41,
-      "alarms_per_hour": 10.364484366902746,
-      "missed": [],
-      "seconds": 205.3,
-      "_source": "robustness_evaluation_kalman_norm.json",
-      "delta_sensitivity": 0.0,
-      "delta_alarms_per_hour": 2.59
-    },
-    {
-      "variant": "gain_global_m10",
-      "calibration": "kalman_norm",
-      "files": 81,
-      "frames": 3349,
-      "sensitivity": 1.0,
-      "sensitivity_ci": [
-        0.9124,
-        1.0
-      ],
-      "detected": 40,
-      "n_anomaly": 40,
-      "false_alarm_rate": 0.07317073170731707,
-      "fa_files": 3,
-      "n_normal": 41,
-      "alarms_per_hour": 10.364484366902746,
-      "missed": [],
-      "seconds": 202.7,
-      "_source": "robustness_evaluation_kalman_norm.json",
-      "delta_sensitivity": 0.0,
-      "delta_alarms_per_hour": 2.59
-    },
-    {
-      "variant": "gain_global_p20",
-      "calibration": "kalman_norm",
-      "files": 81,
-      "frames": 3349,
-      "sensitivity": 0.975,
-      "sensitivity_ci": [
-        0.8712,
-        0.9956
-      ],
-      "detected": 39,
-      "n_anomaly": 40,
-      "false_alarm_rate": 0.07317073170731707,
-      "fa_files": 3,
-      "n_normal": 41,
-      "alarms_per_hour": 12.955605458628433,
-      "missed": [
-        "Vertical Pull NO G/A_VPull_01.csv"
-      ],
-      "seconds": 201.2,
-      "_source": "robustness_evaluation_kalman_norm.json",
-      "delta_sensitivity": -0.025,
-      "delta_alarms_per_hour": 5.18
+      "seconds": 422.7
     },
     {
       "variant": "gain_global_m20",
@@ -121,8 +45,7 @@
       "n_normal": 41,
       "alarms_per_hour": 10.364484366902746,
       "missed": [],
-      "seconds": 308.3,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 474.4,
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 2.59
     },
@@ -143,8 +66,7 @@
       "n_normal": 41,
       "alarms_per_hour": 7.77336327517706,
       "missed": [],
-      "seconds": 382.8,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 533.8,
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 0.0
     },
@@ -169,37 +91,8 @@
         "Vertical Pull NO G/A_VPull_04.csv",
         "Vertical Pull NO G/A_VPull_06.csv"
       ],
-      "seconds": 418.2,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 542.6,
       "delta_sensitivity": -0.075,
-      "delta_alarms_per_hour": 0.0
-    },
-    {
-      "variant": "noise_sd60",
-      "calibration": "kalman_norm",
-      "files": 81,
-      "frames": 3349,
-      "sensitivity": 0.875,
-      "sensitivity_ci": [
-        0.7389,
-        0.9454
-      ],
-      "detected": 35,
-      "n_anomaly": 40,
-      "false_alarm_rate": 0.07317073170731707,
-      "fa_files": 3,
-      "n_normal": 41,
-      "alarms_per_hour": 7.77336327517706,
-      "missed": [
-        "Vertical Pull NO G/A_VPull_06.csv",
-        "Horizontal Pull NO G/A_HPull_02.csv",
-        "Horizontal Pull NO G/A_HPull_07.csv",
-        "Horizontal Pull NO G/A_HPull_09.csv",
-        "PowerP/VP_3.csv"
-      ],
-      "seconds": 517.4,
-      "_source": "robustness_evaluation_kalman_norm.json",
-      "delta_sensitivity": -0.125,
       "delta_alarms_per_hour": 0.0
     },
     {
@@ -236,8 +129,7 @@
         "PowerP/VP_3.csv",
         "PowerP/VP_5.csv"
       ],
-      "seconds": 538.5,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 555.6,
       "delta_sensitivity": -0.4,
       "delta_alarms_per_hour": -2.59
     },
@@ -261,8 +153,7 @@
         "Vertical Pull NO G/A_VPull_01.csv",
         "Vertical Pull NO G/A_VPull_04.csv"
       ],
-      "seconds": 527.5,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 390.7,
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": -2.1
     },
@@ -286,8 +177,7 @@
         "Vertical Pull NO G/A_VPull_08.csv",
         "Vertical Pull NO G/A_VPull_09.csv"
       ],
-      "seconds": 529.6,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 385.9,
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": 2.59
     }

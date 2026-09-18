@@ -1,0 +1,74 @@
+{
+  "generated": "2026-09-18 16:07:39",
+  "calibration": "kalman_norm",
+  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate(raw, 'kalman_norm') and extract_features(); 'kalman' is the offline path as shipped, 'kalman_norm' adds F10",
+  "caveat": "robustness to MODELLED sensor variation on one mounting; not cross-session generalisation, which needs Data/S1..S3 and --cv session",
+  "operating_point": {
+    "window": 7,
+    "votes": 6,
+    "hold": 9
+  },
+  "results": [
+    {
+      "variant": "identity",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 1.0,
+      "sensitivity_ci": [
+        0.9124,
+        1.0
+      ],
+      "detected": 40,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.04878048780487805,
+      "fa_files": 2,
+      "n_normal": 41,
+      "alarms_per_hour": 7.77336327517706,
+      "missed": [],
+      "seconds": 319.3
+    },
+    {
+      "variant": "gain_global_m20",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 1.0,
+      "sensitivity_ci": [
+        0.9124,
+        1.0
+      ],
+      "detected": 40,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.07317073170731707,
+      "fa_files": 3,
+      "n_normal": 41,
+      "alarms_per_hour": 10.364484366902746,
+      "missed": [],
+      "seconds": 380.0,
+      "delta_sensitivity": 0.0,
+      "delta_alarms_per_hour": 2.59
+    },
+    {
+      "variant": "gain_per_pad_10",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 1.0,
+      "sensitivity_ci": [
+        0.9124,
+        1.0
+      ],
+      "detected": 40,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.04878048780487805,
+      "fa_files": 2,
+      "n_normal": 41,
+      "alarms_per_hour": 7.77336327517706,
+      "missed": [],
+      "seconds": 424.0,
+      "delta_sensitivity": 0.0,
+      "delta_alarms_per_hour": 0.0
+    }
+  ]
+}
