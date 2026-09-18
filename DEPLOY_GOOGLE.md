@@ -1,7 +1,13 @@
 # Deploying to Google Cloud Run
 
-`deploy_google.bat` does the whole thing. This file explains what it does and
-what to watch out for.
+One `gcloud` command does the whole thing. This file carries that command and
+explains what to watch out for.
+
+The `deploy_google.bat` / `deploy_google.ps1` pair that used to wrap it was
+removed on 2026-09-17: a deploy command you cannot read before you run it is
+worse than one you type. What the script added over the raw command was finding
+the region of an existing service and reusing its access key, and both steps are
+spelled out below.
 
 ## Why Cloud Run and not the other Google options
 
@@ -20,23 +26,63 @@ gcloud config set project YOUR_PROJECT_ID
 ```
 
 Billing must be enabled on the project — Cloud Run will not deploy without it.
-Then double-click `deploy_google.bat`.
+
+```
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+```
+
+## Deploy
+
+Generate an access key once and keep it — the link you hand out contains it:
+
+```
+python -c "import secrets; print(secrets.token_urlsafe(24))"
+```
+
+```
+gcloud run deploy smart-extubation \
+    --source . \
+    --region asia-southeast1 \
+    --allow-unauthenticated \
+    --memory 1Gi \
+    --timeout 3600 \
+    --max-instances 3 \
+    --set-env-vars "PROJECT2_ACCESS_KEY=YOUR_KEY_HERE"
+```
+
+Then read back the URL, and append `?key=YOUR_KEY_HERE` to it:
+
+```
+gcloud run services describe smart-extubation --region asia-southeast1 --format="value(status.url)"
+```
+
+**Redeploying.** If the service already exists, find its region and reuse the
+key that is already set on it, or every existing link stops working:
+
+```
+gcloud run services list --format="table(metadata.name, metadata.labels['cloud.googleapis.com/location'])"
+gcloud run services describe smart-extubation --region REGION --format="value(spec.template.spec.containers[0].env)"
+```
+
+If the build fails saying it ran out of memory, raise `--memory`.
 
 ## The access key is not optional
 
 `main.py` refuses to start on a non-loopback address unless
-`PROJECT2_ACCESS_KEY` is set. That is deliberate and the script works with it,
-not around it. The reason: the API serves every recording under `Data\`,
+`PROJECT2_ACCESS_KEY` is set. That is deliberate — the deploy works with it, not
+around it, and `--allow-public-no-key` must never be added to the Dockerfile
+(invariant 6). The reason: the API serves every recording under `Data\`,
 accepts CSV uploads, and accepts writes to the extubation audit trail. A Cloud
 Run URL is public and gets scanned.
 
 The service is deployed `--allow-unauthenticated` so that a plain browser can
-reach it, and the app's own key is what actually guards it. The script prints a
-link with `?key=...` on the end. **That link is a password.** Anyone who has it
-has everything.
+reach it, and the app's own key is what actually guards it. The link you hand
+out ends in `?key=...`. **That link is a password.** Anyone who has it has
+everything.
 
-The script reuses the key already set on the service when you redeploy, so an
-existing link keeps working. To rotate it, delete the service and redeploy.
+Reuse the key already set on the service when you redeploy, or existing links
+stop working. To rotate it deliberately, redeploy with a new
+`--set-env-vars PROJECT2_ACCESS_KEY=...`.
 
 ## Three things that will surprise you
 
@@ -55,8 +101,8 @@ the clock. The script leaves it at zero on purpose.
 **3. The serial port is not there.** Live capture from the sensor patch reads a
 COM port on the machine running the server. In a Google datacentre there is no
 COM port. On Cloud Run the console works in Replay mode against the recordings
-baked into the image; for live hardware you still run `start.bat` locally, or
-`start_public.bat` for a tunnel from your own machine.
+baked into the image; for live hardware you still run `python run.py` locally,
+or `python run.py share` for a tunnel from your own machine.
 
 ## Cost
 
@@ -64,7 +110,7 @@ Cloud Run bills per request-second. An idle service that nobody opens costs
 essentially nothing because it scales to zero. A demo that a handful of people
 open occasionally sits inside the free tier. The thing that costs money is
 `--min-instances 1`, or leaving a websocket open for hours — the `--timeout 3600`
-in the script allows a one-hour session, and you are billed for that hour.
+above allows a one-hour session, and you are billed for that hour.
 
 ## Taking it down
 

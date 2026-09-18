@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="830" viewBox="0 0 1500 830" font-family="DejaVu Sans, Calibri, sans-serif">
+<rect width="1500" height="830" fill="#EDF0F6"/>
+<rect x="1252.0" y="48" width="13" height="13" rx="2" fill="#1F4257"/>
+<text x="1271.0" y="59" font-size="14.5" fill="#5C6B78">HistGradientBoosting</text>
+<rect x="1130.7" y="48" width="13" height="13" rx="2" fill="#C3CCD3"/>
+<text x="1149.7" y="59" font-size="14.5" fill="#5C6B78">Extra Trees</text>
+<rect x="992.8" y="48" width="13" height="13" rx="2" fill="#8D9BA5"/>
+<text x="1011.8" y="59" font-size="14.5" fill="#5C6B78">Random Forest</text>
+<line x1="108" y1="712.0" x2="718" y2="712.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="94" y="716.0" font-size="14.5" fill="#5C6B78" text-anchor="end">0</text>
+<line x1="108" y1="589.6" x2="718" y2="589.6" stroke="#D7DDE6" stroke-width="1"/>
+<text x="94" y="593.6" font-size="14.5" fill="#5C6B78" text-anchor="end">3</text>
+<line x1="108" y1="467.2" x2="718" y2="467.2" stroke="#D7DDE6" stroke-width="1"/>
+<text x="94" y="471.2" font-size="14.5" fill="#5C6B78" text-anchor="end">6</text>
+<line x1="108" y1="344.8" x2="718" y2="344.8" stroke="#D7DDE6" stroke-width="1"/>
+<text x="94" y="348.8" font-size="14.5" fill="#5C6B78" text-anchor="end">9</text>
+<line x1="108" y1="222.4" x2="718" y2="222.4" stroke="#D7DDE6" stroke-width="1"/>
+<text x="94" y="226.4" font-size="14.5" fill="#5C6B78" text-anchor="end">12</text>
+<line x1="108" y1="100.0" x2="718" y2="100.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="94" y="104.0" font-size="14.5" fill="#5C6B78" text-anchor="end">15</text>
+<line x1="108" y1="712.0" x2="718" y2="712.0" stroke="#B9C2CC" stroke-width="1.4"/>
+<rect x="239.0" y="429.7" width="104" height="282.3" fill="#8D9BA5" rx="3"/>
+<text x="291.0" y="416.7" font-size="17" font-weight="bold" fill="#16202A" text-anchor="middle">6.92/hr</text>
+<rect x="361.0" y="271.2" width="104" height="440.8" fill="#C3CCD3" rx="3"/>
+<text x="413.0" y="258.2" font-size="17" font-weight="bold" fill="#16202A" text-anchor="middle">10.80/hr</text>
+<rect x="483.0" y="388.5" width="104" height="323.5" fill="#1F4257" rx="3"/>
+<text x="535.0" y="375.5" font-size="17" font-weight="bold" fill="#16202A" text-anchor="middle">7.93/hr</text>
+<text x="413.0" y="748.0" font-size="17.5" fill="#16202A" text-anchor="middle">Alarms per hour</text>
+<text x="413.0" y="772.0" font-size="13.5" fill="#5C6B78" text-anchor="middle">lower is better</text>
+<line x1="848" y1="712.0" x2="1458" y2="712.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="834" y="716.0" font-size="14.5" fill="#5C6B78" text-anchor="end">0%</text>
+<line x1="848" y1="559.0" x2="1458" y2="559.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="834" y="563.0" font-size="14.5" fill="#5C6B78" text-anchor="end">2.5%</text>
+<line x1="848" y1="406.0" x2="1458" y2="406.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="834" y="410.0" font-size="14.5" fill="#5C6B78" text-anchor="end">5%</text>
+<line x1="848" y1="253.0" x2="1458" y2="253.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="834" y="257.0" font-size="14.5" fill="#5C6B78" text-anchor="end">7.5%</text>
+<line x1="848" y1="100.0" x2="1458" y2="100.0" stroke="#D7DDE6" stroke-width="1"/>
+<text x="834" y="104.0" font-size="14.5" fill="#5C6B78" text-anchor="end">10%</text>
+<line x1="848" y1="712.0" x2="1458" y2="712.0" stroke="#B9C2CC" stroke-width="1.4"/>
+<rect x="979.0" y="391.1" width="104" height="320.9" fill="#8D9BA5" rx="3"/>
+<text x="1031.0" y="378.1" font-size="17" font-weight="bold" fill="#16202A" text-anchor="middle">5.24%</text>
+<rect x="1101.0" y="223.9" width="104" height="488.1" fill="#C3CCD3" rx="3"/>
+<text x="1153.0" y="210.9" font-size="17" font-weight="bold" fill="#16202A" text-anchor="middle">7.98%</text>
+<rect x="1223.0" y="389.6" width="104" height="322.4" fill="#1F4257" rx="3"/>
+<text x="1275.0" y="376.6" font-size="17" font-weight="bold" fill="#16202A" text-anchor="middle">5.27%</text>
+<text x="1153.0" y="748.0" font-size="17.5" fill="#16202A" text-anchor="middle">False alarms per recording</text>
+<text x="1153.0" y="772.0" font-size="13.5" fill="#5C6B78" text-anchor="middle">lower is better</text>
+</svg>

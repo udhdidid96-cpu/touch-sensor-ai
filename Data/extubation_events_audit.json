@@ -5452,5 +5452,49 @@
     "severity_level": 3,
     "cpri_percent": 100.0,
     "min_delta": -784.0
+  },
+  {
+    "event_id": "EVT-f079b17f6033",
+    "sequence": 544,
+    "timestamp": "2026-08-25 17:26:15",
+    "dataset": "Live-Hardware",
+    "frame_index": 20,
+    "time_sec": 10.64,
+    "severity_level": 2,
+    "cpri_percent": 69.9,
+    "min_delta": -306.3
+  },
+  {
+    "event_id": "EVT-2989e3865bfc",
+    "sequence": 545,
+    "timestamp": "2026-08-25 17:27:14",
+    "dataset": "Live-Hardware",
+    "frame_index": 45,
+    "time_sec": 24.64,
+    "severity_level": 2,
+    "cpri_percent": 79.6,
+    "min_delta": -319.1
+  },
+  {
+    "event_id": "EVT-944356548140",
+    "sequence": 546,
+    "timestamp": "2026-08-25 17:38:07",
+    "dataset": "Live-Hardware",
+    "frame_index": 449,
+    "time_sec": 250.88,
+    "severity_level": 2,
+    "cpri_percent": 68.8,
+    "min_delta": -501.1
+  },
+  {
+    "event_id": "EVT-5d863558008b",
+    "sequence": 547,
+    "timestamp": "2026-08-25 17:59:54",
+    "dataset": "Live-Hardware",
+    "frame_index": 174,
+    "time_sec": 87.36,
+    "severity_level": 2,
+    "cpri_percent": 68.0,
+    "min_delta": -493.1
   }
 ]

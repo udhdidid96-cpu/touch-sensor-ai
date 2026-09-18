@@ -1,0 +1,82 @@
+{
+  "generated": "2026-09-18 14:07:16",
+  "calibration": "kalman_norm",
+  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate(raw, 'kalman_norm') and extract_features(); 'kalman' is the offline path as shipped, 'kalman_norm' adds F10",
+  "caveat": "robustness to MODELLED sensor variation on one mounting; not cross-session generalisation, which needs Data/S1..S3 and --cv session",
+  "operating_point": {
+    "window": 7,
+    "votes": 6,
+    "hold": 9
+  },
+  "results": [
+    {
+      "variant": "identity",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 1.0,
+      "sensitivity_ci": [
+        0.9124,
+        1.0
+      ],
+      "detected": 40,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.04878048780487805,
+      "fa_files": 2,
+      "n_normal": 41,
+      "alarms_per_hour": 7.77336327517706,
+      "missed": [],
+      "seconds": 263.9
+    },
+    {
+      "variant": "gain_global_p20",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 0.975,
+      "sensitivity_ci": [
+        0.8712,
+        0.9956
+      ],
+      "detected": 39,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.07317073170731707,
+      "fa_files": 3,
+      "n_normal": 41,
+      "alarms_per_hour": 12.955605458628433,
+      "missed": [
+        "Vertical Pull NO G/A_VPull_01.csv"
+      ],
+      "seconds": 260.7,
+      "delta_sensitivity": -0.025,
+      "delta_alarms_per_hour": 5.18
+    },
+    {
+      "variant": "noise_sd60",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 0.875,
+      "sensitivity_ci": [
+        0.7389,
+        0.9454
+      ],
+      "detected": 35,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.07317073170731707,
+      "fa_files": 3,
+      "n_normal": 41,
+      "alarms_per_hour": 7.77336327517706,
+      "missed": [
+        "Vertical Pull NO G/A_VPull_06.csv",
+        "Horizontal Pull NO G/A_HPull_02.csv",
+        "Horizontal Pull NO G/A_HPull_07.csv",
+        "Horizontal Pull NO G/A_HPull_09.csv",
+        "PowerP/VP_3.csv"
+      ],
+      "seconds": 205.0,
+      "delta_sensitivity": -0.125,
+      "delta_alarms_per_hour": 0.0
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1258" height="880" viewBox="0 0 1258 880" font-family="DejaVu Sans, Tahoma, sans-serif">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333333"/></marker>
+<marker id="c" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9C3B2E"/></marker>
+</defs>
+<rect width="1258" height="880" fill="#FFFFFF"/>
+<text x="104" y="54" font-size="19.5" font-weight="bold" fill="#1B1B1B">Smart dressing  -  system block diagram</text>
+<text x="104" y="73" font-size="9.6" fill="#6E6E6E">Project2  |  main.py v6.2  |  signal path on the right, parameter identification on the left  |  figures from Data/METRICS.md</text>
+<line x1="104" y1="86" x2="1154" y2="86" stroke="#1B1B1B" stroke-width="1.4"/>
+<text x="104" y="188" font-size="9.6" font-weight="bold" fill="#9A9A9A" letter-spacing="2">PARAMETER IDENTIFICATION  -  offline, once</text>
+<text x="548" y="116" font-size="9.6" font-weight="bold" fill="#9A9A9A" letter-spacing="2">SIGNAL PATH  -  every 560 ms</text>
+<path d="M 746.0,191.0 L 746.0,234.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<text x="757.0" y="218.0" font-size="9.6" fill="#6E6E6E">x[n]   25 raw counts, 1.79 Hz</text>
+<path d="M 746.0,297.0 L 746.0,340.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<text x="757.0" y="324.0" font-size="9.6" fill="#6E6E6E">gated frame</text>
+<path d="M 746.0,403.0 L 746.0,446.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<text x="757.0" y="430.0" font-size="9.6" fill="#6E6E6E">delta[n] = x[n] - b[n]</text>
+<path d="M 746.0,509.0 L 746.0,552.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<text x="757.0" y="536.0" font-size="9.6" fill="#6E6E6E">f[n]   34 features</text>
+<path d="M 746.0,615.0 L 746.0,658.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<text x="757.0" y="642.0" font-size="9.6" fill="#6E6E6E">p[n]   P(class 0..3)</text>
+<path d="M 746.0,721.0 L 746.0,764.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<path d="M 945.0,585.0 L 1006.0,585.0" stroke="#333333" stroke-width="1.2" fill="none" marker-end="url(#a)"/>
+<path d="M 1098.0,615.0 L 1098.0,788.0 L 948.0,788.0" fill="none" stroke="#333333" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M 274.0,263.0 L 274.0,288.0" stroke="#333333" stroke-width="1.2" fill="none" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<path d="M 274.0,351.0 L 274.0,376.0" stroke="#333333" stroke-width="1.2" fill="none" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<path d="M 274.0,439.0 L 274.0,464.0" stroke="#333333" stroke-width="1.2" fill="none" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<path d="M 274.0,527.0 L 274.0,552.0" stroke="#333333" stroke-width="1.2" fill="none" stroke-dasharray="5 4" marker-end="url(#a)"/>
+<path d="M 445.0,585.0 L 544.0,585.0" stroke="#9C3B2E" stroke-width="1.2" fill="none" marker-end="url(#c)"/>
+<text x="496.0" y="576.0" font-size="9.6" fill="#9C3B2E" text-anchor="middle">theta</text>
+<text x="496.0" y="601.0" font-size="9" fill="#9C3B2E" text-anchor="middle">trained_model.joblib</text>
+<path d="M 548.0,360.0 L 522.0,360.0 L 522.0,386.0 L 544.0,386.0" fill="none" stroke="#333333" stroke-width="1.1" marker-end="url(#a)"/>
+<text x="516.0" y="376.0" font-size="9" fill="#9A9A9A" text-anchor="end">b[n]</text>
+<rect x="548" y="132" width="396" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="746.0" y="158.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Capacitive patch</text>
+<text x="746.0" y="174.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">25 channels, 90 x 120 mm</text>
+<rect x="548" y="238" width="396" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="746.0" y="264.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Frame guard</text>
+<text x="746.0" y="280.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">dropout holds level, warm-up 5</text>
+<rect x="548" y="344" width="396" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="746.0" y="370.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Baseline estimator</text>
+<text x="746.0" y="386.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">Kalman, q = 0.05</text>
+<rect x="548" y="450" width="396" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="746.0" y="476.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Feature map</text>
+<text x="746.0" y="492.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">25 deltas + 9 statistics</text>
+<rect x="548" y="556" width="396" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="746.0" y="582.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Classifier</text>
+<text x="746.0" y="598.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">HistGradientBoosting</text>
+<rect x="548" y="662" width="396" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="746.0" y="688.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Debouncer</text>
+<text x="746.0" y="704.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">6 of 7 votes, hold 9</text>
+<rect x="548" y="768" width="396" height="40" rx="3" fill="#FFFFFF" stroke="#9C3B2E" stroke-width="1.3"/>
+<text x="746.0" y="793.0" font-size="13.5" font-weight="bold" fill="#9C3B2E" text-anchor="middle" letter-spacing="0.6">severity level 0 - 3   +   risk %</text>
+<rect x="1010" y="556" width="176" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3"/>
+<text x="1098.0" y="582.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">CPRI</text>
+<text x="1098.0" y="598.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">risk 0 - 100%</text>
+<rect x="104" y="204" width="340" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3" stroke-dasharray="5 4"/>
+<text x="274.0" y="230.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Recorded corpus</text>
+<text x="274.0" y="246.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">81 clips, 3,349 frames</text>
+<rect x="104" y="292" width="340" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3" stroke-dasharray="5 4"/>
+<text x="274.0" y="318.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Baseline + feature map</text>
+<text x="274.0" y="334.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">the same two blocks</text>
+<rect x="104" y="380" width="340" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3" stroke-dasharray="5 4"/>
+<text x="274.0" y="406.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Fit</text>
+<text x="274.0" y="422.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">150 iter, depth 8, balanced</text>
+<rect x="104" y="468" width="340" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3" stroke-dasharray="5 4"/>
+<text x="274.0" y="494.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Validation</text>
+<text x="274.0" y="510.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">LOFO 97.5%, episode 100%</text>
+<rect x="104" y="556" width="340" height="58" rx="3" fill="#FFFFFF" stroke="#333333" stroke-width="1.3" stroke-dasharray="5 4"/>
+<text x="274.0" y="582.0" font-size="13" font-weight="bold" fill="#1B1B1B" text-anchor="middle">Release gate</text>
+<text x="274.0" y="598.0" font-size="9.6" fill="#6E6E6E" text-anchor="middle">metrics reproduce, 113 tests</text>
+<text x="104" y="836.0" font-size="9.5" fill="#6E6E6E">The offline branch runs once and re-uses the same baseline and feature blocks as the signal path, so its figures describe the running system.</text>
+<text x="104" y="849.0" font-size="9.5" fill="#6E6E6E">Round-1 corpus, one sensor mounting.  No recording reaches the 25,000-count detachment spec; horizontal pull shows no lift signal.</text>
+</svg>

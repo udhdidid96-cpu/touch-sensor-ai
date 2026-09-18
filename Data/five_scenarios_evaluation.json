@@ -1,0 +1,408 @@
+{
+  "mode": "oof",
+  "timestamp": "2026-09-18 12:11:12",
+  "scenarios": {
+    "1. Baseline (อยู่นิ่ง)": {
+      "scenario": "1. Baseline (อยู่นิ่ง)",
+      "description": "Resting attached dressing, quiescent state, ambient drift only",
+      "files": 5,
+      "frames": 589,
+      "is_anomaly": false,
+      "median_deepest_delta": -33.78629329791147,
+      "min_delta_range": [
+        -41.014657096766314,
+        -26.640282799056877
+      ],
+      "median_max_delta": 42.034170524239016,
+      "max_delta_range": [
+        31.139024561824044,
+        74.60412966717195
+      ],
+      "lift_gate_files": "0/5",
+      "lift_gate_pct": 0.0,
+      "lift_gate_95ci": [
+        0.0,
+        43.4
+      ],
+      "alarm_files": "0/5",
+      "alarm_rate_pct": 0.0,
+      "alarm_rate_95ci": [
+        0.0,
+        43.4
+      ],
+      "vote_distribution": {
+        "0:Baseline": 4,
+        "1:Touch/Press": 1,
+        "2:Peel": 0,
+        "3:Pull": 0
+      },
+      "mismatched_files": [
+        "N_base/N_Base_01.csv"
+      ]
+    },
+    "2. Touching (การสัมผัส - รวม)": {
+      "scenario": "2. Touching (การสัมผัส - รวม)",
+      "description": "Direct finger touch or compressive press without displacement",
+      "files": 21,
+      "frames": 1224,
+      "is_anomaly": false,
+      "median_deepest_delta": -806.7999999999993,
+      "min_delta_range": [
+        -2597.2000000000007,
+        -25.091673082424677
+      ],
+      "median_max_delta": 3037.001741605938,
+      "max_delta_range": [
+        369.40000000000146,
+        4199.121597114568
+      ],
+      "lift_gate_files": "18/21",
+      "lift_gate_pct": 85.71428571428571,
+      "lift_gate_95ci": [
+        65.4,
+        95.0
+      ],
+      "alarm_files": "1/21",
+      "alarm_rate_pct": 4.761904761904762,
+      "alarm_rate_95ci": [
+        0.8,
+        22.7
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 21,
+        "2:Peel": 0,
+        "3:Pull": 0
+      },
+      "mismatched_files": []
+    },
+    "  2a. Brief Touch (สัมผัสสั้น)": {
+      "scenario": "  2a. Brief Touch (สัมผัสสั้น)",
+      "description": "Light momentary touch events across various pads",
+      "files": 10,
+      "frames": 634,
+      "is_anomaly": false,
+      "median_deepest_delta": -572.6000000000004,
+      "min_delta_range": [
+        -833.2000000000007,
+        -25.091673082424677
+      ],
+      "median_max_delta": 3333.798892027604,
+      "max_delta_range": [
+        3037.001741605938,
+        3834.1318949790184
+      ],
+      "lift_gate_files": "7/10",
+      "lift_gate_pct": 70.0,
+      "lift_gate_95ci": [
+        39.7,
+        89.2
+      ],
+      "alarm_files": "1/10",
+      "alarm_rate_pct": 10.0,
+      "alarm_rate_95ci": [
+        1.8,
+        40.4
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 10,
+        "2:Peel": 0,
+        "3:Pull": 0
+      },
+      "mismatched_files": []
+    },
+    "  2b. Sustained Press (กดทับ)": {
+      "scenario": "  2b. Sustained Press (กดทับ)",
+      "description": "Firm compressive presses (includes 1-by-1 pad sweep)",
+      "files": 11,
+      "frames": 590,
+      "is_anomaly": false,
+      "median_deepest_delta": -1786.7999999999993,
+      "min_delta_range": [
+        -2597.2000000000007,
+        -402.3092760257605
+      ],
+      "median_max_delta": 1540.4000000000015,
+      "max_delta_range": [
+        369.40000000000146,
+        4199.121597114568
+      ],
+      "lift_gate_files": "11/11",
+      "lift_gate_pct": 100.0,
+      "lift_gate_95ci": [
+        74.1,
+        100.0
+      ],
+      "alarm_files": "0/11",
+      "alarm_rate_pct": 0.0,
+      "alarm_rate_95ci": [
+        0.0,
+        25.9
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 11,
+        "2:Peel": 0,
+        "3:Pull": 0
+      },
+      "mismatched_files": []
+    },
+    "3. Friction (การเสียดสี)": {
+      "scenario": "3. Friction (การเสียดสี)",
+      "description": "Cloth/glove rubbing and line sliding across the dressing",
+      "files": 10,
+      "frames": 362,
+      "is_anomaly": false,
+      "median_deepest_delta": -76.2224489977416,
+      "min_delta_range": [
+        -259.7268694450613,
+        -62.58010812857174
+      ],
+      "median_max_delta": 304.8079518637551,
+      "max_delta_range": [
+        259.6321327837577,
+        469.50149061030606
+      ],
+      "lift_gate_files": "0/10",
+      "lift_gate_pct": 0.0,
+      "lift_gate_95ci": [
+        0.0,
+        27.8
+      ],
+      "alarm_files": "0/10",
+      "alarm_rate_pct": 0.0,
+      "alarm_rate_95ci": [
+        0.0,
+        27.8
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 10,
+        "2:Peel": 0,
+        "3:Pull": 0
+      },
+      "mismatched_files": []
+    },
+    "4. Pulling (การดึงท่อ - รวม)": {
+      "scenario": "4. Pulling (การดึงท่อ - รวม)",
+      "description": "Tension and displacement applied to the intubation tube",
+      "files": 30,
+      "frames": 652,
+      "is_anomaly": true,
+      "median_deepest_delta": -214.76775986938628,
+      "min_delta_range": [
+        -839.8331292967559,
+        -31.120670703374344
+      ],
+      "median_max_delta": 508.5322758436505,
+      "max_delta_range": [
+        18.733060659815237,
+        690.4020931659143
+      ],
+      "lift_gate_files": "13/30",
+      "lift_gate_pct": 43.333333333333336,
+      "lift_gate_95ci": [
+        27.4,
+        60.8
+      ],
+      "alarm_files": "30/30",
+      "alarm_rate_pct": 100.0,
+      "alarm_rate_95ci": [
+        88.6,
+        100.0
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 1,
+        "2:Peel": 0,
+        "3:Pull": 29
+      },
+      "mismatched_files": [
+        "Horizontal Pull NO G/A_HPull_02.csv"
+      ]
+    },
+    "  4a. Vertical Pull (ดึงแนวดิ่ง)": {
+      "scenario": "  4a. Vertical Pull (ดึงแนวดิ่ง)",
+      "description": "Upward perpendicular displacement opening direct air gap",
+      "files": 10,
+      "frames": 126,
+      "is_anomaly": true,
+      "median_deepest_delta": -770.9174544790421,
+      "min_delta_range": [
+        -839.8331292967559,
+        -578.323784143904
+      ],
+      "median_max_delta": 555.3368985174366,
+      "max_delta_range": [
+        318.73540572970523,
+        630.7031124551686
+      ],
+      "lift_gate_files": "10/10",
+      "lift_gate_pct": 100.0,
+      "lift_gate_95ci": [
+        72.2,
+        100.0
+      ],
+      "alarm_files": "10/10",
+      "alarm_rate_pct": 100.0,
+      "alarm_rate_95ci": [
+        72.2,
+        100.0
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 0,
+        "2:Peel": 0,
+        "3:Pull": 10
+      },
+      "mismatched_files": []
+    },
+    "  4b. Horizontal Pull (ดึงแนวราบ)": {
+      "scenario": "  4b. Horizontal Pull (ดึงแนวราบ)",
+      "description": "Lateral shear displacement without adhesive coupling",
+      "files": 10,
+      "frames": 287,
+      "is_anomaly": true,
+      "median_deepest_delta": -71.21054299345087,
+      "min_delta_range": [
+        -201.54635475710165,
+        -31.120670703374344
+      ],
+      "median_max_delta": 451.94581261745407,
+      "max_delta_range": [
+        216.4454122102361,
+        546.2614191053581
+      ],
+      "lift_gate_files": "0/10",
+      "lift_gate_pct": 0.0,
+      "lift_gate_95ci": [
+        0.0,
+        27.8
+      ],
+      "alarm_files": "10/10",
+      "alarm_rate_pct": 100.0,
+      "alarm_rate_95ci": [
+        72.2,
+        100.0
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 1,
+        "2:Peel": 0,
+        "3:Pull": 9
+      },
+      "mismatched_files": [
+        "Horizontal Pull NO G/A_HPull_02.csv"
+      ]
+    },
+    "  4c. Power Pull (ดึงกระชากแรง)": {
+      "scenario": "  4c. Power Pull (ดึงกระชากแรง)",
+      "description": "High-velocity traumatic pulling episode",
+      "files": 10,
+      "frames": 239,
+      "is_anomaly": true,
+      "median_deepest_delta": -159.7180027588256,
+      "min_delta_range": [
+        -623.0229286291615,
+        -35.50085485040836
+      ],
+      "median_max_delta": 608.0258857629251,
+      "max_delta_range": [
+        18.733060659815237,
+        690.4020931659143
+      ],
+      "lift_gate_files": "3/10",
+      "lift_gate_pct": 30.0,
+      "lift_gate_95ci": [
+        10.8,
+        60.3
+      ],
+      "alarm_files": "10/10",
+      "alarm_rate_pct": 100.0,
+      "alarm_rate_95ci": [
+        72.2,
+        100.0
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 0,
+        "2:Peel": 0,
+        "3:Pull": 10
+      },
+      "mismatched_files": []
+    },
+    "5. Peeling (การลอกหลุด)": {
+      "scenario": "5. Peeling (การลอกหลุด)",
+      "description": "Progressive adhesive failure and detachment from substrate",
+      "files": 10,
+      "frames": 216,
+      "is_anomaly": true,
+      "median_deepest_delta": -869.2880382842814,
+      "min_delta_range": [
+        -902.4154165520631,
+        -705.3331112591586
+      ],
+      "median_max_delta": 43.65517920260572,
+      "max_delta_range": [
+        14.294169587297802,
+        313.59999999999854
+      ],
+      "lift_gate_files": "10/10",
+      "lift_gate_pct": 100.0,
+      "lift_gate_95ci": [
+        72.2,
+        100.0
+      ],
+      "alarm_files": "10/10",
+      "alarm_rate_pct": 100.0,
+      "alarm_rate_95ci": [
+        72.2,
+        100.0
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 0,
+        "2:Peel": 10,
+        "3:Pull": 0
+      },
+      "mismatched_files": []
+    },
+    "Ref. Normal Mix (ผสมทั่วไป)": {
+      "scenario": "Ref. Normal Mix (ผสมทั่วไป)",
+      "description": "Multi-action sequence mixing touches, rubs, and rest periods",
+      "files": 5,
+      "frames": 306,
+      "is_anomaly": false,
+      "median_deepest_delta": -544.2898645052919,
+      "min_delta_range": [
+        -1172.2057942057945,
+        -142.56990660123483
+      ],
+      "median_max_delta": 2784.769696505631,
+      "max_delta_range": [
+        2375.1563210573113,
+        3569.0510764288993
+      ],
+      "lift_gate_files": "3/5",
+      "lift_gate_pct": 60.0,
+      "lift_gate_95ci": [
+        23.1,
+        88.2
+      ],
+      "alarm_files": "1/5",
+      "alarm_rate_pct": 20.0,
+      "alarm_rate_95ci": [
+        3.6,
+        62.4
+      ],
+      "vote_distribution": {
+        "0:Baseline": 0,
+        "1:Touch/Press": 5,
+        "2:Peel": 0,
+        "3:Pull": 0
+      },
+      "mismatched_files": []
+    }
+  }
+}

@@ -27,8 +27,8 @@ python tests/test_regressions.py              # the 51-check table, standalone
 > `NEW_DATASET_EVALUATION_REPORT.md`, `CLAUDE_LOOPING_ENGINEERING_PROMPT.md`,
 > `ACTION_PLAN.md`, `DATA_COLLECTION_SOP_v2.md`, `ORIGINAL_REQUEST.md` and
 > `CODE_REVIEW_v6.2.md`, which disagreed with each other on file count, frame
-> count, accuracy, macro F1, feature count and tree count. Run `cleanup.bat`
-> once to move them into `_archive/`.
+> count, accuracy, macro F1, feature count and tree count. They were removed on
+> 2026-09-17 together with `cleanup.bat` itself.
 
 ---
 
@@ -64,7 +64,13 @@ Five things that must never happen. Each one is here because it already did.
    synthesised. There is no IMU in this dataset.
 5. **Never edit the whitepaper's §1.2 to match the data.** The spec says
    detachment reaches ≤ 25,000 counts. Round-1 data bottoms out at 27,251.
-   **The data is wrong, not the spec.**
+   The threshold stays where it is — but since 2026-09-17 the conclusion that
+   goes with it has changed. It is **not** "the data is wrong": the criterion is
+   unreachable on this sensor at any fixation (§3). It is **not** "the spec is
+   wrong" either, because nothing here can say which of the three published
+   numbers is the wrong one. Report the contradiction, change nothing.
+   `python main.py --audit Data` prints it; `tests/test_spec_reachability.py`
+   pins all three numbers so it cannot be "resolved" by editing one.
 
 A sixth, learned the hard way in v6.0: **a metric measured in-sample is not a
 metric.** Every streaming number is now leave-one-file-out.
@@ -194,8 +200,50 @@ The arithmetic: 50 pF × 59.85 = 2,992 counts → 28,000 − 2,992 ≈ **25,008*
 raw minima span **27,251 – 27,514** (deepest: `Peel/A_Peel_03`). **0 of 40**
 reach the ≤ 25,000 spec. The deepest Peel excursion is **−901 counts = 15.1 pF**
 against the ~50 pF the spec implies — **3.3× short**. Contact behaviour passes,
-so the sensor itself is fine. The fault is the `NO G` rig: suction fixation, no
-adhesive, so the skin-side capacitor plate never forms.
+so the sensor itself is fine.
+
+**The criterion is unreachable — finish the arithmetic above (2026-09-17).**
+The line before this one works out that the spec asks for a **50.1 pF** drop.
+The attached patch is about **30 pF** (`NOMINAL_BASELINE_PF`; the CDC parts
+shortlisted to replace this board were picked for a 0–50 pF range, which would
+be the wrong part at hundreds of pF). You cannot lose 50 pF from a 30 pF
+capacitor. At **C = 0** — patch gone, floating in air — the reading still floors
+at 28,000 − 30 × 59.85 = **26,205 counts**, 1,205 **above** the threshold it is
+meant to cross.
+
+So 0 of 40 is not evidence about the rig. 27,251 is a ~12.5 pF loss, which is a
+real partial peel. **No fixation change — pump pressure, adhesive — can pass
+this check**: fixation decides how completely the patch lets go, and letting go
+completely still lands at 26,205. An earlier version of this paragraph blamed
+the `NO G` rig for the shortfall and `ACTION_PLAN.md` P0-2 was scheduling a
+stronger pump to chase it.
+
+**What can move it is the geometry, because geometry sets C0.** C = εA/d: halve
+the backing thickness and the resting capacitance roughly doubles; add a ground
+plane and a fringing-field sensor becomes a real two-plate one. Take C0 from
+~30 pF to ~60 pF and a 50 pF loss on full detachment becomes physically
+possible. That is the supervisor's advice of 2026-09-17 — thinner backing,
+ground plane — restated as capacitor arithmetic, and it is the reason those two
+parts of the rebuild are worth doing while the pump is not the lever it was
+taken for. (2026-09-18 correction: the previous wording said no rig change at
+all could pass; that was too strong.)
+
+One of `BASELINE_COUNTS`, `COUNTS_PER_PF` (**[MEASURED]**) and `SPEC_DETACH_MAX`
+is wrong and the arithmetic cannot say which. The likeliest is the absolute C0:
+the Sensor Structure row in `docs/Hardware_Deck_Spec.md` that would hold it is
+**still empty**, so it has never been measured. The bench procedure for closing
+it — LCR meter with OPEN compensation, Cp-D mode, an attached/detached pair
+rather than one reading, and a decision table for what each outcome means — is
+`docs/DATA_COLLECTION_SOP_v2.md` section 0.2. That section also gives the more
+direct check: derive counts-per-pF from one peel event and compare it against
+the published 59.85, because if that constant is wrong the contradiction
+resolves there and not in the spec. Until then, settle it with whoever wrote §2.1 — not with a
+stronger pump. Detection never used this criterion anyway: it gates on the delta
+from the tracked baseline, where −300 counts works (peel and vertical pull cross
+it 10 of 10).
+
+Rebuilding the rig with adhesive and a ground plane is still worth doing — for
+the horizontal-pull blind spot (§7), which is a different and measurable target.
 
 *(An earlier draft of this paragraph said "26,500–27,500" and "14.6 pF, 3.4×".
 No file reaches 26,500 and the pF figures were arithmetic done by hand. The
@@ -521,9 +569,13 @@ python -m pytest tests/                        # regression ต้องผ่�
 
 ## 7. Known limitations
 
-1. **The anomaly data is under-driven.** No file reaches the ≤ 25,000
-   detachment spec; the deepest is 27,251. Root cause of nearly everything else
-   in this list. See §3.
+1. **The ≤ 25,000 detachment spec cannot be met on this sensor.** The deepest
+   file is 27,251, and at zero capacitance the reading still floors at 26,205 —
+   the criterion asks for a 50.1 pF drop from a ~30 pF patch. This is a
+   contradiction between three published numbers, not an under-driven corpus,
+   and no collection round fixes it. See §3. *(Until 2026-09-17 this entry read
+   "the anomaly data is under-driven … root cause of nearly everything else in
+   this list", which is how the rig rebuild came to be scheduled for it.)*
 2. **Two of the 40 normal recordings still annunciate** out of fold
    (`N_Base_04`, `N_Touch_01`), and five pull recordings are missed — all from
    the weak no-adhesive corpus. A consequence of limitation 1, not a classifier
@@ -648,9 +700,11 @@ features from a nonexistent 5×5 lattice · **F6** in-sample ROC/AUC ·
 ## 10. Layout and API
 
 Every file in the repository, and whether it is load-bearing. Consolidated
-2026-08-19: four launchers were doing two jobs, two benchmark scripts were doing
-one, and three scratch scripts had been committed. `cleanup.bat` removes the
-retired ones; `cleanup.bat /keep` moves them into `_to_delete\` instead.
+2026-08-19 (four launchers doing two jobs, two benchmark scripts doing one,
+three scratch scripts committed) and again on **2026-09-17**, when every `.bat`
+and `.ps1` launcher was replaced by a single cross-platform `run.py` and the
+scratch verification scripts under `scripts/` were removed. There is no
+`cleanup.bat` any more; the files it used to retire are already gone.
 
 **Load-bearing — the program is these files**
 
@@ -665,26 +719,35 @@ requirements.txt         upper bounds are deliberate — see the file header
 README.md                this file — the single source of truth
 ```
 
-**Run it**
+**Run it** — one entry point, `run.py`. Do not add a second launcher.
 
 ```
-start.bat                deps + dashboard on 127.0.0.1
-start_public.bat         deps + temporary public HTTPS URL, key generated
-Start_Sensor_Bridge.bat  USB board on this machine -> a cloud instance
-Create_Desktop_Shortcut.bat   makes both desktop shortcuts
-share_public.py          what start_public.bat calls
-stream_to_cloud.py       what Start_Sensor_Bridge.bat calls
-cleanup.bat              delete the retired files (/keep moves them instead)
+python run.py              dashboard on 127.0.0.1:8081        -> main.py
+python run.py share        temporary public HTTPS URL         -> share_public.py
+python run.py stream       USB board here -> a cloud instance -> stream_to_cloud.py
+python run.py test         the guard suite                    -> pytest tests/ -q
+python run.py verify       re-measure and diff metrics.json   -> main.py --verify-metrics
+python run.py pads         pad order vs the 1-by-1 sweep      -> main.py --verify-pads
+python run.py audit [DIR]  corpus audit, default Data         -> main.py --audit
+python run.py benchmark    offline model comparison           -> benchmark_ml_architectures.py
+python run.py help         the same list
 ```
+
+Every one of these is a thin `subprocess` wrapper. `run.py` holds no logic of
+its own, so anything it can do is also reachable by calling the target script
+directly — that is the point, and the reason a second launcher is never needed.
 
 **Deploy**
 
 ```
 Dockerfile               non-root image. Must NOT carry --allow-public-no-key
-Procfile / render.yaml   render.yaml generates PROJECT2_ACCESS_KEY
 .dockerignore .gcloudignore
 .github/workflows/ci.yml flake8 + pytest
+DEPLOY_GOOGLE.md         the Cloud Run command, inline - no script to run
 ```
+
+`Procfile` was removed on 2026-09-17 and `render.yaml` never existed in this
+repository, though an earlier version of this table listed both.
 
 **Data — generated files are marked**
 
@@ -711,7 +774,19 @@ tests/test_regressions.py       the regression harness (also runs standalone)
 tests/test_next_gen_features.py shift report, ward slots, reconnect behaviour
 ```
 
-**Retired 2026-08-19 — `cleanup.bat` removes these (`/keep` moves them to `_to_delete\` instead)**
+**Retired 2026-09-17 — the launchers**
+
+| file | why |
+|---|---|
+| `start.bat`, `start_public.bat`, `Start_Sensor_Bridge.bat`, `Create_Desktop_Shortcut.bat` | replaced by `python run.py` / `share` / `stream`. Windows-only, four files for what is one dispatch table |
+| `cleanup.bat` | its job is done: everything it retired is gone. Keeping a delete script around is a standing invitation to run it against something it was never written for |
+| `deploy_google.bat`, `deploy_google.ps1` | the `gcloud run deploy` invocation now lives inline in `DEPLOY_GOOGLE.md`, where it can be read before it is run |
+| `Procfile` | Heroku-style entry point for a platform this project does not deploy to |
+| `scripts/verify_m1_features.py`, `scripts/verify_m3_features.py`, `scripts/stress_test_m1.py` | one-off milestone checks. What they asserted is covered by `tests/test_adversarial_fuzzing.py`, `test_disconnect_resilience.py` and `test_domain_generalization.py`, which run in CI |
+| `1 by 1.csv` (root), `slide7_pretty.xml`, `Claude outputs/` | a stray copy of `Data/Press/1_by_1.csv`, one extracted slide fragment, and an agent scratch folder |
+| `.agents/explorer_*`, `.agents/orchestrator_*`, `.agents/sentinel`, `.agents/worker_*` | per-run agent scratch. `.agents/` keeps `rules/` and `ORIGINAL_REQUEST.md` only |
+
+**Retired 2026-08-19 — removed, `cleanup.bat` is gone too**
 
 | file | why |
 |---|---|

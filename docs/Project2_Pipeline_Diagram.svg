@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="1911" viewBox="0 0 1460 1911" font-family="DejaVu Sans, Loma, Tahoma, sans-serif">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#45565F"/></marker>
+<marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#94A3AB"/></marker>
+<marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#B3241F"/></marker>
+</defs>
+<rect width="1460" height="1911" fill="#FFFFFF"/>
+<rect x="14" y="14" width="1432" height="1883" fill="none" stroke="#1E3A4C" stroke-width="1.6"/>
+<text x="730.0" y="66" font-size="29" font-weight="bold" fill="#16202A" text-anchor="middle">How the Smart Dressing Learns, and How It Decides</text>
+<text x="730.0" y="90" font-size="12.5" fill="#65717B" font-style="italic" text-anchor="middle">each block says what that stage does; the labels on the arrows say what is handed to the next stage</text>
+<rect x="126" y="112" width="1300" height="371.20000000000005" rx="12" fill="#F5F7F8" stroke="#E3E8EB" stroke-width="1"/>
+<circle cx="80" cy="146" r="15" fill="#16202A"/>
+<text x="80" y="151" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">1</text>
+<text x="42" y="297.6" font-size="11.5" font-weight="bold" fill="#65717B" text-anchor="middle" letter-spacing="1.6" transform="rotate(-90 42 297.6)">LEARNING FROM DATA</text>
+<rect x="126" y="517.2" width="1300" height="130.60000000000002" rx="12" fill="#F5F7F8" stroke="#E3E8EB" stroke-width="1"/>
+<circle cx="80" cy="551.2" r="15" fill="#16202A"/>
+<text x="80" y="556.2" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">2</text>
+<text x="42" y="582.5" font-size="11.5" font-weight="bold" fill="#65717B" text-anchor="middle" letter-spacing="1.6" transform="rotate(-90 42 582.5)">WHAT THE MODEL SEES</text>
+<rect x="126" y="681.8000000000001" width="1300" height="311.20000000000005" rx="12" fill="#F5F7F8" stroke="#E3E8EB" stroke-width="1"/>
+<circle cx="80" cy="715.8000000000001" r="15" fill="#16202A"/>
+<text x="80" y="720.8000000000001" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">3</text>
+<text x="42" y="837.4000000000001" font-size="11.5" font-weight="bold" fill="#65717B" text-anchor="middle" letter-spacing="1.6" transform="rotate(-90 42 837.4000000000001)">HOW WELL IT WORKS</text>
+<rect x="126" y="1027.0" width="1300" height="242.79999999999995" rx="12" fill="#F5F7F8" stroke="#E3E8EB" stroke-width="1"/>
+<circle cx="80" cy="1061.0" r="15" fill="#16202A"/>
+<text x="80" y="1066.0" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">4</text>
+<text x="42" y="1148.4" font-size="11.5" font-weight="bold" fill="#65717B" text-anchor="middle" letter-spacing="1.6" transform="rotate(-90 42 1148.4)">BEFORE IT IS ALLOWED OUT</text>
+<rect x="126" y="1303.8" width="1300" height="130.5999999999999" rx="12" fill="#F5F7F8" stroke="#E3E8EB" stroke-width="1"/>
+<circle cx="80" cy="1337.8" r="15" fill="#16202A"/>
+<text x="80" y="1342.8" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">5</text>
+<text x="42" y="1369.1" font-size="11.5" font-weight="bold" fill="#65717B" text-anchor="middle" letter-spacing="1.6" transform="rotate(-90 42 1369.1)">THE MODEL THAT SHIPS</text>
+<rect x="126" y="1468.3999999999999" width="1300" height="251.19999999999982" rx="12" fill="#F5F7F8" stroke="#E3E8EB" stroke-width="1"/>
+<circle cx="80" cy="1502.3999999999999" r="15" fill="#16202A"/>
+<text x="80" y="1507.3999999999999" font-size="14" font-weight="bold" fill="#FFFFFF" text-anchor="middle">6</text>
+<text x="42" y="1593.9999999999998" font-size="11.5" font-weight="bold" fill="#65717B" text-anchor="middle" letter-spacing="1.6" transform="rotate(-90 42 1593.9999999999998)">AT THE BEDSIDE</text>
+<path d="M 428.0,177.3 L 450.0,177.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 910.0,177.3 L 932.0,177.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1162.0,215.7 L 1162.0,234.1 L 987.0,234.1 L 987.0,252.6" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 822.0,297.6 L 800.0,297.6" fill="none" stroke="#9C3B2E" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 987.0,342.6 L 987.0,357.6 L 1017.0,357.6 L 1017.0,372.6" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 787.0,417.9 L 765.0,417.9" fill="none" stroke="#94A3AB" stroke-width="1.7" stroke-dasharray="7 5" marker-end="url(#f)"/>
+<path d="M 305.0,417.9 L 108.0,417.9 L 108.0,1201.8 L 832.0,1201.8" fill="none" stroke="#94A3AB" stroke-width="1.7" stroke-dasharray="7 5" marker-end="url(#f)"/>
+<path d="M 1017.0,463.2 L 1017.0,500.2 L 530.0,500.2 L 530.0,537.2" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 765.0,582.5 L 787.0,582.5" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1022.0,620.9 L 1022.0,661.4 L 354.0,661.4 L 354.0,701.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1022.0,620.9 L 1022.0,661.4 L 776.0,661.4 L 776.0,701.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1022.0,620.9 L 1022.0,661.4 L 1198.0,661.4 L 1198.0,701.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 354.0,731.8 L 354.0,761.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 776.0,731.8 L 776.0,761.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1198.0,731.8 L 1198.0,761.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 354.0,852.4 L 354.0,889.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 776.0,852.4 L 776.0,889.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1198.0,852.4 L 1198.0,882.4" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 354.0,966.1 L 354.0,1001.0 L 576.0,1001.0 L 576.0,1047.0" fill="none" stroke="#17323E" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 776.0,966.1 L 776.0,1047.0" fill="none" stroke="#2F5B6D" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1198.0,973.0 L 1198.0,1001.0 L 976.0,1001.0 L 976.0,1047.0" fill="none" stroke="#4C8299" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 776.0,1123.8 L 776.0,1138.8 L 1022.0,1138.8 L 1022.0,1153.8" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 832.0,1201.8 L 810.0,1201.8" fill="none" stroke="#9C3B2E" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1022.0,1249.8 L 1022.0,1290.2 L 530.0,1290.2 L 530.0,1330.7" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 765.0,1369.1 L 787.0,1369.1" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1022.0,1414.4 L 1022.0,1454.8 L 354.0,1454.8 L 354.0,1495.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 554.0,1533.7 L 576.0,1533.7" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 976.0,1533.7 L 998.0,1533.7" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1198.0,1572.1 L 1198.0,1594.0 L 354.0,1594.0 L 354.0,1615.9" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 554.0,1654.3 L 576.0,1654.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 976.0,1654.3 L 998.0,1654.3" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<path d="M 1198.0,1692.7 L 1198.0,1723.1 L 776.0,1723.1 L 776.0,1753.6" fill="none" stroke="#45565F" stroke-width="1.7" marker-end="url(#a)"/>
+<rect x="160.0" y="155.3" width="268" height="44" rx="22.0" fill="#3B4750"/>
+<text x="294.0" y="181.6" font-size="12" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.8">A RECORDING SESSION</text>
+<rect x="450.0" y="132.0" width="460" height="90.6" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="680.0" y="153.0" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S1</text>
+<text x="680.0" y="171.0" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Record Known Behaviour</text>
+<text x="680.0" y="190.8" font-size="10.4" fill="#65717B" text-anchor="middle">the patch is worn while nine known things happen to it, from lying still to</text>
+<text x="680.0" y="204.6" font-size="10.4" fill="#65717B" text-anchor="middle">a full pull; 81 recordings in all</text>
+<rect x="932.0" y="138.9" width="460" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="1162.0" y="159.9" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S2</text>
+<text x="1162.0" y="177.9" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Sort into Four Levels</text>
+<text x="1162.0" y="197.7" font-size="10.4" fill="#65717B" text-anchor="middle">normal, someone touching it, the dressing peeling, the tube being pulled</text>
+<rect x="400.0" y="276.6" width="400" height="42" rx="21.0" fill="#9C3B2E"/>
+<text x="600.0" y="301.9" font-size="12" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.8">STOP - set the recording aside</text>
+<path d="M 987.0,252.6 L 1152.0,297.6 L 987.0,342.6 L 822.0,297.6 Z" fill="#FFFFFF" stroke="#9C3B2E" stroke-width="1.6"/>
+<text x="987.0" y="301.6" font-size="12" fill="#9C3B2E" text-anchor="middle">is the recording usable ?</text>
+<rect x="305.0" y="372.6" width="460" height="90.6" rx="7" fill="#FFFFFF" stroke="#9C3B2E" stroke-width="1.6"/>
+<text x="535.0" y="393.6" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S0</text>
+<text x="535.0" y="411.6" font-size="14.0" font-weight="bold" fill="#9C3B2E" text-anchor="middle">Check a New Recording</text>
+<text x="535.0" y="431.4" font-size="10.4" fill="#65717B" text-anchor="middle">does the patch lift as far as the design says it should, before this</text>
+<text x="535.0" y="445.2" font-size="10.4" fill="#65717B" text-anchor="middle">recording is allowed to teach anything</text>
+<rect x="787.0" y="372.6" width="460" height="90.6" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="1017.0" y="393.6" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S3</text>
+<text x="1017.0" y="411.6" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Remember Which Data This Came From</text>
+<text x="1017.0" y="431.4" font-size="10.4" fill="#65717B" text-anchor="middle">so the system can tell later whether the model still matches the data behind</text>
+<text x="1017.0" y="445.2" font-size="10.4" fill="#65717B" text-anchor="middle">it</text>
+<rect x="295.0" y="537.2" width="470" height="90.6" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="530.0" y="558.2" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S4</text>
+<text x="530.0" y="576.2" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Cancel the Slow Drift</text>
+<text x="530.0" y="596.0" font-size="10.4" fill="#65717B" text-anchor="middle">sweat and body heat move the reading over hours; only a sudden change means</text>
+<text x="530.0" y="609.8" font-size="10.4" fill="#65717B" text-anchor="middle">something is happening</text>
+<rect x="787.0" y="544.1" width="470" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="1022.0" y="565.1" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S5</text>
+<text x="1022.0" y="583.1" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Describe Each Moment</text>
+<text x="1022.0" y="602.9" font-size="10.4" fill="#65717B" text-anchor="middle">how far each of the 25 pads moved, how many moved together, and how deep</text>
+<rect x="154.0" y="701.8000000000001" width="400" height="30" rx="5" fill="#17323E"/>
+<text x="354.0" y="721.3" font-size="11.5" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="1.4">PER RECORDING</text>
+<rect x="576.0" y="701.8000000000001" width="400" height="30" rx="5" fill="#2F5B6D"/>
+<text x="776.0" y="721.3" font-size="11.5" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="1.4">PER REAL EVENT</text>
+<rect x="998.0" y="701.8000000000001" width="400" height="30" rx="5" fill="#4C8299"/>
+<text x="1198.0" y="721.3" font-size="11.5" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="1.4">ALARM BURDEN</text>
+<rect x="154.0" y="761.8000000000001" width="400" height="90.6" rx="7" fill="#FFFFFF" stroke="#17323E" stroke-width="1.6"/>
+<text x="354.0" y="782.8" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S6</text>
+<text x="354.0" y="800.8" font-size="14.0" font-weight="bold" fill="#17323E" text-anchor="middle">Test on a Recording It Never Saw</text>
+<text x="354.0" y="820.6" font-size="10.4" fill="#65717B" text-anchor="middle">learn from the other 80, then judge the one held back, and repeat</text>
+<text x="354.0" y="834.4" font-size="10.4" fill="#65717B" text-anchor="middle">for all 81</text>
+<rect x="576.0" y="761.8000000000001" width="400" height="90.6" rx="7" fill="#FFFFFF" stroke="#2F5B6D" stroke-width="1.6"/>
+<text x="776.0" y="782.8" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S8</text>
+<text x="776.0" y="800.8" font-size="14.0" font-weight="bold" fill="#2F5B6D" text-anchor="middle">Judge Every Moment Blind</text>
+<text x="776.0" y="820.6" font-size="10.4" fill="#65717B" text-anchor="middle">each moment is scored by a model that never learned from its own</text>
+<text x="776.0" y="834.4" font-size="10.4" fill="#65717B" text-anchor="middle">recording</text>
+<rect x="998.0" y="761.8000000000001" width="400" height="90.6" rx="7" fill="#FFFFFF" stroke="#4C8299" stroke-width="1.6"/>
+<text x="1198.0" y="782.8" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S10</text>
+<text x="1198.0" y="800.8" font-size="14.0" font-weight="bold" fill="#3F6F84" text-anchor="middle">Try Every Alarm Setting</text>
+<text x="1198.0" y="820.6" font-size="10.4" fill="#65717B" text-anchor="middle">how many agreeing moments before it sounds, and how long it keeps</text>
+<text x="1198.0" y="834.4" font-size="10.4" fill="#65717B" text-anchor="middle">sounding</text>
+<rect x="154.0" y="889.3000000000001" width="400" height="76.8" rx="7" fill="#FFFFFF" stroke="#17323E" stroke-width="1.6"/>
+<text x="354.0" y="910.3" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S7</text>
+<text x="354.0" y="928.3" font-size="14.0" font-weight="bold" fill="#17323E" text-anchor="middle">How Often the Clip Is Called Right</text>
+<text x="354.0" y="948.1" font-size="10.4" fill="#65717B" text-anchor="middle">79 of 81, and the honest range around that is 91 to 99 per cent</text>
+<rect x="576.0" y="889.3000000000001" width="400" height="76.8" rx="7" fill="#FFFFFF" stroke="#2F5B6D" stroke-width="1.6"/>
+<text x="776.0" y="910.3" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S9</text>
+<text x="776.0" y="928.3" font-size="14.0" font-weight="bold" fill="#2F5B6D" text-anchor="middle">How Many Real Events Are Caught</text>
+<text x="776.0" y="948.1" font-size="10.4" fill="#65717B" text-anchor="middle">every one of them, and the warning comes about six seconds in</text>
+<rect x="998.0" y="882.4000000000001" width="400" height="90.6" rx="7" fill="#FFFFFF" stroke="#4C8299" stroke-width="1.6"/>
+<text x="1198.0" y="903.4" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S11</text>
+<text x="1198.0" y="921.4" font-size="14.0" font-weight="bold" fill="#3F6F84" text-anchor="middle">Choose What a Ward Can Live With</text>
+<text x="1198.0" y="941.2" font-size="10.4" fill="#65717B" text-anchor="middle">catches every event, at the cost of roughly eight false alarms an</text>
+<text x="1198.0" y="955.0" font-size="10.4" fill="#65717B" text-anchor="middle">hour</text>
+<rect x="446.0" y="1047.0" width="660" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="776.0" y="1068.0" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S12</text>
+<text x="776.0" y="1086.0" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Write the Measured Numbers Down</text>
+<text x="776.0" y="1105.8" font-size="10.4" fill="#65717B" text-anchor="middle">one report, and it is the only place any figure may be quoted from</text>
+<rect x="340.0" y="1180.8" width="470" height="42" rx="21.0" fill="#9C3B2E"/>
+<text x="575.0" y="1206.1" font-size="12" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.8">STOP - then the work is wrong, not the report</text>
+<path d="M 1022.0,1153.8 L 1212.0,1201.8 L 1022.0,1249.8 L 832.0,1201.8 Z" fill="#FFFFFF" stroke="#9C3B2E" stroke-width="1.6"/>
+<text x="1022.0" y="1198.8" font-size="12" fill="#9C3B2E" text-anchor="middle">same numbers, everything still</text>
+<text x="1022.0" y="1212.8" font-size="12" fill="#9C3B2E" text-anchor="middle">passes ?</text>
+<rect x="295.0" y="1330.7" width="470" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="530.0" y="1351.7" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S13</text>
+<text x="530.0" y="1369.7" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Train the Model That Will Be Used</text>
+<text x="530.0" y="1389.5" font-size="10.4" fill="#65717B" text-anchor="middle">a gradient-boosted decision-tree model, learning from every recording at once</text>
+<rect x="787.0" y="1323.8" width="470" height="90.6" rx="7" fill="#FFFFFF" stroke="#9C3B2E" stroke-width="1.6"/>
+<text x="1022.0" y="1344.8" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S14</text>
+<text x="1022.0" y="1362.8" font-size="14.0" font-weight="bold" fill="#9C3B2E" text-anchor="middle">Seal It</text>
+<text x="1022.0" y="1382.6" font-size="10.4" fill="#65717B" text-anchor="middle">stored with a fingerprint, so a swapped or damaged model is refused rather</text>
+<text x="1022.0" y="1396.4" font-size="10.4" fill="#65717B" text-anchor="middle">than quietly used</text>
+<rect x="154.0" y="1495.3" width="400" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="354.0" y="1516.3" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S15</text>
+<text x="354.0" y="1534.3" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">A Reading Arrives</text>
+<text x="354.0" y="1554.1" font-size="10.4" fill="#65717B" text-anchor="middle">all 25 pads, about twice a second</text>
+<rect x="576.0" y="1488.3999999999999" width="400" height="90.6" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="776.0" y="1509.4" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S16</text>
+<text x="776.0" y="1527.4" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Distrust a Broken Reading</text>
+<text x="776.0" y="1547.2" font-size="10.4" fill="#65717B" text-anchor="middle">if the sensor drops out, hold the last level rather than report</text>
+<text x="776.0" y="1561.0" font-size="10.4" fill="#65717B" text-anchor="middle">that all is well</text>
+<rect x="998.0" y="1495.3" width="400" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="1198.0" y="1516.3" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S17</text>
+<text x="1198.0" y="1534.3" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Cancel the Drift</text>
+<text x="1198.0" y="1554.1" font-size="10.4" fill="#65717B" text-anchor="middle">exactly as it was done while learning</text>
+<rect x="154.0" y="1615.8999999999999" width="400" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="354.0" y="1636.9" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S18</text>
+<text x="354.0" y="1654.9" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Describe the Moment</text>
+<text x="354.0" y="1674.7" font-size="10.4" fill="#65717B" text-anchor="middle">exactly the same description as while learning</text>
+<rect x="576.0" y="1608.9999999999998" width="400" height="90.6" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="776.0" y="1630.0" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S19</text>
+<text x="776.0" y="1648.0" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Decide What Is Happening</text>
+<text x="776.0" y="1667.8" font-size="10.4" fill="#65717B" text-anchor="middle">too small to matter, a touch, peeling, or a pull, with a risk</text>
+<text x="776.0" y="1681.6" font-size="10.4" fill="#65717B" text-anchor="middle">score alongside</text>
+<rect x="998.0" y="1615.8999999999999" width="400" height="76.8" rx="7" fill="#FFFFFF" stroke="#54707F" stroke-width="1.6"/>
+<text x="1198.0" y="1636.9" font-size="9.5" fill="#9BA6AE" text-anchor="middle" letter-spacing="1.2">S20</text>
+<text x="1198.0" y="1654.9" font-size="14.0" font-weight="bold" fill="#16202A" text-anchor="middle">Wait for Agreement</text>
+<text x="1198.0" y="1674.7" font-size="10.4" fill="#65717B" text-anchor="middle">one odd moment is not an alarm; several in a row is</text>
+<rect x="266.0" y="1753.5999999999997" width="1020" height="50" rx="25.0" fill="#17323E"/>
+<text x="776.0" y="1783.3" font-size="13" font-weight="bold" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.8">OUTPUT     how serious it is,  how risky,  and where the patch is lifting</text>
+<text x="811.0" y="291.6" font-size="10" fill="#9C3B2E" font-style="italic" text-anchor="middle">no</text>
+<text x="987.0" y="344.1" font-size="10" fill="#45565F" font-style="italic" text-anchor="middle">yes</text>
+<text x="776.0" y="411.9" font-size="10" fill="#94A3AB" font-style="italic" text-anchor="middle">at the same time</text>
+<text x="116.0" y="809.9" font-size="10" fill="#94A3AB" font-style="italic" text-anchor="middle" transform="rotate(-90 116.0 809.9)">what the check found</text>
+<text x="354.0" y="977.5" font-size="10" fill="#17323E" font-style="italic" text-anchor="middle">how often a clip is right</text>
+<text x="785.0" y="1000.5" font-size="10" fill="#2F5B6D" font-style="italic" text-anchor="start">how many events are caught</text>
+<text x="1198.0" y="981.0" font-size="10" fill="#4C8299" font-style="italic" text-anchor="middle">the chosen alarm setting</text>
+<text x="821.0" y="1195.8" font-size="10" fill="#9C3B2E" font-style="italic" text-anchor="middle">no</text>
+<text x="1022.0" y="1264.0" font-size="10" fill="#45565F" font-style="italic" text-anchor="middle">yes</text>
+<text x="730.0" y="1833.0" font-size="10.5" fill="#65717B" text-anchor="middle">At the bedside the drift is cancelled and each moment described exactly as it was during learning, which is why the measured figures describe what a ward would actually see.</text>
+<text x="730.0" y="1848.0" font-size="10.5" fill="#65717B" text-anchor="middle">Measured on one round of bench recordings with a single patch mounting. The patch does not yet lift as far as the design requires, and a sideways pull does not lift it at all.</text>
+</svg>
