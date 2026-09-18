@@ -33,12 +33,39 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tempfile
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main as M  # noqa: E402
+
+
+def pytest_configure(config):
+    """Put pytest's scratch root in the OS temp directory, not in the repo.
+
+    This was `addopts = --basetemp=.pytest_temp` in pytest.ini, which put the
+    scratch tree inside the working copy. pytest wipes basetemp at session
+    start, so anything else that landed there - a redirected log, a second run -
+    made every test error with WinError 32, and git saw the directory.
+
+    Dropping basetemp entirely is not the fix either. Without it pytest uses its
+    numbered-dir scheme under <temp>/pytest-of-<user>/, whose `pytest-current`
+    symlink this machine cannot stat: session teardown then dies with
+    `PermissionError: [WinError 5] Access is denied` AFTER the tests have run,
+    losing the summary and the exit code. Creating that symlink needs Developer
+    Mode or admin on Windows, which a test run must not require.
+
+    So: an explicit basetemp, outside the repo, with a fixed name. Fixed rather
+    than per-process on purpose - pytest clears basetemp at session start, so
+    the directory is self-cleaning and does not accumulate. That makes two
+    simultaneous runs collide, which AGENTS.md already forbids ("run one agent
+    session at a time on this folder"); the collision this replaced was between
+    a run and the repo, which nothing forbade.
+    """
+    if getattr(config.option, "basetemp", None) is None:
+        config.option.basetemp = os.path.join(tempfile.gettempdir(), "project2-pytest")
 
 REAL_DATA_ROOT = M.DATA_ROOT
 
