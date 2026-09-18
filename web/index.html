@@ -316,6 +316,9 @@
                 <span class="pipe__d" data-i18n="pipe2d">Zero-drift track</span>
                 <span class="pipe__s" id="calibBadge">Kalman filter</span>
                 <span class="pipe__s pipe__s--warn" id="seedBadge" hidden></span>
+                <span class="pipe__s pipe__s--warn" id="quiescentBadge" hidden></span>
+                <button type="button" class="pipe__reseed" id="reseedBtn" hidden
+                        onclick="requestReseedBaseline()">Reseed Baseline</button>
               </li>
               <li class="pipe__step">
                 <span class="pipe__ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h8M6 8v8M18 8v8M8 18h8"/></svg></span>

@@ -1,0 +1,79 @@
+{
+  "generated": "2026-09-18 22:53:58",
+  "calibration": "kalman_norm",
+  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate(raw, 'kalman_norm') and extract_features(); 'kalman' is the offline path as shipped, 'kalman_norm' adds F10",
+  "caveat": "robustness to MODELLED sensor variation on one mounting; not cross-session generalisation, which needs Data/S1..S3 and --cv session",
+  "operating_point": {
+    "window": 7,
+    "votes": 6,
+    "hold": 9
+  },
+  "results": [
+    {
+      "variant": "noise_sd60",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 0.725,
+      "sensitivity_ci": [
+        0.5716,
+        0.8389
+      ],
+      "detected": 29,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.12195121951219512,
+      "fa_files": 5,
+      "n_normal": 41,
+      "alarms_per_hour": 15.54672655035412,
+      "missed": [
+        "Vertical Pull NO G/A_VPull_01.csv",
+        "Vertical Pull NO G/A_VPull_02.csv",
+        "Vertical Pull NO G/A_VPull_04.csv",
+        "Vertical Pull NO G/A_VPull_06.csv",
+        "Vertical Pull NO G/A_VPull_07.csv",
+        "Vertical Pull NO G/A_VPull_08.csv",
+        "Vertical Pull NO G/A_VPull_09.csv",
+        "Horizontal Pull NO G/A_HPull_02.csv",
+        "Horizontal Pull NO G/A_HPull_07.csv",
+        "Horizontal Pull NO G/A_HPull_09.csv",
+        "PowerP/VP_3.csv"
+      ],
+      "seconds": 206.9
+    },
+    {
+      "variant": "noise_sd120",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 0.625,
+      "sensitivity_ci": [
+        0.4703,
+        0.7578
+      ],
+      "detected": 25,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.12195121951219512,
+      "fa_files": 5,
+      "n_normal": 41,
+      "alarms_per_hour": 12.955605458628433,
+      "missed": [
+        "Vertical Pull NO G/A_VPull_01.csv",
+        "Vertical Pull NO G/A_VPull_03.csv",
+        "Vertical Pull NO G/A_VPull_04.csv",
+        "Vertical Pull NO G/A_VPull_06.csv",
+        "Vertical Pull NO G/A_VPull_07.csv",
+        "Vertical Pull NO G/A_VPull_08.csv",
+        "Vertical Pull NO G/A_VPull_09.csv",
+        "Vertical Pull NO G/A_VPull_10.csv",
+        "Horizontal Pull NO G/A_HPull_02.csv",
+        "Horizontal Pull NO G/A_HPull_07.csv",
+        "Horizontal Pull NO G/A_HPull_08.csv",
+        "Horizontal Pull NO G/A_HPull_09.csv",
+        "PowerP/VP_3.csv",
+        "PowerP/VP_4.csv",
+        "PowerP/VP_5.csv"
+      ],
+      "seconds": 209.4
+    }
+  ]
+}

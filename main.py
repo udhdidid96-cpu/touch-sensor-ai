@@ -368,6 +368,120 @@ KALMAN_WARMUP = 5                # frames held at Level 0 while the baseline set
 NOISE_GATE_COUNTS = 60.0
 LIFT_GATE_COUNTS = -300.0
 
+# --- Jitter suppression (2026-09-18) -----------------------------------------
+# The robustness sweep measured a cliff: episode sensitivity 92.5% at noise
+# sd 30, 87.5% at sd 60, then 60.0% at sd 120 with 16 of 40 episodes missed.
+# The annunciator needs 6 of 7 consecutive frames to vote the same way, and
+# single-frame jitter breaks those runs - the detector goes deaf rather than
+# jumpy, which is the dangerous failure for this device.
+#
+# A 3-tap median removes an isolated bad frame and leaves a step edge exactly
+# where it was, which is the whole reason it is a median and not a mean: a
+# sustained pull or a sudden peel passes through unchanged.
+#
+# It must not run on bench data. Data/metrics.json was measured without it, so
+# activating on quiet frames would silently re-measure every published figure.
+#
+# The activation statistic and its gate are MEASURED, not assumed, and the first
+# two attempts at both were wrong. The per-frame median across pads of
+# |d[t]-d[t-1]| does NOT separate noise from signal: on the round-1 corpus its
+# 99th percentile is 128 counts and its maximum 475, because a press sweep moves
+# most of the patch at once. What does separate is the same statistic taken over
+# a whole file or stream, where a sustained noise floor shows and a few seconds
+# of event does not:
+#
+#   per-file median jitter    bench      sd 30       sd 60        sd 120
+#   min / median / max        6.7/9.0/38  25.7/32.5/56.7  48.9/59.0/85.3  104.9/117.5/141.0
+#
+# Bench tops out at 38.0 (N_Press_04) and sd 60 starts at 48.9, so the gate sits
+# at 44: off on every one of the 81 recordings, on for every file at sd 60 and
+# sd 120. It does NOT engage at sd 30, which is deliberate - sensitivity there
+# is already 92.5% and the cliff being fixed is at sd 120.
+JITTER_ACTIVATE_COUNTS = 44.0
+JITTER_TAPS = 3                  # causal: median(d[t-2], d[t-1], d[t])
+JITTER_WINDOW_FRAMES = 30        # live: transitions the running estimate covers
+
+# --- Quiescent negative-step recovery (2026-09-18) ---------------------------
+# Six of the ten Brief Touch recordings were started with a finger already on
+# one or two pads, so those channels seeded high and then read 470-810 counts
+# BELOW a baseline that was never valid - past the lift gate, for the whole
+# file, in recordings labelled normal (docs/PHYSICS_TO_FEATURE_MAP.md section 9).
+#
+# A real detachment is mechanical: the pad keeps moving, and its neighbours move
+# with it. A finger that has been lifted off leaves a channel that is deeply
+# negative and then perfectly still. Those are separable, and this is where they
+# are separated - a channel below the lift gate whose recent raw counts have a
+# standard deviation under 15 for 3 seconds, while FEWER than PEEL_MIN_PADS
+# channels are below the gate at all, is a bad zero and not a patient event.
+QUIESCENT_RECOVERY_SECONDS = 3.0
+QUIESCENT_RECOVERY_SD = 15.0     # counts; bench per-pad noise floor is 8.6
+QUIESCENT_P_GROWTH = 1.6         # per frame, so the baseline walks rather than jumps
+QUIESCENT_P_CAP = 4.0            # times r_vec -> Kalman gain tops out near 0.8
+
+# Seed-time per-channel contamination. seed_plausibility() takes the median
+# across 25 pads, which is exactly the statistic one or two elevated channels
+# cannot move: N_Touch_02 and N_Touch_06 both seed inside ATTACHED_SEED_BAND
+# while carrying a contaminated pad.
+#
+# The threshold is set by what a RESTING patch does, because a check that fires
+# on a clean baseline is worse than no check. Measured per-file maximum
+# deviation of a seed channel from its own frame median:
+#
+#   N_base (nothing touching the patch)   492 - 510 counts
+#   Friction / Peel / pulls               up to ~716, from mounting, not touch
+#
+# The patch is NOT flat: pads sit at genuinely different absolute capacitances
+# (docs/CONTOUR_AND_STEP_HEIGHT_COMPENSATION_GUIDE.md). Deviation from the
+# frame's own median therefore does not work, and measuring it first is what
+# showed why - the five N_base recordings, with nothing touching the patch at
+# all, already span 492-510 counts of pad-to-pad spread, so any threshold low
+# enough to catch a contaminated channel also fires on a clean baseline.
+#
+# What a contaminated channel actually breaks is the patch's SHAPE: its own
+# topography, pad by pad. SEED_RESTING_SHAPE is that shape, the per-pad median
+# of the five resting seeds, and the comparison is offset-corrected - the whole
+# reference is shifted to the frame's own median before the deviation is taken -
+# so a patch resting at a different absolute C0 is judged on shape alone. That
+# matters for round 2, where a thinner backing and a ground plane will change
+# C0 deliberately, and for any CDC board, where the absolute level is different
+# by construction.
+#
+# Measured maximum per-pad deviation from the offset-corrected shape, per file:
+#
+#   folder                  min   median   max
+#   N_base                    9       24    189      nothing touching the patch
+#   Peel                    340      410    421
+#   Friction                241      343    466
+#   Horizontal Pull         498      507    536
+#   Power Pull              493      527    569
+#   Vertical Pull           498      520    627
+#   Brief Touch             206      374    632
+#   Normal Mix              522      581   1204
+#   Press                   456     1806   2442      started mid-press
+#
+# The gate is 575: above every Peel, Friction, Horizontal Pull and Power Pull
+# recording and more than three times the worst resting file, and below
+# N_Touch_02 (600) and N_Touch_06 (632) - the two recordings with independent
+# within-file evidence of contamination. Tally at 575: N_base 0/5, Peel 0/10,
+# Friction 0/10, Horizontal Pull 0/10, Power Pull 0/10, Vertical Pull 2/10,
+# Brief Touch 2/10, Normal Mix 3/5, Press 10/11.
+#
+# The margin over the two target files is 4% and 10%, which is thin, and that is
+# why this status is ADVISORY: it asks an operator to look, it does not gate a
+# frame or change a classification. What actually repairs a bad zero live is the
+# quiescent recovery below, which needs no threshold on the seed at all.
+#
+# The reference is corpus-derived and round-1 specific. It is re-derived from
+# Data/ by tests/test_seed_plausibility.py, exactly as ATTACHED_SEED_BAND is, so
+# it cannot silently drift from the recordings it describes - and it will have
+# to be re-measured when the patch is re-built.
+SEED_CHANNEL_OUTLIER_COUNTS = 575.0
+SEED_RESTING_SHAPE = np.array([
+    27955.4, 27913.2, 27938.0, 28208.8, 28156.2, 27769.6, 28193.4, 28196.4,
+    28114.6, 27705.2, 27993.8, 27896.8, 28414.4, 27911.4, 27882.0, 27806.4,
+    27493.2, 28206.2, 28228.2, 28202.0, 28457.6, 28381.2, 28156.6, 27861.2,
+    27521.6], dtype=float)
+
 # LOOP 3 peel gate, tuned on the full corpus (see PatchSpatialField.propagation)
 PEEL_MIN_PADS = 3                # simultaneous pads below -DELTA_THRESHOLD
 PEEL_MEAN_GATE = -150.0          # whole-grid mean delta, counts
@@ -556,6 +670,69 @@ class KalmanBaseline:
         arr = np.asarray(raw, dtype=float)
         self.seed(arr)
         return np.vstack([self.step(row) for row in arr])
+
+
+def jitter_estimate(delta: np.ndarray) -> np.ndarray:
+    """Per-transition noise estimate: median across pads of |d[t] - d[t-1]|.
+
+    Length n-1 for an n-frame matrix. A median over 25 channels is the point:
+    during a real event a handful of pads move by hundreds of counts and this
+    statistic does not follow them, so it measures the noise floor and not the
+    signal. Measured on the round-1 corpus it sits near 10-12 counts throughout,
+    against 34 / 68 / 135 under the sd 30 / 60 / 120 perturbations.
+    """
+    d = np.asarray(delta, dtype=float)
+    if d.ndim != 2 or len(d) < 2:
+        return np.zeros(0, dtype=float)
+    return np.median(np.abs(np.diff(d, axis=0)), axis=1)
+
+
+def adaptive_jitter_filter(delta: np.ndarray,
+                           activate: float = JITTER_ACTIVATE_COUNTS) -> np.ndarray:
+    """Causal 3-tap median on records whose measured noise floor is high.
+
+    *** NOT IN THE SERVING PATH. This was tried, measured, and removed. ***
+
+    The idea was sound and the arithmetic is correct: a median removes an
+    isolated bad frame and leaves a step edge exactly where it was, and the
+    activation gate was set from measurement so that it changed nothing at all
+    on the 81 round-1 recordings. It was wired into load_dataset() and
+    LivePipeline on 2026-09-18 and the robustness sweep was re-run:
+
+        variant        sensitivity        false alarms      alarms/h   missed
+        noise_sd60     87.5% -> 72.5%     7.3% -> 12.2%     7.8 -> 15.5   5 -> 11
+        noise_sd120    60.0% -> 62.5%     4.9% -> 12.2%     5.2 -> 13.0  16 -> 15
+
+    It made the cliff worse, not better. At sd 60 sensitivity fell fifteen
+    points while false alarms rose; at sd 120 sensitivity moved 2.5 points,
+    well inside the confidence interval, for more than double the false alarms.
+
+    The mechanism is the one thing a median cannot help with here. A causal
+    3-tap window delays an event by up to two frames and shortens it by as much
+    again, and the annunciator needs 6 of 7 CONSECUTIVE frames to agree. The
+    corpus's events are short - vertical pull averages a handful of usable
+    frames - so trimming two off each end costs more votes than the jitter did.
+
+    Kept, unwired, because the negative result is worth more than the code: it
+    says the noise cliff is not a filtering problem and will not be fixed in
+    software. It is a front-end problem, which is the argument for the absolute
+    CDC board. tests/test_jitter_suppression.py pins both the maths and the fact
+    that nothing calls this.
+    """
+    d = np.asarray(delta, dtype=float)
+    if d.ndim != 2 or len(d) < JITTER_TAPS:
+        return d
+    jit = jitter_estimate(d)
+    if jit.size == 0 or float(np.median(jit)) <= activate:
+        return d
+    # The decision is per file, not per frame: a frame-by-frame gate cannot be
+    # set, because a press sweep produces the same instantaneous statistic as a
+    # noisy board. What is different is that noise persists and an event does
+    # not, which is what the median over the whole record measures.
+    out = d.copy()
+    out[JITTER_TAPS - 1:] = np.median(
+        np.stack([d[:-2], d[1:-1], d[2:]]), axis=0)
+    return out
 
 
 def calibrate(raw: np.ndarray, mode: str = "static") -> np.ndarray:
@@ -1198,6 +1375,9 @@ def load_dataset(calibration: str = "static", use_gradient: bool = False,
             lab = int(meta["label"])
             min_raw[lab] = min(min_raw.get(lab, float("inf")), float(raw.min()))
 
+            # NOT filtered. adaptive_jitter_filter() was wired in here on
+            # 2026-09-18 and measured worse, so it came back out - see the
+            # negative result recorded in its docstring.
             delta = calibrate(raw, calibration)
             feats = extract_features(delta, use_gradient)
             X_all.append(feats)
@@ -2351,6 +2531,19 @@ class LivePipeline:
         # F11/F12: Real-time surface topography and adaptive lift gates
         self.topography: Optional[Dict[str, Any]] = None
         self.adaptive_lift_gates: Optional[np.ndarray] = None
+        # Quiescent negative-step recovery and jitter suppression state.
+        self._quiescent_frames = max(2, int(math.ceil(
+            QUIESCENT_RECOVERY_SECONDS / SAMPLE_PERIOD_S)))
+        self._raw_history: collections.deque = collections.deque(
+            maxlen=self._quiescent_frames)
+        self._delta_history: collections.deque = collections.deque(maxlen=JITTER_TAPS)
+        self._jitter_window: collections.deque = collections.deque(
+            maxlen=JITTER_WINDOW_FRAMES)
+        self.quiescent_recovery: Dict[str, Any] = {
+            "active_pads": [], "note": "not engaged"}
+        self._quiescent_latched = np.zeros(N_PADS, dtype=bool)
+        self.jitter_active = False
+        self.jitter_noise_counts = 0.0
 
     @property
     def warming_up(self) -> bool:
@@ -2368,6 +2561,95 @@ class LivePipeline:
         self._cdc_initial_baseline = None
         self.topography = None
         self.adaptive_lift_gates = None
+        self._raw_history.clear()
+        self._delta_history.clear()
+        self._jitter_window.clear()
+        self.quiescent_recovery = {"active_pads": [], "note": "not engaged"}
+        self._quiescent_latched = np.zeros(N_PADS, dtype=bool)
+        self.jitter_active = False
+        self.jitter_noise_counts = 0.0
+
+    # ----- quiescent negative-step recovery ---------------------------------
+    def _release_quiescent(self) -> None:
+        """Put the per-channel gates back and report the recovery as idle."""
+        k = self.kalman
+        if k.gate_vec is not None:
+            k.gate_vec = np.full(len(k.gate_vec), k.gate, dtype=float)
+        self._quiescent_latched = np.zeros(N_PADS, dtype=bool)
+        if self.quiescent_recovery["active_pads"]:
+            self.quiescent_recovery = {"active_pads": [], "note": "not engaged"}
+
+    def _apply_quiescent_recovery(self, delta: np.ndarray) -> None:
+        """Let the baseline re-converge on a channel that is deep but motionless.
+
+        A channel below the lift gate is either a patient event or a bad zero.
+        The two are separable by motion: a detachment keeps moving and drags its
+        neighbours with it, while a finger that has already been lifted off
+        leaves a channel that is deeply negative and then perfectly still.
+
+        Three conditions, all required:
+          * the channel is below LIFT_GATE_COUNTS;
+          * FEWER than PEEL_MIN_PADS channels are below it at all, so nothing
+            that looks like a peel front can ever qualify;
+          * that channel's raw counts have a standard deviation under
+            QUIESCENT_RECOVERY_SD over the last QUIESCENT_RECOVERY_SECONDS.
+
+        Residual risk, stated rather than hidden: a single pad that genuinely
+        detaches and then lies perfectly still for three seconds while no other
+        pad is lifting would also be recovered. That is one channel out of 25
+        with no spatial corroboration - which is below PEEL_MIN_PADS and would
+        not have raised a peel alarm either way.
+        """
+        k = self.kalman
+        if (k.b is None or k.p is None or k.r_vec is None or k.gate_vec is None
+                or self.warming_up or len(self._raw_history) < self._quiescent_frames):
+            self._release_quiescent()
+            return
+
+        d = np.asarray(delta, dtype=float)
+        lifting = d < LIFT_GATE_COUNTS
+        n_lifting = int(lifting.sum())
+        if n_lifting >= PEEL_MIN_PADS:
+            # A peel front, latched or not. Recovery stays out of it.
+            self._release_quiescent()
+            return
+
+        # Hysteresis, and it is not cosmetic. Engaging below the lift gate and
+        # releasing at the same threshold left the channel parked just under it:
+        # measured -797 recovering to -282, which clears the gate but leaves a
+        # standing offset that the ordinary 60-count innovation gate can never
+        # close. Engage at the lift gate, release at the noise gate.
+        holding = self._quiescent_latched & (d < -NOISE_GATE_COUNTS)
+        below = lifting | holding
+        if not below.any():
+            self._release_quiescent()
+            return
+
+        sd = np.asarray(self._raw_history, dtype=float).std(axis=0)
+        quiet = below & (sd < QUIESCENT_RECOVERY_SD)
+        self._quiescent_latched = quiet
+        if not quiet.any():
+            self._release_quiescent()
+            return
+
+        # Inflating P alone cannot move anything. step() sets the Kalman gain to
+        # zero whenever |innovation| >= gate, and the innovation here is several
+        # hundred counts against a 60-count gate - so the gate, not the
+        # covariance, is what is holding the bad zero in place. Both are opened,
+        # for these channels only, and only while they stay still: P grows by a
+        # bounded factor per frame so the baseline walks toward the resting skin
+        # over a couple of seconds instead of snapping to it.
+        k.p = np.where(quiet, np.minimum(k.p * QUIESCENT_P_GROWTH,
+                                         QUIESCENT_P_CAP * k.r_vec), k.p)
+        base_gate = np.full(len(k.gate_vec), k.gate, dtype=float)
+        k.gate_vec = np.where(quiet, np.abs(delta) + 1.0, base_gate)
+        pads = [int(i) + 1 for i in np.nonzero(quiet)[0]]
+        self.quiescent_recovery = {
+            "active_pads": pads,
+            "note": (f"Pad {', '.join(str(p) for p in pads)} sits below the lift gate but "
+                     f"has not moved for {QUIESCENT_RECOVERY_SECONDS:.0f} s and no other "
+                     f"pad is lifting - treating it as a released touch, not a detachment, "
+                     f"and re-converging its baseline")}
 
     def process(self, pad_frame: np.ndarray, imu: Optional[IMUFrame] = None) -> Dict[str, Any]:
         pad_frame = np.asarray(pad_frame, dtype=float)
@@ -2455,6 +2737,23 @@ class LivePipeline:
         self._disconnected_run = 0
 
         delta = self.kalman.step(working_frame)
+
+        # Noise-floor telemetry only. The 3-tap median that used to be applied
+        # here was measured worse and removed; what is left is the estimate
+        # itself, reported so an operator and the audit trail can see that the
+        # front end has gone noisy. `jitter_filter_active` stays False: nothing
+        # filters the delta, and the field says so rather than disappearing.
+        self._delta_history.append(np.asarray(delta, dtype=float).copy())
+        if len(self._delta_history) >= 2:
+            prev, cur = self._delta_history[-2], self._delta_history[-1]
+            self._jitter_window.append(float(np.median(np.abs(cur - prev))))
+        self.jitter_noise_counts = (
+            float(np.median(self._jitter_window)) if self._jitter_window else 0.0)
+        self.jitter_active = False
+
+        self._raw_history.append(np.asarray(working_frame, dtype=float).copy())
+        self._apply_quiescent_recovery(delta)
+
         warming = self.warming_up
 
         # F11: Surface Topography & Adaptive Gates
@@ -2534,6 +2833,9 @@ class LivePipeline:
             "index": self.index,
             "time_sec": round(self.index * SAMPLE_PERIOD_S, 3),
             "seed_plausibility": self.seed_plausibility,
+            "quiescent_recovery": self.quiescent_recovery,
+            "jitter_filter_active": self.jitter_active,
+            "jitter_noise_counts": round(self.jitter_noise_counts, 1),
             "pad_values": [round(v, 3 if is_cdc else 1) for v in pad_frame.tolist()],
             "deltas": [round(v, 1) for v in delta.tolist()],
             "normalized_deltas": [round(v, 1) for v in norm_delta.tolist()],
@@ -3846,7 +4148,7 @@ def seed_plausibility(seed_counts: np.ndarray) -> Dict[str, Any]:
     finite = arr[np.isfinite(arr)]
     if finite.size == 0:
         return {"status": "unknown", "seed_median": None, "band": list(ATTACHED_SEED_BAND),
-                "note": "seed frame carried no finite values"}
+                "outlier_pads": [], "note": "seed frame carried no finite values"}
     med = float(np.median(finite))
     lo, hi = ATTACHED_SEED_BAND
     if med < lo:
@@ -3861,7 +4163,46 @@ def seed_plausibility(seed_counts: np.ndarray) -> Dict[str, Any]:
     else:
         status = "attached_band"
         note = "seed within the round-1 attached-at-rest band"
-    return {"status": status, "seed_median": round(med, 1), "band": [lo, hi], "note": note}
+
+    # Per-channel contamination, checked against the median of the same frame.
+    # The band test above is a median over 25 pads and cannot see one or two
+    # elevated channels: N_Touch_02 seeds at a median of 28,199 - squarely
+    # inside the band - while pad 2 sits 792 counts above it, which then reads
+    # as a permanent -792 lift for the rest of the recording. Deviation is
+    # measured against the frame's own median rather than the band, so a patch
+    # resting at a different absolute C0 is judged on its own flatness.
+    if arr.size == SEED_RESTING_SHAPE.size:
+        # Offset-corrected: only the SHAPE is compared, so a patch resting at a
+        # different absolute C0 is judged on its own topography.
+        shape = SEED_RESTING_SHAPE + (med - float(np.median(SEED_RESTING_SHAPE)))
+        dev = np.abs(arr - shape)
+    else:
+        dev = np.abs(arr - med)
+    outliers = [int(i) + 1 for i in np.nonzero(np.isfinite(dev) &
+                                               (dev > SEED_CHANNEL_OUTLIER_COUNTS))[0]]
+    if outliers:
+        listed = ", ".join(str(p) for p in outliers)
+        plural = "Pads" if len(outliers) > 1 else "Pad"
+        # Direction matters clinically and costs one line: a channel seeded HIGH
+        # is the contamination case (something resting on it at power-on, which
+        # then reads as a permanent lift). A channel seeded LOW is a different
+        # fault - an open or unbonded electrode - and telling an operator to
+        # "release the patch" would send them after the wrong thing.
+        high = [p for p in outliers if arr[p - 1] > shape[p - 1]] if arr.size == SEED_RESTING_SHAPE.size \
+            else [p for p in outliers if arr[p - 1] > med]
+        cause = ("something was touching them when the baseline was taken"
+                 if len(high) == len(outliers) else
+                 "these channels did not seed with the rest of the patch")
+        return {"status": "channel_outlier", "seed_median": round(med, 1), "band": [lo, hi],
+                "outlier_pads": outliers, "band_status": status,
+                "outlier_pads_high": high,
+                "note": (f"{plural} {listed} seeded more than "
+                         f"{SEED_CHANNEL_OUTLIER_COUNTS:.0f} counts from the rest during "
+                         f"power-on warmup - {cause}; re-seed the baseline before trusting "
+                         f"alarms")}
+
+    return {"status": status, "seed_median": round(med, 1), "band": [lo, hi],
+            "outlier_pads": [], "note": note}
 MIN_AUDIT_FRAMES = 100           # SOP v2: 60-120 s per file at 560 ms
 BASELINE_MAX_SWING = 100.0       # SOP v2 criterion 5, now actually enforced
 ROUND1_FRICTION_SWING = 654.0    # measured on the round-1 corpus, not a spec

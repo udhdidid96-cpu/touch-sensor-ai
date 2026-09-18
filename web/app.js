@@ -937,13 +937,28 @@ function renderFrame(fr, total) {
   // of that and never rejects a frame, so this badge warns and nothing else.
   // Absent on replay payloads, which carry no seed; the badge then stays hidden.
   const seedEl = document.getElementById('seedBadge');
+  const reseedBtn = document.getElementById('reseedBtn');
   if (seedEl) {
     const seed = fr.seed_plausibility;
     const flagged = Boolean(seed && seed.status &&
                             seed.status !== 'attached_band' && seed.status !== 'unseeded');
+    const outlier = Boolean(seed && seed.status === 'channel_outlier');
     seedEl.hidden = !flagged;
     seedEl.textContent = flagged ? String(seed.note || seed.status) : '';
     seedEl.title = flagged ? `Kalman seed: ${seed.status}` : '';
+    // A contaminated channel and a whole-patch bad zero are different faults and
+    // read differently on the console. Both strings come from the server.
+    seedEl.classList.toggle('pipe__s--outlier', outlier);
+    if (reseedBtn) reseedBtn.hidden = !flagged;
+  }
+
+  // Quiescent recovery: the server decided this, the page only says so.
+  const quietEl = document.getElementById('quiescentBadge');
+  if (quietEl) {
+    const q = fr.quiescent_recovery;
+    const engaged = Boolean(q && Array.isArray(q.active_pads) && q.active_pads.length);
+    quietEl.hidden = !engaged;
+    quietEl.textContent = engaged ? String(q.note || '') : '';
   }
 
   // Severity Level & Status Banner
@@ -2122,6 +2137,36 @@ function updateBedSelectLabels() {
     sel.value = state.activeBed;
   }
   updateTopPatientBadge();
+}
+
+/**
+ * Ask the SERVER to re-take the Kalman baseline.
+ *
+ * Invariant 1: this sends an event and nothing else. It does not clear, zero or
+ * re-interpret anything on the page - LivePipeline.reseed() owns that, and the
+ * next frame the server sends is what the console draws.
+ *
+ * Two sockets can be live: the dashboard's own stream (state.liveWs) and the
+ * browser serial bridge in web_serial.js. Whichever is open gets the event.
+ */
+function requestReseedBaseline() {
+  const payload = JSON.stringify({ event: 'reseed' });
+  let sent = false;
+  try {
+    if (state.liveWs && state.liveWs.readyState === WebSocket.OPEN) {
+      state.liveWs.send(payload);
+      sent = true;
+    }
+  } catch (e) { /* fall through to the serial bridge */ }
+  if (typeof sendSerialControl === 'function' && sendSerialControl(payload)) {
+    sent = true;
+  }
+  if (typeof showToast === 'function') {
+    showToast(sent ? 'Reseed requested' : 'No live stream',
+              sent ? 'The server will re-take the baseline on the next frame.'
+                   : 'Connect a live stream before reseeding the baseline.',
+              sent ? 'info' : 'warning');
+  }
 }
 
 function updateTopPatientBadge() {

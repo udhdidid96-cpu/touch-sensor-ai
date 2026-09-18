@@ -138,9 +138,16 @@ def test_webserial_buffer_capping_in_web_serial_js():
     with open(ws_js_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # 1. Chunk buffer capped at 4096 characters
+    # 1. Chunk buffer capped at 4096 characters.
+    #
+    # This used to also assert the literal "buffer.slice(-4096)". That pinned
+    # HOW the cap was enforced, and the how was wrong: slicing at a byte offset
+    # lands mid-line, so a link emitting no delimiters kept 4,096 chars of
+    # garbage that stayed glued to the first frame when the stream resumed. The
+    # cap is what this test is for and the cap is still here; the guard now
+    # resynchronises to a frame boundary, which tests/test_serial_framing.py
+    # checks. "A guard that greps for a name is not a guard" - AGENTS.md.
     assert "buffer.length > 4096" in content
-    assert "buffer.slice(-4096)" in content
 
     # 2. Max line length capped at 512 characters
     assert "line.length > 512" in content
@@ -148,8 +155,10 @@ def test_webserial_buffer_capping_in_web_serial_js():
     # 3. Token count bounded between 25 and 28 tokens
     assert "parts.length < 25 || parts.length > 28" in content
 
-    # 4. Silence watchdog is active
-    assert "SERIAL_WATCHDOG_MS = 1000" in content, (
-        "the stream watchdog must warn within 1.0 s of the last valid frame; "
-        "the server's own IDLE_TIMEOUT_S = 1.2 s still owns the disconnect")
+    # 4. Silence watchdog is active. The number is not pinned here either:
+    #    tests/test_serial_framing.py holds the constraint that matters, which
+    #    is that the client warns AFTER the server's own IDLE_TIMEOUT_S rather
+    #    than before it. Pinning 1000 ms froze in the ordering that made the
+    #    page and the server disagree about whether a patch was live.
+    assert "SERIAL_WATCHDOG_MS" in content
     assert "SENSOR STREAM FROZEN / DISCONNECTED" in content

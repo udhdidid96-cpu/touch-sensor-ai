@@ -44,12 +44,20 @@ let webSerialActive = false;
 let webSerialSocket = null;
 let webSerialClosedPromise = null;
 let serialWatchdogTimer = null;
-// Frames arrive every 560 ms (1.79 Hz), so 1000 ms is 1.79 frame periods: one
-// dropped frame plus 440 ms of jitter trips this. That is deliberate - a frozen
-// stream on a clinical display is worse than an occasional yellow warning - but
-// it is why this is a WARNING and not an alarm, and why it clears itself on the
-// next valid frame instead of latching.
-const SERIAL_WATCHDOG_MS = 1000;
+// Frames arrive every 560 ms (1.79 Hz). 1500 ms is 2.68 frame periods: two
+// dropped frames plus 380 ms of jitter trips this.
+//
+// It was 1000 ms, which put the client AHEAD of the server's own
+// SerialFrameSource.IDLE_TIMEOUT_S (1.2 s) - so on a real dropout the page
+// declared the stream frozen while the server still thought it was live, which
+// is the two-components-disagreeing failure the old comment here warned about.
+// At 1500 ms the server decides first and the console confirms, in that order.
+//
+// This is still a WARNING, not an alarm, and it clears itself on the next valid
+// frame instead of latching: a dropout is not evidence that the patient is fine,
+// and it is not evidence that they are not. The last known state stays on screen
+// and the alarm level is held by the server's debouncer, untouched.
+const SERIAL_WATCHDOG_MS = 1500;
 const SERIAL_FROZEN_TEXT = 'SENSOR STREAM FROZEN / DISCONNECTED';
 let serialStreamFrozen = false;
 const MAX_CHART_POINTS = 50;
@@ -67,6 +75,23 @@ function setStreamFrozen(frozen) {
   if (frozen && typeof showToast === 'function') {
     showToast(SERIAL_FROZEN_TEXT,
               'No valid frame for 1.0 s. Readings on screen are stale.', 'warning');
+  }
+}
+
+/**
+ * Forward a control message (currently only {"event":"reseed"}) to the server
+ * over the serial ingest socket. Returns true if it went out.
+ *
+ * Invariant 1 holds trivially: this file never classifies, and a control event
+ * carries no measurement. The server decides what "reseed" means.
+ */
+function sendSerialControl(payload) {
+  if (!webSerialSocket || webSerialSocket.readyState !== WebSocket.OPEN) return false;
+  try {
+    webSerialSocket.send(payload);
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -356,9 +381,24 @@ async function readWebSerialStream() {
       if (done) break;
       if (!value) continue;
       buffer += value;
-      // Cap chunk buffer at 4,096 chars to bound memory
+      // Resynchronise, do not truncate.
+      //
+      // This used to be buffer.slice(-4096), which keeps the last 4,096 CHARS -
+      // an arbitrary byte offset that lands in the middle of a line. The
+      // surviving head is then a partial frame with fewer tokens, and while
+      // sendFrameLine() drops it on the token count, the failure mode is worse
+      // than that: a device emitting no delimiters at all (a wedged link, a
+      // wrong baud rate) fills the buffer with garbage that is never cleared,
+      // and when real frames resume the leading garbage is still glued to the
+      // first of them.
+      //
+      // Cutting at the last newline instead means the buffer always restarts on
+      // a real frame boundary. With no delimiter anywhere in 4,096 chars there
+      // is no frame boundary to keep, so the whole buffer goes - that is the
+      // resync. The watchdog above is what tells the operator it happened.
       if (buffer.length > 4096) {
-        buffer = buffer.slice(-4096);
+        const lastBreak = buffer.lastIndexOf('\n');
+        buffer = lastBreak >= 0 ? buffer.slice(lastBreak + 1) : '';
       }
       const lines = buffer.split('\n');
       buffer = lines.pop();

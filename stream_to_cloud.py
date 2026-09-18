@@ -24,6 +24,14 @@ import urllib.parse
 DEFAULT_CLOUD_URL = "https://touch-sensor-ai-156577365290.asia-southeast1.run.app"
 N_PADS = 25
 
+# Frames arrive every 560 ms, so 1.5 s is two missed frames plus jitter. The
+# same number the browser bridge uses (web/web_serial.js), and for the same
+# reason: it sits ABOVE the server's SerialFrameSource.IDLE_TIMEOUT_S of 1.2 s,
+# so the server declares a dropout first and the bridge confirms. Two components
+# racing to declare the same disconnect is how the console and the server ended
+# up disagreeing about whether a patch was live.
+SERIAL_WATCHDOG_S = 1.5
+
 
 def find_default_com_port() -> Optional[str]:
     """Auto-detect Arduino or USB Serial COM port."""
@@ -76,7 +84,10 @@ def main() -> None:
         print(f"\n[1/2] Connecting to Arduino on {port}...")
         ser = None
         try:
-            ser = serial.Serial(port=port, baudrate=args.baud, timeout=2.0)
+            # timeout must be BELOW the watchdog, or readline() blocks past the
+            # deadline and the watchdog can never fire. 0.5 s gives three checks
+            # inside SERIAL_WATCHDOG_S.
+            ser = serial.Serial(port=port, baudrate=args.baud, timeout=0.5)
             print(" [OK] Arduino USB port opened successfully!")
         except Exception as e:
             print(f" [WAIT] Could not open {port}: {e}")
@@ -105,10 +116,29 @@ def main() -> None:
                 count = 0
                 acked = 0
                 last_fps_time = time.time()
+                last_frame_at = time.time()
+                link_down = False
                 while True:
                     line = ser.readline().decode("utf-8", errors="replace").strip()
                     if not line or line.startswith("#"):
+                        # Watchdog. A silent port is not a patient event, so
+                        # nothing is sent and nothing is alarmed: the bridge
+                        # stops feeding the server, the server's own idle
+                        # timeout holds the last level through its debouncer,
+                        # and the console freezes on the last valid state. The
+                        # loop keeps reading, so a cable pushed back in resumes
+                        # without a restart.
+                        if not link_down and time.time() - last_frame_at > SERIAL_WATCHDOG_S:
+                            link_down = True
+                            print(f"\n [DISCONNECTED] No serial frame for "
+                                  f"{SERIAL_WATCHDOG_S:.1f} s. Holding last state; "
+                                  f"not sending. Waiting for the port to come back.",
+                                  flush=True)
                         continue
+                    if link_down:
+                        link_down = False
+                        print(" [RECONNECTED] Serial frames resumed.", flush=True)
+                    last_frame_at = time.time()
                     parts = [p for p in line.replace(",", " ").split() if p]
                     if len(parts) < N_PADS:
                         continue

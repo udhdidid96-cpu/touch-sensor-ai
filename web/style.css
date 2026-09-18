@@ -514,6 +514,19 @@ body[data-level="3"] .topbar { box-shadow: inset 0 -3px 0 var(--bad); }
   padding: 1px 6px; max-width: 168px; text-align: center; line-height: 1.3;
 }
 .pipe__s--warn[hidden] { display: none; }
+/* A contaminated channel is a different fault from a whole-patch bad zero: the
+   patch IS attached, one pad was covered when the baseline was taken. Red, not
+   amber, because the reading it produces looks exactly like a lifting pad. */
+.pipe__s--outlier {
+  color: var(--bad); background: var(--bad-soft); border-color: var(--bad);
+}
+.pipe__reseed {
+  margin-top: 4px; padding: 3px 9px; border-radius: 4px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--accent);
+  color: var(--accent); font-family: inherit; font-size: 10.5px; font-weight: 600;
+}
+.pipe__reseed:hover { background: var(--accent); color: var(--panel); }
+.pipe__reseed[hidden] { display: none; }
 .pipe__arrow { display: none; }
 
 /* ------------------------------------------------------------ validation -- */
