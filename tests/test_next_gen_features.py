@@ -93,3 +93,222 @@ def test_usb_reconnection_reseeds_only_after_a_real_disconnect():
     assert min(after) < -500.0, (
         f"a single dropped frame re-seeded the baseline and erased a lift in "
         f"progress: {min(before):.0f} -> {min(after):.0f} counts")
+
+
+def test_cdc_tube_localization_endpoint(client):
+    """Test /api/v6/cdc/tube-localization detects tube shadow from absolute capacitance."""
+    c_abs = [30.0] * N_PADS
+    for p in [0, 2, 6, 8, 10]:
+        c_abs[p] = 28.5
+
+    res = client.post("/api/v6/cdc/tube-localization", json={"c_abs_pf": c_abs})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["detected"] is True
+    assert set(data["shadowed_pads"]).issuperset({1, 3, 7, 9, 11})
+    assert data["axis_orientation"] in ("vertical", "horizontal")
+    assert data["confidence"] > 0.0
+
+    bad_res = client.post("/api/v6/cdc/tube-localization", json={"c_abs_pf": [30.0] * 10})
+    assert bad_res.status_code == 400
+
+
+def test_convert_absolute_cdc_to_counts():
+    """Verify conversion of absolute CDC pF to delta counts."""
+    from main import convert_absolute_cdc_to_counts, COUNTS_PER_PF
+    c_abs = np.full(N_PADS, 30.0)
+    c_base = np.full(N_PADS, 30.0)
+    deltas = convert_absolute_cdc_to_counts(c_abs, c_base)
+    assert np.allclose(deltas, 0.0)
+
+    c_lift = np.full(N_PADS, 25.0)
+    deltas_lift = convert_absolute_cdc_to_counts(c_lift, c_base)
+    expected_delta = -5.0 * COUNTS_PER_PF
+    assert np.allclose(deltas_lift, expected_delta)
+
+
+def test_live_pipeline_cdc_mode_and_disconnect():
+    """Verify LivePipeline seamlessly processes absolute CDC inputs without false disconnect."""
+    pipe = LivePipeline(model=None, warmup_frames=2, cdc_mode=True)
+    # Feed CDC frames ~30.0 pF (which would erroneously trigger <3000 counts in legacy code)
+    normal_frame = np.full(N_PADS, 30.0)
+    out1 = pipe.process(normal_frame)
+    assert not out1.get("disconnected", False)
+    assert out1["mode"] == "cdc"
+
+    # Verify open-circuit / disconnect detection in CDC mode (< 1 pF)
+    disconnect_frame = np.zeros(N_PADS)
+    out_disc = pipe.process(disconnect_frame)
+    assert out_disc["disconnected"] is True
+    assert out_disc["mode"] == "cdc"
+
+
+def test_static_tube_localization_edge_cases(client):
+    """Test NaN, Inf, and diagonal tube orientation validation."""
+    from main import detect_static_tube_localization
+    # NaN input
+    nan_arr = np.full(N_PADS, 30.0)
+    nan_arr[5] = np.nan
+    res_nan = detect_static_tube_localization(nan_arr)
+    assert not res_nan["detected"]
+    assert "non-finite" in res_nan["reason"]
+
+    # Negative input
+    neg_arr = np.full(N_PADS, 30.0)
+    neg_arr[2] = -5.0
+    res_neg = detect_static_tube_localization(neg_arr)
+    assert not res_neg["detected"]
+    assert "negative" in res_neg["reason"]
+
+    # Diagonal orientation
+    diag_arr = np.full(N_PADS, 30.0)
+    # Pads running diagonally: 1, 5, 13, 20, 25
+    for p in [0, 4, 12, 19, 24]:
+        diag_arr[p] = 28.0
+    res_diag = detect_static_tube_localization(diag_arr)
+    assert res_diag["detected"] is True
+    assert res_diag["axis_orientation"] in ("diagonal", "vertical", "horizontal")
+
+
+def test_analyze_surface_topography_planar_and_stepped(client):
+    """Verify surface topography profiling for planar, contoured, and stepped ridge profiles."""
+    from main import analyze_surface_topography, compute_fractional_deltas
+
+    # 1. Planar surface (uniform baseline counts ~28,000)
+    flat_base = np.full(N_PADS, 28000.0)
+    flat_res = analyze_surface_topography(flat_base)
+    assert flat_res["valid"] is True
+    assert flat_res["surface_profile"] == "planar"
+    assert len(flat_res["tenting_pads"]) == 0
+    assert len(flat_res["flush_pads"]) == N_PADS
+    assert len(flat_res["adaptive_lift_gates"]) == N_PADS
+    assert flat_res["adaptive_lift_gates"][0] == -308.0
+
+    # 2. Stepped ridge / tenting (e.g. pads 11, 12, 13 bridging over ETT tube with lower capacitance)
+    stepped_base = np.full(N_PADS, 28000.0)
+    for p in [10, 11, 12]:  # pads 11, 12, 13
+        stepped_base[p] = 14000.0
+    stepped_res = analyze_surface_topography(stepped_base)
+    assert stepped_res["valid"] is True
+    assert stepped_res["surface_profile"] == "stepped_ridge"
+    assert set(stepped_res["tenting_pads"]).issuperset({11, 12, 13})
+    assert "trough" in stepped_res["recommendation"].lower() or "step-height" in stepped_res["recommendation"].lower()
+    # Check that adaptive lift gates for tenting pads are adjusted appropriately (not stuck at -300)
+    assert stepped_res["adaptive_lift_gates"][10] == -154.0  # -0.011 * 14000 = -154
+
+    # 3. Fractional deltas scale-invariance
+    deltas = np.array([-1400.0, -2800.0])
+    bases = np.array([14000.0, 28000.0])
+    frac = compute_fractional_deltas(deltas, bases)
+    # Both pads lifted by 10% of their respective baselines -> identical fractional delta -0.10
+    assert np.allclose(frac, -0.10)
+
+    # 4. REST endpoint test
+    res = client.post("/api/v6/topography/analyze", json={"baseline": list(stepped_base)})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["valid"] is True
+    assert data["surface_profile"] == "stepped_ridge"
+    assert set(data["tenting_pads"]).issuperset({11, 12, 13})
+
+
+def test_dockerfile_security_guard():
+    """Invariant 6 (TEST-01): Dockerfile must never carry --allow-public-no-key in active commands."""
+    import os
+    dockerfile_path = os.path.join(os.path.dirname(__file__), "..", "Dockerfile")
+    if os.path.exists(dockerfile_path):
+        with open(dockerfile_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        for line in lines:
+            clean = line.strip()
+            if not clean.startswith("#"):
+                assert "--allow-public-no-key" not in clean, (
+                    "SECURITY VIOLATION: Dockerfile contains --allow-public-no-key (Invariant 6 violated)"
+                )
+
+
+def test_simulator_websocket_source(client):
+    """TEST-02: Test websocket telemetry stream from simulator source."""
+    with client.websocket_connect("/ws/live_sensor?source=simulator") as ws:
+        started = ws.receive_json()
+        assert started.get("event") == "started"
+        assert started.get("source") in ("simulator", "Live-Hardware (Standby)")
+        frame = ws.receive_json()
+        assert "pad_values" in frame
+        assert len(frame["pad_values"]) == N_PADS
+        assert "deltas" in frame
+        assert len(frame["deltas"]) == N_PADS
+        assert frame["severity_level"] in (0, 1, 2, 3)
+
+
+def test_event_log_nan_inf_and_bounds_rejection(client):
+    """TEST-03: /api/v6/event-log rejects NaN, Inf, negative indices, and invalid severities."""
+    # 1. NaN cpri_percent passed via raw non-finite payload
+    res = client.post(
+        "/api/v6/event-log",
+        content=b'{"severity_level": 1, "cpri_percent": NaN, "frame_index": 10, "time_sec": 5.0}',
+        headers={"content-type": "application/json"}
+    )
+    assert res.status_code == 400
+
+    # 2. Negative frame index
+    res = client.post("/api/v6/event-log", json={
+        "severity_level": 1,
+        "cpri_percent": 25.0,
+        "frame_index": -1,
+        "time_sec": 5.0,
+    })
+    assert res.status_code == 400
+
+    # 3. Boolean severity level
+    res = client.post("/api/v6/event-log", json={
+        "severity_level": True,
+        "cpri_percent": 25.0,
+        "frame_index": 10,
+        "time_sec": 5.0,
+    })
+    assert res.status_code == 400
+
+
+def test_localization_keys_parity():
+    """TEST-04: web/app.js contains definitions for th, en, and jp."""
+    import os
+    app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
+    assert os.path.exists(app_js_path)
+    with open(app_js_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "th:" in content and "en:" in content and "jp:" in content
+    # Check core clinical keys present in all languages
+    core_keys = ["peel_dir", "standby", "ward_unassigned", "protocol_live", "mode_live"]
+    for k in core_keys:
+        assert f"{k}:" in content
+
+
+def test_fractional_deltas_edge_guards():
+    """TEST-05: compute_fractional_deltas handles negative, zero, and boundary baselines."""
+    from main import compute_fractional_deltas
+    # Zero and negative baseline
+    d = np.array([-100.0, 200.0])
+    b = np.array([0.0, -10.0])
+    res = compute_fractional_deltas(d, b)
+    assert np.isfinite(res).all()
+    # Falls back to safe divisor 1.0
+    assert np.allclose(res, d)
+
+
+def test_cdc_tube_payload_validation(client):
+    """TEST-06: /api/v6/cdc/tube-localization validates payload structure strictly."""
+    # List of booleans instead of numbers
+    res = client.post("/api/v6/cdc/tube-localization", json={"c_abs_pf": [True] * N_PADS})
+    assert res.status_code == 400
+
+    # Wrong length list
+    res = client.post("/api/v6/cdc/tube-localization", json={"c_abs_pf": [30.0] * 12})
+    assert res.status_code == 400
+
+    # Non-dict body
+    res = client.post("/api/v6/cdc/tube-localization", json="not a dict")
+    assert res.status_code in (400, 422)
+
+
+

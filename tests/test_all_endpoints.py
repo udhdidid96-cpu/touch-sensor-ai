@@ -550,6 +550,47 @@ def test_event_log_records_only_real_telemetry(client):
     assert res_bad.status_code == 400
 
 
+def test_event_log_records_all_extended_telemetry_and_exports_csv(client, clean_event_log):
+    # POST event with full telemetry
+    full_payload = {
+        "dataset": "Live-Hardware",
+        "frame_index": 45,
+        "time_sec": 25.2,
+        "severity_level": 3,
+        "status": "Critical: full detachment",
+        "cpri_percent": 89.5,
+        "probabilities": [0.01, 0.05, 0.14, 0.80],
+        "min_delta": -2450.0,
+        "max_delta": 120.0,
+        "attached_nodes": 5,
+        "lifting_pads": 20,
+        "grid_mean": -650.0,
+        "peel_desc": "peeling from top-left, spreading S (20 pads lifted)",
+        "deltas": [-2450.0, -1200.0, -800.0] + [0.0] * 22
+    }
+    res_post = client.post("/api/v6/event-log", json=full_payload)
+    assert res_post.status_code == 200
+    evt = res_post.json()["event"]
+    assert evt["severity_level"] == 3
+    assert evt["status"] == "Critical: full detachment"
+    assert evt["attached_nodes"] == 5
+    assert evt["lifting_pads"] == 20
+    assert len(evt["deltas"]) == 25
+    assert evt["probabilities"] == [0.01, 0.05, 0.14, 0.8]
+
+    # Test CSV export endpoint
+    res_csv = client.get("/api/v6/event-log/export-csv")
+    assert res_csv.status_code == 200
+    assert "text/csv" in res_csv.headers.get("content-type", "")
+    assert "attachment" in res_csv.headers.get("content-disposition", "")
+    assert "event_logs_" in res_csv.headers.get("content-disposition", "")
+    csv_body = res_csv.text
+    assert "Event_ID,Sequence,Timestamp,Dataset,Frame_Index" in csv_body
+    assert "Critical: full detachment" in csv_body
+    assert "89.5" in csv_body
+    assert "-2450.0" in csv_body
+
+
 def test_upload_custom_csv_endpoint(client):
     # Non-CSV extension is rejected with 400
     res_bad_ext = client.post("/api/v6/upload-csv", files={"file": ("test.txt", b"hello", "text/plain")})
