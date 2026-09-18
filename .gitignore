@@ -1,0 +1,19 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# pytest scratch and cache. .pytest_temp is the old repo-local basetemp; the
+# addopts line that created it was removed from pytest.ini, but the directory
+# lingers in working copies.
+.pytest_temp/
+.pytest_cache/
+
+# Agent tool state - local to one machine, not part of the project
+.serena/
+.claude/
+
+# Trained model cache and its digest. Both are build artifacts of
+# `python run.py verify` / the training path; Data/metrics.json is the
+# reproducible record, not the pickle.
+Data/*.joblib
+Data/*.joblib.sha256.json
