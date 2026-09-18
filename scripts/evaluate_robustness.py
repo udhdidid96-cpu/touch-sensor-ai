@@ -203,7 +203,14 @@ def main_cli() -> int:
     if unknown:
         print(f"unknown variant(s): {', '.join(unknown)}\nknown: {', '.join(VARIANTS)}")
         return 2
-    if names[0] != "identity":
+    # identity is the row every delta is measured against, so a full or --quick
+    # run always starts there. An explicit --variants subset is left alone: on a
+    # machine where a long run does not survive, the only way to finish the sweep
+    # is one or two variants per process, and re-measuring identity each time
+    # costs more than the whole remainder. Deltas are then omitted rather than
+    # computed against the wrong baseline, and merging the shards restores them.
+    explicit_subset = bool(args.variants)
+    if not explicit_subset and names[0] != "identity":
         names = ["identity"] + [n for n in names if n != "identity"]
 
     results: List[Dict[str, object]] = []
@@ -216,10 +223,11 @@ def main_cli() -> int:
               f"{r['false_alarm_rate']*100:6.1f}% {r['alarms_per_hour']:8.1f} "
               f"{len(r['missed']):6d} {r['seconds']:6.1f}", flush=True)
 
-    base = results[0]
-    for r in results[1:]:
-        r["delta_sensitivity"] = round(r["sensitivity"] - base["sensitivity"], 4)
-        r["delta_alarms_per_hour"] = round(r["alarms_per_hour"] - base["alarms_per_hour"], 2)
+    if results and results[0]["variant"] == "identity":
+        base = results[0]
+        for r in results[1:]:
+            r["delta_sensitivity"] = round(r["sensitivity"] - base["sensitivity"], 4)
+            r["delta_alarms_per_hour"] = round(r["alarms_per_hour"] - base["alarms_per_hour"], 2)
 
     payload = {
         "generated": time.strftime("%Y-%m-%d %H:%M:%S"),

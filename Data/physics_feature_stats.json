@@ -1,0 +1,473 @@
+{
+  "generated": "2026-09-18 15:34:04",
+  "calibration": "kalman",
+  "protocol": "post-warmup frames only (frames 0..4 dropped); median and 25th-75th percentile across all frames of all files in the group",
+  "caveat": "single session (S0), one mounting, one operator - these distributions characterise this corpus, not a population of patches",
+  "gates_for_reference": {
+    "lift_gate_counts": -300.0,
+    "noise_gate_counts": 60.0,
+    "peel_mean_gate_counts": -150.0,
+    "peel_min_pads": 3
+  },
+  "scenarios": {
+    "1. Baseline": {
+      "files": 5,
+      "frames": 564,
+      "stats": {
+        "Min Delta": {
+          "median": -14.7,
+          "q25": -18.0,
+          "q75": -11.8
+        },
+        "Max Delta": {
+          "median": 19.6,
+          "q25": 15.3,
+          "q75": 26.1
+        },
+        "Mean Delta": {
+          "median": 1.2,
+          "q25": -0.8,
+          "q75": 4.1
+        },
+        "Std Delta": {
+          "median": 8.6,
+          "q25": 7.7,
+          "q75": 9.9
+        },
+        "Drop Count (<= -300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        }
+      }
+    },
+    "2a. Brief Touch": {
+      "files": 10,
+      "frames": 584,
+      "stats": {
+        "Min Delta": {
+          "median": -534.7,
+          "q25": -591.1,
+          "q75": -37.5
+        },
+        "Max Delta": {
+          "median": 925.5,
+          "q25": 94.9,
+          "q75": 2436.8
+        },
+        "Mean Delta": {
+          "median": 31.8,
+          "q25": -8.4,
+          "q75": 108.3
+        },
+        "Std Delta": {
+          "median": 235.9,
+          "q25": 148.9,
+          "q75": 507.2
+        },
+        "Drop Count (<= -300)": {
+          "median": 1.0,
+          "q25": 0.0,
+          "q75": 2.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 1.0,
+          "q25": 0.0,
+          "q75": 2.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 1.0
+        }
+      }
+    },
+    "2b. Sustained Press": {
+      "files": 11,
+      "frames": 535,
+      "stats": {
+        "Min Delta": {
+          "median": -134.3,
+          "q25": -361.0,
+          "q75": -28.4
+        },
+        "Max Delta": {
+          "median": 2373.5,
+          "q25": 881.0,
+          "q75": 3594.9
+        },
+        "Mean Delta": {
+          "median": 149.5,
+          "q25": 67.8,
+          "q75": 193.3
+        },
+        "Std Delta": {
+          "median": 571.1,
+          "q25": 281.8,
+          "q75": 710.8
+        },
+        "Drop Count (<= -300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 1.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 1.0,
+          "q25": 1.0,
+          "q75": 4.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 1.0,
+          "q25": 0.0,
+          "q75": 1.0
+        }
+      }
+    },
+    "3. Friction": {
+      "files": 10,
+      "frames": 312,
+      "stats": {
+        "Min Delta": {
+          "median": -36.6,
+          "q25": -47.3,
+          "q75": -26.1
+        },
+        "Max Delta": {
+          "median": 110.4,
+          "q25": 64.2,
+          "q75": 177.3
+        },
+        "Mean Delta": {
+          "median": 8.0,
+          "q25": -1.6,
+          "q75": 22.4
+        },
+        "Std Delta": {
+          "median": 36.3,
+          "q25": 24.2,
+          "q75": 48.4
+        },
+        "Drop Count (<= -300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        }
+      }
+    },
+    "4a. Vertical Pull": {
+      "files": 10,
+      "frames": 76,
+      "stats": {
+        "Min Delta": {
+          "median": -179.9,
+          "q25": -649.1,
+          "q75": -19.8
+        },
+        "Max Delta": {
+          "median": 370.2,
+          "q25": 10.1,
+          "q75": 556.4
+        },
+        "Mean Delta": {
+          "median": 4.7,
+          "q25": -54.2,
+          "q75": 129.8
+        },
+        "Std Delta": {
+          "median": 169.4,
+          "q25": 135.7,
+          "q75": 188.2
+        },
+        "Drop Count (<= -300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 2.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 1.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 2.0,
+          "q25": 0.0,
+          "q75": 4.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        }
+      }
+    },
+    "4b. Horizontal Pull": {
+      "files": 10,
+      "frames": 237,
+      "stats": {
+        "Min Delta": {
+          "median": -14.4,
+          "q25": -28.1,
+          "q75": -5.7
+        },
+        "Max Delta": {
+          "median": 216.1,
+          "q25": 17.5,
+          "q75": 425.0
+        },
+        "Mean Delta": {
+          "median": 23.1,
+          "q25": -2.7,
+          "q75": 93.8
+        },
+        "Std Delta": {
+          "median": 51.4,
+          "q25": 13.5,
+          "q75": 116.0
+        },
+        "Drop Count (<= -300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 1.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        }
+      }
+    },
+    "4c. Power Pull": {
+      "files": 10,
+      "frames": 189,
+      "stats": {
+        "Min Delta": {
+          "median": -21.5,
+          "q25": -78.8,
+          "q75": -3.3
+        },
+        "Max Delta": {
+          "median": 19.6,
+          "q25": 10.4,
+          "q75": 638.4
+        },
+        "Mean Delta": {
+          "median": -3.6,
+          "q25": -15.5,
+          "q75": 170.0
+        },
+        "Std Delta": {
+          "median": 117.1,
+          "q25": 11.4,
+          "q75": 210.1
+        },
+        "Drop Count (<= -300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 6.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        }
+      }
+    },
+    "5. Peeling": {
+      "files": 10,
+      "frames": 166,
+      "stats": {
+        "Min Delta": {
+          "median": -851.0,
+          "q25": -872.0,
+          "q75": -818.8
+        },
+        "Max Delta": {
+          "median": -17.8,
+          "q25": -28.6,
+          "q75": -7.1
+        },
+        "Mean Delta": {
+          "median": -328.7,
+          "q25": -356.0,
+          "q75": -314.3
+        },
+        "Std Delta": {
+          "median": 270.9,
+          "q25": 251.2,
+          "q75": 277.6
+        },
+        "Drop Count (<= -300)": {
+          "median": 10.0,
+          "q25": 9.0,
+          "q75": 11.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 6.0,
+          "q25": 4.0,
+          "q75": 6.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        }
+      }
+    },
+    "6. Normal Mix": {
+      "files": 5,
+      "frames": 281,
+      "stats": {
+        "Min Delta": {
+          "median": -330.1,
+          "q25": -556.0,
+          "q75": -75.1
+        },
+        "Max Delta": {
+          "median": 347.9,
+          "q25": 39.3,
+          "q75": 1266.8
+        },
+        "Mean Delta": {
+          "median": -1.1,
+          "q25": -57.3,
+          "q75": 54.7
+        },
+        "Std Delta": {
+          "median": 179.2,
+          "q25": 101.4,
+          "q75": 315.5
+        },
+        "Drop Count (<= -300)": {
+          "median": 1.0,
+          "q25": 0.0,
+          "q75": 3.0
+        },
+        "Drop Count (<= -600)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Drop Count (<= -1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 0.0
+        },
+        "Spike Count (>= +300)": {
+          "median": 1.0,
+          "q25": 0.0,
+          "q75": 2.0
+        },
+        "Spike Count (>= +1000)": {
+          "median": 0.0,
+          "q25": 0.0,
+          "q75": 1.0
+        }
+      }
+    }
+  }
+}
