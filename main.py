@@ -25,13 +25,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import concurrent.futures
+import csv
 import difflib
 import collections
 import glob
 import hashlib
 import hmac
+import io
 import json
 import logging
+import math
 import os
 import socket
 import sys
@@ -70,6 +73,83 @@ logger_serial = logging.getLogger("project2.serial")
 # M2 & M3 Concurrency & Security Locks & Limits
 EVENT_LOG_LOCK = threading.Lock()
 
+# ---- Audit trail tamper evidence (IEC 62304 s5.1.1 / ISO 13485 s4.2.5) -------
+# Every event written from here on carries the hash of the event before it, so
+# altering or removing one event invalidates every event after it. This is
+# tamper EVIDENCE, not tamper PROOF: anyone who can write the file can also
+# recompute the whole chain. It answers "was this trail edited after the fact by
+# something that did not know about the chain", which is the realistic failure
+# (a hand edit, a partial restore, a truncating writer), and it is what a
+# reviewer can check independently with nothing but this file and sha256.
+AUDIT_GENESIS_HASH = "0" * 64
+# Events written before 2026-09-18 have no chain fields. They are reported as an
+# unverifiable prefix rather than as a break, because calling 547 pre-existing
+# records "tampered" would train everyone to ignore the check.
+AUDIT_CHAIN_FIELDS = ("prev_hash", "hash")
+
+
+def audit_event_hash(event: Dict[str, Any], prev_hash: str) -> str:
+    """SHA-256 over the event's own fields plus the previous event's hash.
+
+    The event is serialised with sorted keys and no insignificant whitespace so
+    that the digest depends on content only, never on dict ordering or on how
+    json.dump happened to indent it. `hash` itself is excluded - it is the
+    output - while `prev_hash` is included, which is what links the chain.
+    """
+    body = {k: v for k, v in event.items() if k != "hash"}
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False, default=str)
+    return hashlib.sha256((prev_hash + canonical).encode("utf-8")).hexdigest()
+
+
+def verify_audit_chain(logs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Recompute the chain and report the first event that does not match.
+
+    Returns `status` one of:
+      "empty"        - nothing to check
+      "legacy_only"  - no event carries chain fields yet
+      "intact"       - every chained event verifies
+      "broken"       - `broken_at` names the first event that does not
+    `legacy_events` counts the unchained prefix, which is reported but not
+    treated as a failure.
+    """
+    report: Dict[str, Any] = {"total": len(logs), "legacy_events": 0,
+                              "chained_events": 0, "broken_at": None}
+    if not logs:
+        report["status"] = "empty"
+        return report
+
+    prev = AUDIT_GENESIS_HASH
+    started = False
+    for idx, event in enumerate(logs):
+        if not all(f in event for f in AUDIT_CHAIN_FIELDS):
+            if started:
+                # A gap AFTER the chain began means an event lost its fields.
+                report["status"] = "broken"
+                report["broken_at"] = {"index": idx,
+                                       "event_id": event.get("event_id"),
+                                       "reason": "chain fields missing"}
+                return report
+            report["legacy_events"] += 1
+            continue
+        started = True
+        report["chained_events"] += 1
+        if event["prev_hash"] != prev:
+            report["status"] = "broken"
+            report["broken_at"] = {"index": idx, "event_id": event.get("event_id"),
+                                   "reason": "prev_hash does not match the previous event"}
+            return report
+        expected = audit_event_hash(event, prev)
+        if not hmac.compare_digest(expected, str(event["hash"])):
+            report["status"] = "broken"
+            report["broken_at"] = {"index": idx, "event_id": event.get("event_id"),
+                                   "reason": "event content does not match its hash"}
+            return report
+        prev = event["hash"]
+
+    report["status"] = "intact" if started else "legacy_only"
+    return report
+
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # M3: 5 MB size limit
 MAX_CUSTOM_UPLOADS = 50             # M3: 50 file quota limit
 
@@ -101,7 +181,68 @@ MODEL_PERSISTENCE_PATH = os.path.join(DATA_ROOT, "trained_model.joblib")
 MODEL_DIGEST_PATH = MODEL_PERSISTENCE_PATH + ".sha256.json"
 
 BASELINE_COUNTS = 28000.0        # nominal C0, KES 2025 section 2.1
-COUNTS_PER_PF = 59.85            # sensor resolution
+COUNTS_PER_PF = 59.85            # sensor resolution, [MEASURED], docs/Hardware_Deck_Spec.md
+NOMINAL_BASELINE_PF = 30.0       # absolute C0 of the attached patch, in picofarads.
+# Corroborated only indirectly: the CDC parts shortlisted to replace this board
+# (AD7147 / AD7746 / FDC2214) were chosen for a 0-50 pF range, which would be the
+# wrong part if the patch sat at hundreds of pF. The Sensor Structure table in
+# docs/Hardware_Deck_Spec.md still has this row empty, so it has never been
+# measured directly. spec_detach_reachability() below is why that empty row matters.
+
+
+def spec_detach_reachability(spec_counts: float,
+                             baseline_counts: float = BASELINE_COUNTS,
+                             counts_per_pf: float = COUNTS_PER_PF,
+                             baseline_pf: float = NOMINAL_BASELINE_PF) -> Dict[str, float]:
+    """Can this sensor physically produce `spec_counts`, at this scale?
+
+    Three published numbers have to agree and do not:
+
+      * the patch rests at ~28,000 counts while attached      (BASELINE_COUNTS)
+      * the sensor reads 59.85 counts per picofarad           (COUNTS_PER_PF, [MEASURED])
+      * KES 2025 s2.1 says detachment reaches <= 25,000 counts (SPEC_DETACH_MAX)
+
+    28,000 - 25,000 = 3,000 counts, and 3,000 / 59.85 = 50.1 pF. The whole
+    attached patch is about 30 pF. Losing 50 pF from a 30 pF capacitor is not a
+    fixation problem, it is a negative capacitance: at C = 0 - the patch gone,
+    floating in air - the reading still floors at 28,000 - 30 x 59.85 = 26,205
+    counts, 1,205 counts ABOVE the threshold it is supposed to cross.
+
+    So no FIXATION change - pump pressure, adhesive - can make a recording
+    satisfy this criterion: fixation decides how completely the patch lets go,
+    and letting go completely still lands at 26,205. Round 1 bottoming out at
+    27,251 is not evidence that the fixation was bad; it is roughly a 12.5 pF
+    loss, which is a real partial peel.
+
+    What CAN move it is the patch geometry, because it moves C0 itself:
+    C = eps * A / d, so halving the backing thickness d roughly doubles the
+    resting capacitance, and a ground plane turns a fringing-field sensor into
+    a real two-plate one. Take C0 from ~30 pF to ~60 pF and a 50 pF loss on
+    full detachment becomes physically possible. That is the supervisor's
+    advice of 2026-09-17 - thinner backing, ground plane - and it is why that
+    part of the rig rebuild is worth doing even though the pump is not the
+    lever it was taken for.
+
+    At least one of the three numbers is wrong, and the arithmetic cannot say
+    which. The candidates: the absolute C0 is much larger than 30 pF (the empty
+    row above), or the spec's "counts" belong to different firmware, or s2.1
+    means a RELATIVE drop and not an absolute floor.
+
+    Nothing here changes SPEC_DETACH_MAX. Rule 5 of README section 1 stands: the
+    spec is not edited to fit the data. This reports the contradiction so that
+    it is argued with the person who wrote s2.1, instead of being chased with a
+    stronger vacuum pump - which is what docs/ACTION_PLAN.md P0-2 was about to do.
+    """
+    floor = baseline_counts - baseline_pf * counts_per_pf
+    drop_needed = baseline_counts - spec_counts
+    return {
+        "floor_counts_at_zero_capacitance": floor,
+        "drop_needed_counts": drop_needed,
+        "drop_needed_pf": drop_needed / counts_per_pf,
+        "available_pf": baseline_pf,
+        "reachable": floor <= spec_counts,
+        "shortfall_counts": max(0.0, floor - spec_counts),
+    }
 SAMPLE_PERIOD_S = 0.560          # microcontroller acquisition cycle
 DELTA_THRESHOLD = 300.0          # dual-colour threshold
 # NOTE: NOISE_GATE_COUNTS is defined once, in the LivePipeline gate section
@@ -115,11 +256,11 @@ N_CLASSES = 4
 # Physical centre of each pad, in percent of the 90 mm x 120 mm patch.
 # Pad numbering follows the 1-by-1 press sequence used during characterisation.
 PHYSICAL_PAD_COORDS: Dict[int, Tuple[float, float]] = {
-    1: (57.0, 90.0), 2: (73.0, 78.0), 3: (58.0, 78.0), 4: (79.0, 64.0), 5: (65.0, 64.0),
-    6: (80.0, 50.0), 7: (65.0, 50.0), 8: (80.0, 36.0), 9: (65.0, 36.0), 10: (74.0, 24.0),
-    11: (58.0, 22.0), 12: (50.0, 64.0), 13: (50.0, 50.0), 14: (50.0, 35.0), 15: (41.0, 90.0),
-    16: (40.0, 78.0), 17: (26.0, 78.0), 18: (35.0, 64.0), 19: (21.0, 64.0), 20: (35.0, 50.0),
-    21: (20.0, 50.0), 22: (35.0, 36.0), 23: (20.0, 36.0), 24: (40.0, 22.0), 25: (25.0, 24.0),
+    1: (57.0, 90.0),     2: (73.0, 78.0),     3: (58.0, 78.0),     4: (79.0, 64.0),     5: (65.0, 64.0),
+    6: (80.0, 50.0),     7: (65.0, 50.0),     8: (80.0, 36.0),     9: (65.0, 36.0),     10: (74.0, 24.0),
+    11: (58.0, 22.0),     12: (50.0, 64.0),     13: (50.0, 50.0),     14: (50.0, 35.0),     15: (41.0, 90.0),
+    16: (40.0, 78.0),     17: (26.0, 78.0),     18: (35.0, 64.0),     19: (21.0, 64.0),     20: (35.0, 50.0),
+    21: (20.0, 50.0),     22: (35.0, 36.0),     23: (20.0, 36.0),     24: (40.0, 22.0),     25: (25.0, 24.0),
 }
 
 # FIX F2 -------------------------------------------------------------------
@@ -225,6 +366,7 @@ KALMAN_WARMUP = 5                # frames held at Level 0 while the baseline set
 # quietest anomaly signal in the corpus (Horizontal Pull still reaches +456 on
 # the contact side) so it cannot mask a real event.
 NOISE_GATE_COUNTS = 60.0
+LIFT_GATE_COUNTS = -300.0
 
 # LOOP 3 peel gate, tuned on the full corpus (see PatchSpatialField.propagation)
 PEEL_MIN_PADS = 3                # simultaneous pads below -DELTA_THRESHOLD
@@ -344,19 +486,44 @@ class KalmanBaseline:
     r_vec: Optional[np.ndarray] = None
     gate_vec: Optional[np.ndarray] = None
 
+    def reseed(self) -> None:
+        self.b = None
+        self.p = None
+        self.r_vec = None
+        self.gate_vec = None
+
     def seed(self, frames: np.ndarray) -> "KalmanBaseline":
         arr = np.asarray(frames, dtype=float)
+        if arr.ndim == 1:
+            arr = arr[None, :]
         n = min(self.warmup, len(arr))
-        self.b = arr[:n].mean(axis=0).astype(float)
+        n_channels = arr.shape[1] if arr.ndim > 1 and arr.shape[1] > 0 else N_PADS
+        if n > 0:
+            raw_b = arr[:n].mean(axis=0).astype(float)
+        else:
+            raw_b = np.full(n_channels, BASELINE_COUNTS, dtype=float)
+
+        # F3: Physical plausibility bounds validation (10,000 to 45,000 counts)
+        # Prevents placement transients or touches on frame 0 from permanently poisoning baseline state.
+        valid_mask = np.isfinite(raw_b) & (raw_b >= 10000.0) & (raw_b <= 45000.0)
+        if not np.all(valid_mask):
+            fallback = float(np.median(raw_b[valid_mask])) if np.any(valid_mask) else BASELINE_COUNTS
+            raw_b = np.where(valid_mask, raw_b, fallback)
+        self.b = raw_b.astype(float)
 
         # Adaptive Baseline Auto-Tuning: compute per-channel noise variance
         if n >= 2:
-            stds = np.std(arr[:n], axis=0)
+            clean_arr = np.where(
+                np.isfinite(arr[:n]) & (arr[:n] >= 10000.0) & (arr[:n] <= 45000.0),
+                arr[:n],
+                self.b[None, :]
+            )
+            stds = np.std(clean_arr, axis=0)
             self.r_vec = np.clip(stds ** 2, 20.0, 150.0).astype(float)
         else:
-            self.r_vec = np.full(arr.shape[1], self.r, dtype=float)
+            self.r_vec = np.full(n_channels, self.r, dtype=float)
 
-        self.gate_vec = np.full(arr.shape[1], self.gate, dtype=float)
+        self.gate_vec = np.full(n_channels, self.gate, dtype=float)
         self.p = np.copy(self.r_vec)
         return self
 
@@ -370,6 +537,9 @@ class KalmanBaseline:
         # predict
         p_pred = self.p + self.q
         innovation = z - self.b
+
+        if not np.isfinite(innovation).all():
+            return z - self.b
 
         # gated update: quiescent channels track, active channels coast
         r_eff = self.r_vec if self.r_vec is not None else self.r
@@ -393,6 +563,23 @@ def calibrate(raw: np.ndarray, mode: str = "static") -> np.ndarray:
     arr = np.asarray(raw, dtype=float)
     if mode == "kalman":
         return KalmanBaseline().run(arr)
+    if mode == "kalman_norm":
+        # F10 (scale-normalised delta) applied offline, the same way LivePipeline
+        # applies it live: divide each delta by the Kalman baseline it was measured
+        # against, then re-express it at the nominal 28,000-count scale. On bench
+        # data C0 ~= BASELINE_COUNTS, so this is a near no-op; it is what keeps a
+        # patch resting at a different C0 (thinner backing, ground plane, other
+        # skin) from shifting every count threshold downstream. Before this mode
+        # existed, F10 ran only in LivePipeline and every published offline figure
+        # measured a pipeline the device does not run.
+        kal = KalmanBaseline().seed(arr)
+        rows = []
+        for row in arr:
+            delta = kal.step(row)
+            c0 = kal.b if kal.b is not None else np.full(arr.shape[1], BASELINE_COUNTS, dtype=float)
+            safe_c0 = np.where(c0 > 1000.0, c0, BASELINE_COUNTS)
+            rows.append(compute_fractional_deltas(delta, safe_c0) * BASELINE_COUNTS)
+        return np.vstack(rows)
     return static_baseline(arr) - BASELINE_COUNTS
 
 
@@ -451,7 +638,8 @@ class PatchSpatialField:
 
     def propagation(self, pad_delta: ArrayLike,
                     min_pads: int = PEEL_MIN_PADS,
-                    mean_gate: float = PEEL_MEAN_GATE) -> Dict[str, Any]:
+                    mean_gate: float = PEEL_MEAN_GATE,
+                    adaptive_gates: Optional[ArrayLike] = None) -> Dict[str, Any]:
         """Summarise where the dressing is lifting and which way it is spreading.
 
         The gate is deliberately two-part. Firing on "any pad below -300" was
@@ -463,7 +651,11 @@ class PatchSpatialField:
         Normal Mix frames.
         """
         v = np.asarray(pad_delta, dtype=float)
-        lifting = v <= -DELTA_THRESHOLD
+        if adaptive_gates is not None:
+            gates = np.asarray(adaptive_gates, dtype=float)
+            lifting = v <= gates
+        else:
+            lifting = v <= -DELTA_THRESHOLD
         n_lift = int(lifting.sum())
         grid_mean = float(v.mean())
         if n_lift < min_pads or grid_mean >= mean_gate:
@@ -635,19 +827,29 @@ class PeelTracker:
           Friction               0/10        Normal Mix         0/5
     """
 
-    def __init__(self, persist: int = PEEL_PERSIST_FRAMES) -> None:
+    def __init__(self, persist: int = PEEL_PERSIST_FRAMES, adaptive_gates: Optional[ArrayLike] = None) -> None:
         self.persist = persist
         self.streak = 0
         self.confirmed = False
+        self.adaptive_gates: Optional[np.ndarray] = (
+            np.asarray(adaptive_gates, dtype=float) if adaptive_gates is not None else None
+        )
 
-    def update(self, pad_delta: ArrayLike) -> Dict[str, Any]:
-        info = SPATIAL.propagation(pad_delta)
+    def set_adaptive_gates(self, adaptive_gates: Optional[ArrayLike]) -> None:
+        self.adaptive_gates = (
+            np.asarray(adaptive_gates, dtype=float) if adaptive_gates is not None else None
+        )
+
+    def update(self, pad_delta: ArrayLike, adaptive_gates: Optional[ArrayLike] = None) -> Dict[str, Any]:
+        eff_gates = adaptive_gates if adaptive_gates is not None else self.adaptive_gates
+        info = SPATIAL.propagation(pad_delta, adaptive_gates=eff_gates)
         self.streak = self.streak + 1 if info["active"] else 0
         self.confirmed = self.streak >= self.persist
         info["streak_frames"] = self.streak
         info["confirmed"] = self.confirmed
         info["confirmed_after_s"] = round(self.persist * SAMPLE_PERIOD_S, 2)
         return info
+
 
 
 # =============================================================================
@@ -1096,16 +1298,64 @@ def full_proba(clf: Any, X: np.ndarray) -> np.ndarray:
     return out
 
 
-def cpri(proba: np.ndarray) -> np.ndarray:
+def cpri(proba: np.ndarray, delta: Optional[np.ndarray] = None) -> np.ndarray:
     """Composite Patient Risk Index matching clinical escalation:
     - Class 0 (Normal): 0%
-    - Class 1 (Touch / Incidental activity): 35% -> Level 1 (Yellow Early Warning)
-    - Class 2 (Peel / Partial peeling): 70% -> Level 2 (Orange Urgent Warning)
-    - Class 3 (Pull / Full tube displacement): 100% -> Level 3 (Red Critical Siren)
+    - Class 1 (Touch / Incidental activity): Dynamic 15% - 55% based on pad count & intensity
+    - Class 2 (Peel / Partial peeling): Dynamic 60% - 85% based on lifted pads & peel depth
+    - Class 3 (Pull / Full tube displacement): Dynamic 85% - 100% based on pull displacement
+
+    When delta is omitted or None (e.g. theoretical probability tests), returns
+    the nominal linear projection [0, 35, 70, 100] preserving mathematical invariants.
     """
     p = np.atleast_2d(np.asarray(proba, dtype=float))
-    risk = p[:, 1] * 35.0 + p[:, 2] * 70.0 + p[:, 3] * 100.0
-    return np.clip(risk, 0.0, 100.0)
+    if delta is None:
+        risk = p[:, 1] * 35.0 + p[:, 2] * 70.0 + p[:, 3] * 100.0
+        return np.clip(risk, 0.0, 100.0)
+
+    d = np.atleast_2d(np.asarray(delta, dtype=float))
+    n_frames = min(len(p), len(d))
+    out = np.zeros(len(p), dtype=float)
+
+    for i in range(n_frames):
+        p_row = p[i]
+        d_row = d[i]
+
+        # 1. Positive deltas (touch / press)
+        pos_deltas = d_row[d_row >= NOISE_GATE_COUNTS]
+        n_pos = len(pos_deltas)
+        max_pos = float(pos_deltas.max()) if n_pos > 0 else 0.0
+
+        # 2. Negative deltas (peel / lift)
+        lift_deltas = d_row[d_row <= LIFT_GATE_COUNTS]
+        n_lift = len(lift_deltas)
+        max_lift = float(abs(lift_deltas.min())) if n_lift > 0 else 0.0
+
+        # Dynamic risk components for each class
+        # Class 1 (Touch / Press): scales smoothly between 15% and 55%
+        pad_factor = min(1.0, n_pos / 10.0)
+        int_factor = float(np.clip((max_pos - NOISE_GATE_COUNTS) / 1200.0, 0.0, 1.0))
+        r_touch = 15.0 + 20.0 * pad_factor + 20.0 * int_factor
+
+        # Class 2 (Peel): scales smoothly between 60% and 85%
+        lift_pad_factor = min(1.0, n_lift / 8.0)
+        lift_depth_factor = float(np.clip((max_lift - abs(LIFT_GATE_COUNTS)) / 1500.0, 0.0, 1.0))
+        r_peel = 60.0 + 15.0 * lift_pad_factor + 10.0 * lift_depth_factor
+
+        # Class 3 (Pull): scales smoothly between 85% and 100%
+        pull_intensity = float(np.clip(np.max(np.abs(d_row)) / 2500.0, 0.0, 1.0))
+        r_pull = 85.0 + 15.0 * pull_intensity
+
+        # Weighted composite risk
+        risk_val = p_row[1] * r_touch + p_row[2] * r_peel + p_row[3] * r_pull
+        out[i] = risk_val
+
+    if len(p) > n_frames:
+        out[n_frames:] = (p[n_frames:, 1] * 35.0 +
+                          p[n_frames:, 2] * 70.0 +
+                          p[n_frames:, 3] * 100.0)
+
+    return np.clip(out, 0.0, 100.0)
 
 
 def round_proba(proba: Sequence[float], places: int = 4) -> List[float]:
@@ -1203,7 +1453,7 @@ def classify_deltas(model: Optional[Any], delta: np.ndarray,
     # only ever suppress a frame quieter than the baseline swing the SOP itself
     # tolerates - it cannot invent an alarm.
     raw_level = proba.argmax(axis=1).astype(int)
-    risk = cpri(proba)
+    risk = cpri(proba, d)
     risk[~active] = 0.0
     return proba, raw_level, risk
 
@@ -1904,10 +2154,10 @@ class SerialFrameSource(FrameSource):
     #     error, forever, because the generator never ended.
     # Empty reads are now counted against a wall-clock budget and the stream
     # ends cleanly, which the WebSocket already reports as {"event":"finished"}.
-    IDLE_TIMEOUT_S = 3600.0      # keep long-running clinical monitoring active
+    IDLE_TIMEOUT_S = 1.2         # F4: clean transition to disconnected within 1.5s
     EMPTY_READ_SLEEP_S = 0.02    # floor on the poll rate if reads return at once
 
-    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 2.0, permute: bool = True) -> None:
+    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 0.2, permute: bool = True) -> None:
         try:
             import serial  # type: ignore
         except ImportError as exc:
@@ -1916,8 +2166,20 @@ class SerialFrameSource(FrameSource):
         self.port = port
         self.baudrate = baudrate
         self.permute = permute
-        self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
         self._stop = threading.Event()
+        
+        last_exc = None
+        for attempt in range(4):
+            try:
+                self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 3:
+                    time.sleep(0.35)
+        if last_exc is not None:
+            raise last_exc
 
     def frames(self) -> Iterator[np.ndarray]:
         buf = self._ser
@@ -1928,6 +2190,8 @@ class SerialFrameSource(FrameSource):
                 line = buf.readline().decode("utf-8", errors="replace").strip()
                 consecutive_errors = 0
             except Exception as exc:
+                if self._stop.is_set():
+                    break
                 consecutive_errors += 1
                 if consecutive_errors > 10:
                     logger_serial.warning(f"Serial port {self.port} encountered repeated read errors: {exc}")
@@ -1945,6 +2209,8 @@ class SerialFrameSource(FrameSource):
             try:
                 vals = np.array([float(p) for p in parts[:N_PADS]], dtype=float)
             except ValueError:
+                continue
+            if not np.isfinite(vals).all():
                 continue
             last_frame_at = time.monotonic()
             yield signals_to_pads(vals) if getattr(self, "permute", True) else vals
@@ -2058,7 +2324,8 @@ class LivePipeline:
     RESEED_AFTER_LOST_FRAMES = KALMAN_WARMUP
 
     def __init__(self, model: Optional[Any], use_gradient: bool = False,
-                 fuse_imu: bool = False, warmup_frames: int = KALMAN_WARMUP) -> None:
+                 fuse_imu: bool = False, warmup_frames: int = KALMAN_WARMUP,
+                 cdc_mode: bool = False) -> None:
         self.model = model
         self.use_gradient = use_gradient
         self.kalman = KalmanBaseline()
@@ -2071,19 +2338,74 @@ class LivePipeline:
         # Level 3 (siren) on frame 0 of every stream. Hold the output at
         # Level 0 until the baseline has settled.
         self.warmup_frames = max(1, warmup_frames)
+        self.cdc_mode = cdc_mode
         self.index = 0
         self._seeded = False
+        self.seed_plausibility: Dict[str, Any] = {
+            "status": "unseeded", "seed_median": None,
+            "band": list(ATTACHED_SEED_BAND), "note": "no frame yet"}
         self._disconnected_flag = False
         self._disconnected_run = 0
         self._prev: Optional[np.ndarray] = None
+        self._cdc_initial_baseline: Optional[np.ndarray] = None
+        # F11/F12: Real-time surface topography and adaptive lift gates
+        self.topography: Optional[Dict[str, Any]] = None
+        self.adaptive_lift_gates: Optional[np.ndarray] = None
 
     @property
     def warming_up(self) -> bool:
         return self.index < self.warmup_frames
 
+    def reseed(self) -> None:
+        self.kalman = KalmanBaseline()
+        self.peel = PeelTracker()
+        self.alarm = AlarmDebouncer()
+        self._seeded = False
+        self.index = 0
+        self._prev = None
+        self._disconnected_flag = False
+        self._disconnected_run = 0
+        self._cdc_initial_baseline = None
+        self.topography = None
+        self.adaptive_lift_gates = None
+
     def process(self, pad_frame: np.ndarray, imu: Optional[IMUFrame] = None) -> Dict[str, Any]:
         pad_frame = np.asarray(pad_frame, dtype=float)
-        disconnected = np.all(pad_frame < 3000.0) or np.all(pad_frame == 0.0)
+        # F2: Reject non-finite values, signed 16-bit underflow (<0 counts), or all zeros
+        if not np.isfinite(pad_frame).all() or np.any(pad_frame < 0.0) or np.all(pad_frame <= 0.0):
+            disconnected = True
+            is_cdc = self.cdc_mode
+            working_frame = pad_frame
+        else:
+            # Unit detection: CDC absolute mode (values in pF < 500) vs raw PSoC counts (> 3000)
+            is_cdc = self.cdc_mode or (np.all(pad_frame < 500.0) and np.any(pad_frame > 0.05))
+            if is_cdc:
+                # CDC disconnected: open circuit (< 1 pF), short/rail saturation (> 500 pF), or all zeros
+                disconnected = np.all(pad_frame < 1.0) or np.all(pad_frame > 500.0) or np.all(pad_frame == 0.0)
+                if not disconnected:
+                    if self._cdc_initial_baseline is None:
+                        self._cdc_initial_baseline = pad_frame.copy()
+                    working_frame = convert_absolute_cdc_to_counts(pad_frame, baseline_c_pf=self._cdc_initial_baseline) + BASELINE_COUNTS
+                    # Filter any extreme surges (>50,000 counts) in converted counts
+                    surge_mask = working_frame > 50000.0
+                    if np.any(surge_mask):
+                        repl = self.kalman.b[surge_mask] if self.kalman.b is not None else BASELINE_COUNTS
+                        working_frame[surge_mask] = repl
+                else:
+                    working_frame = pad_frame
+            else:
+                # Raw counts mode: reject full disconnect (<3000) or all-pad saturation (>50000)
+                disconnected = np.all(pad_frame < 3000.0) or np.all(pad_frame > 50000.0) or np.all(pad_frame == 0.0)
+                if not disconnected:
+                    working_frame = pad_frame.copy()
+                    # F2: Filter extreme electrical surges (>50,000 counts) so noise spikes do not trigger false alarms
+                    surge_mask = working_frame > 50000.0
+                    if np.any(surge_mask):
+                        repl = self.kalman.b[surge_mask] if self.kalman.b is not None else BASELINE_COUNTS
+                        working_frame[surge_mask] = repl
+                else:
+                    working_frame = pad_frame
+
         if disconnected:
             # The frame index is read BEFORE the increment, exactly as the
             # normal path below does it. Incrementing first made a dropout at
@@ -2104,6 +2426,7 @@ class LivePipeline:
                 "time_sec": round(idx * SAMPLE_PERIOD_S, 3),
                 "pad_values": [0.0] * N_PADS,
                 "deltas": [0.0] * N_PADS,
+                "normalized_deltas": [0.0] * N_PADS,
                 "baseline": [round(v, 1) for v in (self.kalman.b if self.kalman.b is not None else [0.0]*N_PADS)],
                 "severity_level": held,
                 "raw_level": 0,
@@ -2114,35 +2437,46 @@ class LivePipeline:
                 "propagation": {"confirmed": False, "active": False,
                                 "n_lifting_pads": 0, "description": "sensor disconnected"},
                 "disconnected": True,
+                "mode": "cdc" if is_cdc else "raw_counts",
             }
 
         # Re-seed on first frame, or after a REAL disconnect.
-        #
-        # The condition here used to be `_disconnected_flag and
-        # np.all(pad_frame >= 30000)`, and it cannot fire on this hardware.
-        # Measured over all 81 recordings: the corpus spans 27,251 - 32,024
-        # counts, and the highest "weakest pad in a frame" anywhere in it is
-        # 28,102 - so 0 of 81 recordings contains a single frame in which all 25
-        # pads clear 30,000. The branch was dead in the field, which means a
-        # cable knocked loose and re-plugged, or a fresh patch applied, went on
-        # being measured against the OLD sensor's baseline. It passed its test
-        # only because that test fed a synthetic constant 46,000, a value no
-        # real reading reaches.
-        #
-        # What actually distinguishes "the sensor came back" from "one frame
-        # dropped" is DURATION, not amplitude. A single glitched frame must not
-        # re-seed - re-seeding mid-pull would zero the deltas and erase the
-        # event - so the baseline is only re-taken after the signal has been
-        # gone for as long as the calibrator needs to settle in the first place.
         reconnected = (getattr(self, "_disconnected_run", 0) >= self.RESEED_AFTER_LOST_FRAMES)
         if not self._seeded or reconnected:
-            self.kalman.seed(pad_frame[None, :])
+            self.kalman.seed(working_frame[None, :])
             self._seeded = True
+            # Item 2: a relative board zeroes on whatever it sees first. Say
+            # where that was, so a bad zero is visible instead of silent. In
+            # CDC mode the seed is already absolute pF, so the counts band does
+            # not apply and the converted baseline is what gets classified.
+            self.seed_plausibility = seed_plausibility(
+                self.kalman.b if self.kalman.b is not None else working_frame)
         self._disconnected_flag = False
         self._disconnected_run = 0
 
-        delta = self.kalman.step(pad_frame)
+        delta = self.kalman.step(working_frame)
         warming = self.warming_up
+
+        # F11: Surface Topography & Adaptive Gates
+        # Connect analyze_surface_topography to live stream for real-time per-pad adaptive lift gate calculation
+        if self.kalman.b is not None and (self.topography is None or self.index == self.warmup_frames):
+            if is_cdc and self._cdc_initial_baseline is not None:
+                self.topography = analyze_surface_topography(self._cdc_initial_baseline, is_cdc_pf=True)
+            else:
+                self.topography = analyze_surface_topography(self.kalman.b, is_cdc_pf=False)
+
+            # Compute adaptive lift gates in counts space matching delta
+            counts_topo = analyze_surface_topography(self.kalman.b, is_cdc_pf=False)
+            if counts_topo.get("valid", False):
+                self.adaptive_lift_gates = np.array(counts_topo["adaptive_lift_gates"], dtype=float)
+                self.peel.set_adaptive_gates(self.adaptive_lift_gates)
+
+        # F10: Scale-Normalized Delta Integration
+        # Delta_C_norm_i = (Delta_C_i / C_{0, i}) * 28000.0
+        # Normalizes relative baseline shifts (+/-20%) while preserving exact identity on bench data
+        c0 = self.kalman.b if self.kalman.b is not None else np.full(N_PADS, BASELINE_COUNTS, dtype=float)
+        safe_c0 = np.where(c0 > 1000.0, c0, BASELINE_COUNTS)
+        norm_delta = compute_fractional_deltas(delta, safe_c0) * BASELINE_COUNTS
 
         # ONE classifier, and it is the trained one.
         #
@@ -2184,7 +2518,7 @@ class LivePipeline:
             raw_level = 0
             risk = 0.0
         else:
-            p, r, k = classify_deltas(self.model, delta, self.use_gradient)
+            p, r, k = classify_deltas(self.model, norm_delta, self.use_gradient)
             proba, raw_level, risk = p[0], int(r[0]), float(k[0])
 
         level = self.alarm.update(raw_level)
@@ -2199,9 +2533,11 @@ class LivePipeline:
         out = {
             "index": self.index,
             "time_sec": round(self.index * SAMPLE_PERIOD_S, 3),
-            "pad_values": [round(v, 1) for v in pad_frame.tolist()],
+            "seed_plausibility": self.seed_plausibility,
+            "pad_values": [round(v, 3 if is_cdc else 1) for v in pad_frame.tolist()],
             "deltas": [round(v, 1) for v in delta.tolist()],
-            "baseline": [round(v, 1) for v in (self.kalman.b if self.kalman.b is not None else pad_frame).tolist()],
+            "normalized_deltas": [round(v, 1) for v in norm_delta.tolist()],
+            "baseline": [round(v, 1) for v in (self.kalman.b if self.kalman.b is not None else working_frame).tolist()],
             "severity_level": level,
             "raw_level": raw_level,
             "status": ("Calibrating baseline ..." if warming
@@ -2209,12 +2545,190 @@ class LivePipeline:
             "warming_up": warming,
             "probabilities": round_proba(proba.tolist()),
             "cpri_percent": round(risk, 1),
-            "propagation": self.peel.update(delta),
+            "propagation": self.peel.update(delta, adaptive_gates=self.adaptive_lift_gates),
+            "mode": "cdc" if is_cdc else "raw_counts",
         }
+        if self.topography is not None:
+            out["topography"] = self.topography
         if fused is not None:
             out["fusion"] = {k: round(float(v), 4) for k, v in fused.items()}
         self.index += 1
         return out
+
+
+
+# =============================================================================
+# 9b. CAPACITANCE-TO-DIGITAL (CDC) HARDWARE COMPATIBILITY LAYER
+# =============================================================================
+def convert_absolute_cdc_to_counts(
+    c_abs_pf: np.ndarray,
+    baseline_c_pf: Optional[np.ndarray] = None,
+    nominal_baseline_counts: float = BASELINE_COUNTS,
+    counts_per_pf: float = COUNTS_PER_PF,
+    nominal_baseline_pf: float = NOMINAL_BASELINE_PF,
+) -> np.ndarray:
+    """Converts absolute capacitance (in pF) from a dedicated CDC board
+    into calibrated raw counts or delta counts compatible with the 34-feature model.
+
+    If baseline_c_pf is provided, returns delta counts:
+        delta_counts = (c_abs_pf - baseline_c_pf) * counts_per_pf
+    Otherwise, maps absolute pF to nominal raw counts relative to nominal baseline:
+        raw_counts = nominal_baseline_counts + (c_abs_pf - nominal_baseline_pf) * counts_per_pf
+    """
+    arr = np.asarray(c_abs_pf, dtype=float)
+    if baseline_c_pf is not None:
+        base = np.asarray(baseline_c_pf, dtype=float)
+        return (arr - base) * counts_per_pf
+    return nominal_baseline_counts + (arr - nominal_baseline_pf) * counts_per_pf
+
+
+def detect_static_tube_localization(
+    c_abs_pf: np.ndarray,
+    pad_coords: Optional[Dict[int, Tuple[float, float]]] = None,
+) -> Dict[str, Any]:
+    """Static tube localization & routing check from absolute capacitance (CDC).
+
+    PVC/silicone intubation tubes (relative permittivity epsilon_r approx 2.8)
+    introduce a geometric dielectric shadow compared to direct skin contact
+    (epsilon_r approx 50-80). This function identifies pads under the tube axis
+    before dynamic monitoring begins, eliminating startup zero-calibration ambiguity.
+    """
+    arr = np.asarray(c_abs_pf, dtype=float)
+    if arr.size != N_PADS:
+        return {"detected": False, "reason": f"expected {N_PADS} pads, got {arr.size}"}
+
+    if np.isnan(arr).any() or np.isinf(arr).any():
+        return {"detected": False, "reason": "non-finite capacitance values in input"}
+
+    if (arr < 0.0).any():
+        return {"detected": False, "reason": "negative capacitance values detected"}
+
+    coords = pad_coords or PHYSICAL_PAD_COORDS
+    median_cap = float(np.median(arr))
+
+    # Adaptive dielectric shadow threshold using Median Absolute Deviation (MAD)
+    # PVC/silicone tube shadow creates negative offset relative to surrounding skin-contact pads
+    mad = float(np.median(np.abs(arr - median_cap)))
+    # Normal consistency factor 1.4826; clamp threshold to reasonable physical bounds in pF
+    drop_threshold = float(max(0.35, min(1.5, 1.4826 * mad * 1.5)))
+    shadow_mask = (median_cap - arr) >= drop_threshold
+    shadowed_pads = [pad_idx for pad_idx, is_shadow in enumerate(shadow_mask, start=1) if is_shadow]
+
+    tube_present = len(shadowed_pads) >= 3
+    axis_orientation = "unknown"
+    if tube_present:
+        xs = [coords[p][0] for p in shadowed_pads]
+        ys = [coords[p][1] for p in shadowed_pads]
+        spread_x = max(xs) - min(xs) if xs else 0.0
+        spread_y = max(ys) - min(ys) if ys else 0.0
+        if spread_x >= 25.0 and spread_y >= 25.0:
+            axis_orientation = "diagonal"
+        elif spread_y >= spread_x:
+            axis_orientation = "vertical"
+        else:
+            axis_orientation = "horizontal"
+
+    return {
+        "detected": tube_present,
+        "shadowed_pads": shadowed_pads,
+        "median_capacitance_pf": round(median_cap, 3),
+        "adaptive_threshold_pf": round(drop_threshold, 3),
+        "axis_orientation": axis_orientation,
+        "confidence": min(1.0, round(len(shadowed_pads) / 6.0, 3)) if tube_present else 0.0,
+        "pad_capacitance_pf": [round(float(v), 3) for v in arr],
+        "pad_shadow_depth_pf": [round(float(max(0.0, median_cap - v)), 3) for v in arr],
+    }
+
+
+def analyze_surface_topography(
+    baseline_arr: np.ndarray,
+    is_cdc_pf: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Analyze baseline capacitance distribution across the 25-pad array to detect
+    non-planar contours, anatomical curvature, step-heights, and micro air-gap tenting
+    around intubation tubes or anchor tape.
+
+    Returns surface profile ('planar', 'moderate_contour', 'stepped_ridge'),
+    identifies tenting vs flush pads, and generates per-pad adaptive lift gates.
+    """
+    arr = np.asarray(baseline_arr, dtype=float)
+    if arr.size != N_PADS:
+        return {"valid": False, "reason": f"expected {N_PADS} pads, got {arr.size}"}
+    if np.isnan(arr).any() or np.isinf(arr).any():
+        return {"valid": False, "reason": "non-finite baseline values"}
+    if (arr < 0.0).any():
+        return {"valid": False, "reason": "negative baseline values"}
+
+    if is_cdc_pf is None:
+        is_cdc_pf = bool(np.all(arr < 500.0) and np.any(arr > 0.05))
+
+    med = float(np.median(arr))
+    q25, q75 = float(np.percentile(arr, 25)), float(np.percentile(arr, 75))
+    iqr = max(0.2 if is_cdc_pf else 50.0, q75 - q25)
+    roughness = float(iqr / (med + 1e-9))
+
+    # Tenting detection: pads with baseline significantly below median
+    # (air gap epsilon_r=1 vs skin epsilon_r=60 causes steep drop)
+    tenting_threshold = med - 1.2 * iqr
+    flush_threshold = med - 0.4 * iqr
+
+    tenting_pads = [int(i + 1) for i, val in enumerate(arr) if val <= tenting_threshold]
+    flush_pads = [int(i + 1) for i, val in enumerate(arr) if val >= flush_threshold]
+    contoured_pads = [
+        int(i + 1) for i, val in enumerate(arr)
+        if tenting_threshold < val < flush_threshold
+    ]
+
+    # Surface classification
+    if len(tenting_pads) >= 3 or roughness > 0.35:
+        surface_profile = "stepped_ridge"
+        recommendation = (
+            f"Step-height discontinuity / tenting detected across pads {tenting_pads}. "
+            "Smooth down hydrocolloid adhesive around tube boundary to eliminate air gaps."
+        )
+    elif roughness > 0.15:
+        surface_profile = "moderate_contour"
+        recommendation = "Curved anatomical contour detected (e.g. cheek/mandible). Per-pad adaptive gates active."
+    else:
+        surface_profile = "planar"
+        recommendation = "Planar uniform contact verified. Standard thresholds active."
+
+    # Compute per-pad adaptive lift gates
+    # Default planar lift gate is -300 counts (~1.1% of nominal 28000 baseline)
+    # If CDC pF, default nominal is ~30 pF, so 1.1% is ~ -0.33 pF
+    alpha = 0.011
+    min_floor = -0.15 if is_cdc_pf else -150.0
+    adaptive_gates = [
+        float(round(min(min_floor, -alpha * val), 2)) for val in arr
+    ]
+
+    return {
+        "valid": True,
+        "surface_profile": surface_profile,
+        "roughness_ratio": round(roughness, 4),
+        "median_baseline": round(med, 2),
+        "iqr_baseline": round(iqr, 2),
+        "tenting_pads": tenting_pads,
+        "contoured_pads": contoured_pads,
+        "flush_pads": flush_pads,
+        "adaptive_lift_gates": adaptive_gates,
+        "recommendation": recommendation,
+    }
+
+
+def compute_fractional_deltas(
+    pad_delta: np.ndarray,
+    baseline_capacitance: np.ndarray,
+) -> np.ndarray:
+    """Compute scale-invariant relative fractional delta: delta_i = Delta_C_i / C_{0, i}.
+    Normalizes sensitivity across ridge, contour, and trough/step pads.
+    """
+    d = np.asarray(pad_delta, dtype=float)
+    b = np.asarray(baseline_capacitance, dtype=float)
+    safe_b = np.where(b <= 0.0, 1.0, b)
+    return d / safe_b
+
+
 
 
 # =============================================================================
@@ -2257,12 +2771,12 @@ def safe_data_path(rel_path: str) -> str:
 # Still imported defensively so --eval / --report / --audit keep running on a
 try:
     from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-    from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
     _fastapi_error: Optional[str] = None
 except ImportError as _fastapi_exc:      # pragma: no cover - depends on the env
     FastAPI = File = HTTPException = Request = UploadFile = WebSocket = WebSocketDisconnect = None  # type: ignore
-    HTMLResponse = JSONResponse = PlainTextResponse = StaticFiles = None        # type: ignore
+    HTMLResponse = JSONResponse = PlainTextResponse = Response = StaticFiles = None        # type: ignore
     _fastapi_error = str(_fastapi_exc)
 
 
@@ -2558,17 +3072,96 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                     detail=f"The audit trail on disk is unreadable ({exc}). It has NOT "
                            f"been modified. Recover or move aside "
                            f"Data/extubation_events_audit.json before continuing.")
-        return {"total_events": len(logs), "events": logs}
+        return {"total_events": len(logs), "events": logs,
+                "chain": verify_audit_chain(logs)}
+
+    @app.post("/api/v6/cdc/tube-localization")
+    def cdc_tube_localization(body: Dict[str, Any]) -> Dict[str, Any]:
+        """Static tube localization & routing detection from absolute capacitance (CDC)."""
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        values = body.get("c_abs_pf", [])
+        if not isinstance(values, list) or len(values) != N_PADS or any(isinstance(x, bool) for x in values):
+            raise HTTPException(
+                status_code=400,
+                detail=f"c_abs_pf must be a list of {N_PADS} numeric capacitance values in picofarads"
+            )
+        try:
+            arr = np.array(values, dtype=float)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid numeric values: {exc}")
+        return detect_static_tube_localization(arr)
+
+    @app.post("/api/v6/topography/analyze")
+    def analyze_topography_endpoint(body: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze baseline array across 25 channels for contour curvature and step-height tenting."""
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        values = body.get("baseline", body.get("baseline_capacitance", []))
+        is_cdc_pf = body.get("is_cdc_pf", None)
+        if is_cdc_pf is not None and not isinstance(is_cdc_pf, bool):
+            raise HTTPException(status_code=400, detail="is_cdc_pf must be a boolean if provided")
+        if not isinstance(values, list) or len(values) != N_PADS or any(isinstance(x, bool) for x in values):
+            raise HTTPException(
+                status_code=400,
+                detail=f"baseline must be a list of {N_PADS} numeric capacitance values"
+            )
+        try:
+            arr = np.array(values, dtype=float)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid numeric values: {exc}")
+        return analyze_surface_topography(arr, is_cdc_pf=is_cdc_pf)
 
     @app.post("/api/v6/event-log")
     def append_event_log(body: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            severity = int(body["severity_level"])
+            raw_sev = body["severity_level"]
+            if isinstance(raw_sev, bool):
+                raise ValueError("severity_level must not be boolean")
+            severity = int(raw_sev)
+            if severity not in (0, 1, 2, 3):
+                raise HTTPException(status_code=400, detail="severity_level must be an integer in 0..3")
+
+            raw_idx = body["frame_index"]
+            if isinstance(raw_idx, bool):
+                raise ValueError("frame_index must not be boolean")
+            frame_idx = int(raw_idx)
+            if frame_idx < 0:
+                raise HTTPException(status_code=400, detail="frame_index must be >= 0")
+
             cpri_val = float(body["cpri_percent"])
-            frame_idx = int(body["frame_index"])
             time_sec = float(body["time_sec"])
             dataset = str(body.get("dataset", "unknown"))
             min_delta = float(body.get("min_delta", 0.0))
+            max_delta = float(body.get("max_delta", 0.0))
+            confidence = float(body["confidence"]) if "confidence" in body and body["confidence"] is not None else None
+            status_text = str(body.get("status", STATUS_TEXT_MAP.get(severity, "unknown")))
+            attached_nodes = int(body.get("attached_nodes", 25))
+            lifting_pads = int(body.get("lifting_pads", 0))
+            grid_mean = float(body.get("grid_mean", 0.0))
+            peel_desc = str(body.get("peel_desc", body.get("description", "")))
+            # IEC 60601-1-8 treats silencing an alarm as a recordable action, so
+            # the trail has to say what KIND of entry each row is. Anything not
+            # in this set is rejected rather than silently filed as an alarm.
+            event_type = str(body.get("event_type", "alarm"))
+            if event_type not in ("alarm", "audio_muted", "audio_unmuted"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="event_type must be one of: alarm, audio_muted, audio_unmuted")
+            probabilities = body.get("probabilities", [])
+            deltas = body.get("deltas", [])
+
+            if not math.isfinite(cpri_val) or not math.isfinite(max_delta) or not math.isfinite(min_delta) or not math.isfinite(time_sec) or not math.isfinite(grid_mean):
+                raise HTTPException(status_code=400, detail="Numerical fields must be finite floats")
+            if confidence is not None and not math.isfinite(confidence):
+                raise HTTPException(status_code=400, detail="confidence must be a finite float")
+            if probabilities and not all(math.isfinite(float(p)) for p in probabilities):
+                raise HTTPException(status_code=400, detail="probabilities must contain finite floats")
+            if deltas and not all(math.isfinite(float(d)) for d in deltas):
+                raise HTTPException(status_code=400, detail="deltas must contain finite floats")
+
+        except HTTPException:
+            raise
         except (KeyError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=f"Invalid event log fields: {exc}")
 
@@ -2593,13 +3186,34 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 "event_id": f"EVT-{uuid.uuid4().hex[:12]}",
                 "sequence": len(logs) + 1,
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "event_type": event_type,
                 "dataset": dataset,
                 "frame_index": frame_idx,
                 "time_sec": round(time_sec, 3),
                 "severity_level": severity,
+                "status": status_text,
                 "cpri_percent": round(cpri_val, 1),
-                "min_delta": round(min_delta, 1)
+                "probabilities": [round(float(p), 4) for p in probabilities] if probabilities else [],
+                "min_delta": round(min_delta, 1),
+                "max_delta": round(max_delta, 1),
+                "attached_nodes": attached_nodes,
+                "lifting_pads": lifting_pads,
+                "grid_mean": round(grid_mean, 1),
+                "peel_desc": peel_desc,
+                "deltas": [round(float(d), 1) for d in deltas] if deltas else []
             }
+            if confidence is not None:
+                event["confidence"] = round(confidence, 4)
+
+            # Chain this event to the one before it. The last event's hash is
+            # the link; a trail that has never been chained starts at genesis.
+            prev_hash = AUDIT_GENESIS_HASH
+            for earlier in reversed(logs):
+                if "hash" in earlier:
+                    prev_hash = str(earlier["hash"])
+                    break
+            event["prev_hash"] = prev_hash
+            event["hash"] = audit_event_hash(event, prev_hash)
             logs.append(event)
 
             # M2: atomic write, and a failure here is reported as a failure.
@@ -2631,6 +3245,64 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                         pass
 
         return {"status": "recorded", "event": event}
+
+    @app.get("/api/v6/event-log/export-csv")
+    def export_event_logs_csv() -> Any:
+        """Export recorded clinical audit trail as a comprehensive downloadable CSV."""
+        log_file = _event_log_path()
+        with EVENT_LOG_LOCK:
+            try:
+                logs = _read_event_log(log_file)
+            except Exception as exc:
+                logger_api.error(f"Error reading event log for CSV export: {exc}")
+                raise HTTPException(status_code=500, detail=f"Cannot read audit log: {exc}")
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Event_ID", "Sequence", "Timestamp", "Dataset", "Frame_Index",
+            "Time_Sec", "Severity_Level", "Status", "CPRI_Percent",
+            "Prob_Baseline", "Prob_Touch", "Prob_Peel", "Prob_Pull",
+            "Min_Delta", "Max_Delta", "Attached_Nodes", "Lifting_Pads",
+            "Grid_Mean", "Peel_Description", "Pad_Deltas"
+        ])
+        for e in logs:
+            probs = e.get("probabilities") or []
+            p0 = probs[0] if len(probs) > 0 else ""
+            p1 = probs[1] if len(probs) > 1 else ""
+            p2 = probs[2] if len(probs) > 2 else ""
+            p3 = probs[3] if len(probs) > 3 else ""
+            deltas_list = e.get("deltas") or []
+            deltas_str = ";".join(str(d) for d in deltas_list) if deltas_list else ""
+            writer.writerow([
+                e.get("event_id", ""),
+                e.get("sequence", ""),
+                e.get("timestamp", ""),
+                e.get("dataset", ""),
+                e.get("frame_index", ""),
+                e.get("time_sec", ""),
+                e.get("severity_level", ""),
+                e.get("status", ""),
+                e.get("cpri_percent", ""),
+                p0, p1, p2, p3,
+                e.get("min_delta", ""),
+                e.get("max_delta", ""),
+                e.get("attached_nodes", ""),
+                e.get("lifting_pads", ""),
+                e.get("grid_mean", ""),
+                e.get("peel_desc", ""),
+                deltas_str
+            ])
+        csv_text = output.getvalue()
+        filename = f"event_logs_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
 
     @app.get("/api/v6/shift-report")
     def get_shift_report() -> Dict[str, Any]:
@@ -2808,9 +3480,11 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         await ws.accept()
         params = ws.query_params
         source_kind = params.get("source", "replay")
+        cdc_flag = params.get("mode") == "cdc" or params.get("unit") == "pf"
         pipeline = LivePipeline(model_holder.get("model"),
                                 model_holder.get("use_gradient", False),
-                                fuse_imu=params.get("fuse", "0") == "1")
+                                fuse_imu=params.get("fuse", "0") == "1",
+                                cdc_mode=cdc_flag)
         src: Optional[FrameSource] = None
         try:
             if source_kind == "serial":
@@ -2824,8 +3498,14 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 # then differed for "exists but is not a serial device" versus
                 # "does not exist", which is a filesystem existence oracle -
                 # and it is reachable by anyone holding the tunnel link.
-                # Only ports this machine actually enumerates are accepted.
-                attached = {p["device"] for p in list_serial_ports()}
+                # F5: Retry loop for transient USB enumeration delays (up to 3 attempts)
+                attached = set()
+                for attempt in range(3):
+                    attached = {p["device"] for p in list_serial_ports()}
+                    if port in attached:
+                        break
+                    if attempt < 2:
+                        await asyncio.sleep(0.15)
                 if port not in attached:
                     await ws.send_json({
                         "error": "unknown serial port",
@@ -2834,7 +3514,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                     })
                     await ws.close()
                     return
-                permute_flag = params.get("permute", "0") == "1"
+                permute_flag = params.get("permute", "1") != "0"
                 src = SerialFrameSource(port, int(params.get("baud", "115200")), permute=permute_flag)
             elif source_kind == "client":
                 # INGEST. The peer holds the hardware (a browser using the Web
@@ -2868,7 +3548,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 # sweep exists the effective setting is reported to the peer
                 # instead of asserted in a comment, so a spatial result from
                 # live hardware carries its own orientation with it.
-                permute_flag = params.get("permute", "0") == "1"
+                permute_flag = params.get("permute", "1") != "0"
                 await ws.send_json({
                     "event": "started", "source": "client",
                     "pad_order_applied": permute_flag,
@@ -2878,12 +3558,27 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                     "expects": {"raw_frame": f"{N_PADS} numbers, Signal-1..{N_PADS} order"},
                 })
                 while True:
-                    msg = await ws.receive_json()
+                    # F1: Catch JSON decoding errors, ValueError, and disconnects without dropping the session
+                    try:
+                        msg = await ws.receive_json()
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        logger_api.warning(f"Malformed JSON frame received on /ws/live_sensor: {exc}")
+                        try:
+                            await ws.send_json({"error": f"malformed JSON frame: {exc}"})
+                        except Exception:
+                            break
+                        continue
+                    except WebSocketDisconnect:
+                        return
                     if not isinstance(msg, dict):
                         await ws.send_json({"error": "expected a JSON object"})
                         continue
                     if msg.get("event") == "stop":
                         break
+                    if msg.get("event") == "reseed":
+                        pipeline.reseed()
+                        await ws.send_json({"event": "reseeded", "status": "ok"})
+                        continue
                     vals = msg.get("raw_frame")
                     if not isinstance(vals, list) or len(vals) < N_PADS:
                         await ws.send_json({"error": f"raw_frame must be {N_PADS} numbers",
@@ -2930,7 +3625,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 # Ask the source to stop first so the blocked read returns
                 # promptly, then let the worker finish rather than abandoning it.
                 src.close()
-                pool.shutdown(wait=False)
+                pool.shutdown(wait=True, cancel_futures=True)
         except WebSocketDisconnect:
             pass
         except Exception as exc:
@@ -3123,6 +3818,50 @@ def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
 # lift gate is -300 counts and works. See _caveats() and [[sensor_findings]].
 SPEC_DETACH_MAX = 25000.0        # KES 2025 s2.1 detachment criterion, as published
 SPEC_CONTACT_MIN = 30000.0       # Direct finger contact (> 30,000 counts)
+
+# Where the patch RESTS while attached, measured over the round-1 corpus on
+# 2026-09-18: the per-file Kalman seed (mean of the first KALMAN_WARMUP frames)
+# of every recording that starts at rest spans 27,823-28,258 counts, median
+# 28,025. The only seeds outside that range are 10 of the 11 Press recordings,
+# which the operator started while already pressing (28,657-29,999) - exactly
+# the "something on the patch at power-on" case this check exists to flag, and
+# the reason the band is set from the resting files and not from all 81.
+# tests/test_seed_plausibility.py recomputes both facts from the corpus and
+# pins this band to them, so it cannot drift from the data.
+#
+# Why it exists (supervisor item 2, 2026-09-17): a relative-capacitance board
+# zeroes on whatever it sees at power-on. If the patch is loose, absent, or
+# being pressed at that moment, every later delta is measured from the wrong
+# place and nobody can tell. F3 only rejects seeds outside 10,000-45,000 -
+# garbage, not "the patch was not on the skin yet". Until the absolute-CDC
+# board exists this is the mitigation the current hardware allows. It never
+# rejects: a genuinely different mounting may rest elsewhere. It REPORTS, so
+# the console can say "verify attachment" instead of trusting the zero.
+ATTACHED_SEED_BAND = (27500.0, 28600.0)
+
+
+def seed_plausibility(seed_counts: np.ndarray) -> Dict[str, Any]:
+    """Classify a Kalman seed against the attached-at-rest band. Never rejects."""
+    arr = np.asarray(seed_counts, dtype=float).ravel()
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return {"status": "unknown", "seed_median": None, "band": list(ATTACHED_SEED_BAND),
+                "note": "seed frame carried no finite values"}
+    med = float(np.median(finite))
+    lo, hi = ATTACHED_SEED_BAND
+    if med < lo:
+        status = "below_band"
+        note = ("seed rests below where an attached patch rested in round 1 - patch "
+                "loose, absent, or lifted at power-on; re-seat it and re-seed before "
+                "trusting alarms")
+    elif med > hi:
+        status = "above_band"
+        note = ("seed rests above the attached band - something was pressing on the "
+                "patch at power-on; release it and re-seed")
+    else:
+        status = "attached_band"
+        note = "seed within the round-1 attached-at-rest band"
+    return {"status": status, "seed_median": round(med, 1), "band": [lo, hi], "note": note}
 MIN_AUDIT_FRAMES = 100           # SOP v2: 60-120 s per file at 560 ms
 BASELINE_MAX_SWING = 100.0       # SOP v2 criterion 5, now actually enforced
 ROUND1_FRICTION_SWING = 654.0    # measured on the round-1 corpus, not a spec
@@ -3244,10 +3983,19 @@ def audit_folder(root: str) -> Dict[str, Any]:
            f"missing: {', '.join(missing)}" if missing else "0/1/2/3 all present")
 
     peel = _agg(2)
+    _reach = spec_detach_reachability(SPEC_DETACH_MAX)
+    _peel_detail = (f"{peel['reach_detach_spec']}/{peel['usable']} usable files (need >= 80%)"
+                    if peel["usable"] else "no usable Peel recordings")
+    if not _reach["reachable"]:
+        _peel_detail += (f" - UNREACHABLE BY ARITHMETIC: needs a "
+                         f"{_reach['drop_needed_pf']:,.1f} pF drop from a "
+                         f"~{_reach['available_pf']:,.1f} pF patch; floor at zero capacitance "
+                         f"is {_reach['floor_counts_at_zero_capacitance']:,.0f} counts. "
+                         f"Pump/adhesive cannot pass this; only raising C0 (thinner backing, "
+                         f"ground plane) or a corrected constant can. See spec_detach_reachability()")
     _check(f"Peel reaches <= {SPEC_DETACH_MAX:,.0f} counts (KES 2025 s2.1)",
            peel["usable"] > 0 and peel["reach_detach_spec"] >= 0.8 * peel["usable"],
-           f"{peel['reach_detach_spec']}/{peel['usable']} usable files (need >= 80%)"
-           if peel["usable"] else "no usable Peel recordings")
+           _peel_detail)
 
     # The check above is against a PUBLISHED RAW-COUNT figure, and on this
     # hardware it fails for every recording ever made - the corpus rests around
@@ -3380,10 +4128,26 @@ def _caveats(ds: Dataset) -> List[str]:
     if anomaly_mins:
         deepest = min(anomaly_mins)
         if deepest > SPEC_DETACH_MAX:
-            out.append(
-                f"No anomaly file reaches the <= {SPEC_DETACH_MAX:,.0f} count detachment "
-                f"spec (KES 2025 s2.1); deepest is {deepest:,.0f}. Check the fixation "
-                f"method used for these recordings before quoting a detachment claim.")
+            r = spec_detach_reachability(SPEC_DETACH_MAX)
+            note = (f"No anomaly file reaches the <= {SPEC_DETACH_MAX:,.0f} count detachment "
+                    f"spec (KES 2025 s2.1); deepest is {deepest:,.0f} "
+                    f"({(BASELINE_COUNTS - deepest) / COUNTS_PER_PF:,.1f} pF below the "
+                    f"{BASELINE_COUNTS:,.0f} count resting value).")
+            if not r["reachable"]:
+                note += (
+                    f" THE CRITERION IS UNREACHABLE ON THIS SENSOR, so this is not a "
+                    f"fixation problem: it asks for a {r['drop_needed_pf']:,.1f} pF drop out of "
+                    f"an attached patch of about {r['available_pf']:,.1f} pF, and even at zero "
+                    f"capacitance the reading floors at {r['floor_counts_at_zero_capacitance']:,.0f} "
+                    f"counts, {r['shortfall_counts']:,.0f} short. A stronger pump or better "
+                    f"adhesive cannot change that; only a geometry change that raises C0 - "
+                    f"thinner backing (C ~ 1/d), a ground plane - can, or one of BASELINE_COUNTS, "
+                    f"COUNTS_PER_PF, SPEC_DETACH_MAX is wrong. Measure C0 with an LCR meter "
+                    f"(SOP v2 section 0.2) before buying either. Detection does not use this "
+                    f"criterion - it gates on the delta from the tracked baseline.")
+            else:
+                note += " Check the fixation method used for these recordings."
+            out.append(note)
         else:
             out.append(
                 f"Deepest anomaly count is {deepest:,.0f}, at or below the "

@@ -27,7 +27,7 @@
  *     patch produced deltas against the old sensor and an instant false L3.
  *
  * It only existed because main.py had no way to accept frames from a client.
- * It does now: /ws/live_sensor?source=client. So this file's whole job is to
+ * It does now: /ws/live_sensor?source=client&permute=1. So this file's whole job is to
  * move bytes - read lines from the port, push {"raw_frame": [...]} up, and hand
  * whatever comes back to renderFrame(). Every decision is made once, on the
  * server, by classify_deltas().
@@ -43,14 +43,90 @@ let webSerialReader = null;
 let webSerialActive = false;
 let webSerialSocket = null;
 let webSerialClosedPromise = null;
+let serialWatchdogTimer = null;
+// Frames arrive every 560 ms (1.79 Hz), so 1000 ms is 1.79 frame periods: one
+// dropped frame plus 440 ms of jitter trips this. That is deliberate - a frozen
+// stream on a clinical display is worse than an occasional yellow warning - but
+// it is why this is a WARNING and not an alarm, and why it clears itself on the
+// next valid frame instead of latching.
+const SERIAL_WATCHDOG_MS = 1000;
+const SERIAL_FROZEN_TEXT = 'SENSOR STREAM FROZEN / DISCONNECTED';
+let serialStreamFrozen = false;
 const MAX_CHART_POINTS = 50;
+
+function setStreamFrozen(frozen) {
+  if (serialStreamFrozen === frozen) return;
+  serialStreamFrozen = frozen;
+  const el = document.getElementById('liveTelemetryRate');
+  if (el) {
+    el.textContent = frozen ? SERIAL_FROZEN_TEXT : 'STREAMING: 560 ms (1.79 Hz)';
+    el.classList.toggle('tag--warn', frozen);
+  }
+  const banner = document.getElementById('streamFrozenBanner');
+  if (banner) banner.style.display = frozen ? '' : 'none';
+  if (frozen && typeof showToast === 'function') {
+    showToast(SERIAL_FROZEN_TEXT,
+              'No valid frame for 1.0 s. Readings on screen are stale.', 'warning');
+  }
+}
+
+function resetSerialWatchdog() {
+  if (!webSerialActive) return;
+  // A frame arrived, so whatever is on screen is current again.
+  setStreamFrozen(false);
+  if (serialWatchdogTimer) {
+    clearTimeout(serialWatchdogTimer);
+  }
+  serialWatchdogTimer = setTimeout(() => {
+    if (webSerialActive) {
+      // Warn at 1.0 s; do NOT tear the session down here. The server's own
+      // SerialFrameSource.IDLE_TIMEOUT_S (1.2 s) owns the disconnect decision,
+      // and two components racing to declare the same disconnect is how the
+      // UI ended up disagreeing with the server about whether a patch was live.
+      setStreamFrozen(true);
+    }
+  }, SERIAL_WATCHDOG_MS);
+}
+
+function stopSerialWatchdog() {
+  if (serialWatchdogTimer) {
+    clearTimeout(serialWatchdogTimer);
+    serialWatchdogTimer = null;
+  }
+  setStreamFrozen(false);
+}
+
+function handleHardwareDisconnect(reason = 'Sensor Disconnected') {
+  if (!webSerialActive) return;
+  showError(`Web Serial: ${reason}`);
+  disconnectWebSerial(reason);
+}
+
+// Client-side hardware disconnect listener via navigator.serial
+if (typeof navigator !== 'undefined' && navigator.serial && navigator.serial.addEventListener) {
+  navigator.serial.addEventListener('disconnect', (event) => {
+    if (webSerialActive && (!event.port || event.port === webSerialPort)) {
+      handleHardwareDisconnect('Sensor Disconnected');
+    }
+  });
+}
 
 function withKey(url) {
   try {
     const params = new URLSearchParams(window.location.search);
-    const key = params.get('key');
+    let key = params.get("key");
+    if (key) {
+      localStorage.setItem("p2_access_key", key);
+      document.cookie = `p2key=${encodeURIComponent(key)}; path=/; max-age=2592000; SameSite=Lax`;
+    } else {
+      key = localStorage.getItem("p2_access_key");
+      if (!key) {
+        const match = document.cookie.match(/(?:^|;\s*)p2key=([^;]+)/);
+        if (match) key = decodeURIComponent(match[1]);
+      }
+    }
     if (!key) return url;
-    const separator = url.includes('?') ? '&' : '?';
+    const separator = url.includes("?") ? "&" : "?";
     return `${url}${separator}key=${encodeURIComponent(key)}`;
   } catch (e) {
     return url;
@@ -116,8 +192,27 @@ async function toggleWebSerial() {
   }
 
   webSerialActive = true;
+  if (typeof state !== 'undefined') {
+    state.liveStreaming = true;
+    state.mode = 'live';
+  }
   document.body.dataset.mode = 'live';
   webSerialLabel(true);
+  if (typeof updateLiveStreamButton === 'function') {
+    updateLiveStreamButton(true);
+  }
+  const statEl = document.getElementById('hardwareLinkStatus');
+  if (statEl) statEl.textContent = 'USB Web Serial (Live)';
+
+  const liveTelEl = document.getElementById('liveTelemetryStatusText');
+  if (liveTelEl) liveTelEl.textContent = 'STREAMING: 560 ms (1.79 Hz)';
+
+  const calibTag = document.getElementById('calibStatusTag');
+  if (calibTag) {
+    calibTag.textContent = 'Baseline active (25 nodes)';
+    calibTag.className = 'tag tag--ok';
+  }
+
   if (typeof showToast === 'function') {
     showToast('Web Serial Connected', 'เชื่อมต่อบอร์ด Smart Dressing ผ่าน USB สำเร็จ (115200 Baud)', 'success');
   }
@@ -135,7 +230,7 @@ function openIngestSocket() {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let ws;
     try {
-      ws = new WebSocket(withKey(`${proto}//${window.location.host}/ws/live_sensor?source=client`));
+      ws = new WebSocket(withKey(`${proto}//${window.location.host}/ws/live_sensor?source=client&permute=1`));
     } catch (e) {
       showError(`Cannot open the ingest socket: ${e.message}`);
       resolve(false);
@@ -151,12 +246,17 @@ function openIngestSocket() {
       if (msg.event) return;                     // started / finished
       // Exactly the same payload shape the replay and serial sources produce,
       // so it goes through exactly the same renderer.
-      state.frames.push(msg);
-      if (state.frames.length > MAX_CHART_POINTS) state.frames.shift();
-      state.idx = state.frames.length - 1;
+      if (typeof state !== 'undefined') {
+        state.livePackets = (state.livePackets || 0) + 1;
+        state.liveFrameCount = (state.liveFrameCount || 0) + 1;
+        const countEl = document.getElementById('livePacketCount');
+        if (countEl) countEl.textContent = `Live Packets: ${state.livePackets}`;
+
+      }
       renderFrame(msg, 0);
-      if (typeof drawHeatmapGaussian === 'function') drawHeatmapGaussian(msg.deltas);
-      paintChart(state.frames);
+      if (typeof updateLiveChart === 'function') {
+        updateLiveChart(msg);
+      }
     };
     ws.onclose = () => {
       webSerialSocket = null;
@@ -169,12 +269,40 @@ function openIngestSocket() {
   });
 }
 
-async function disconnectWebSerial() {
+async function disconnectWebSerial(reason = 'Standby') {
+  stopSerialWatchdog();
+  const wasActive = webSerialActive;
   webSerialActive = false;
+  if (typeof state !== 'undefined') {
+    state.liveStreaming = false;
+  }
   webSerialLabel(false);
+  if (typeof updateLiveStreamButton === 'function') {
+    updateLiveStreamButton(false);
+  }
+  const statEl = document.getElementById('hardwareLinkStatus');
+  const isSensorDisconnect = (reason === 'Sensor Disconnected' || (typeof reason === 'string' && reason.startsWith('Sensor Disconnected')));
+  if (statEl) {
+    statEl.textContent = isSensorDisconnect ? 'Sensor Disconnected' : reason;
+  }
+
+  const calibTag = document.getElementById('calibStatusTag');
+  if (calibTag) {
+    if (isSensorDisconnect) {
+      calibTag.textContent = 'Sensor Disconnected - no hardware signal';
+      calibTag.className = 'tag tag--bad';
+    } else {
+      calibTag.textContent = 'ยังไม่ได้สตรีม - กด Live ก่อน / not streaming, nothing to re-seed';
+      calibTag.className = 'tag tag--muted';
+    }
+  }
   document.body.dataset.mode = 'review';
-  if (typeof showToast === 'function') {
-    showToast('Web Serial Disconnected', 'ตัดการเชื่อมต่อพอร์ต USB เรียบร้อยแล้ว', 'warning');
+  if (wasActive && typeof showToast === 'function') {
+    if (isSensorDisconnect) {
+      showToast('Sensor Disconnected', 'ตรวจพบการตัดการเชื่อมต่อฮาร์ดแวร์หรือไม่มีสัญญาณเกิน 1.5 วินาที / Hardware disconnected or silent > 1.5s', 'error');
+    } else {
+      showToast('Web Serial Disconnected', 'ตัดการเชื่อมต่อพอร์ต USB เรียบร้อยแล้ว', 'warning');
+    }
   }
   if (typeof playChime === 'function') {
     playChime('disconnect');
@@ -220,22 +348,34 @@ async function readWebSerialStream() {
   webSerialReader = reader;
   let buffer = '';
 
+  resetSerialWatchdog();
+
   try {
     while (webSerialActive) {
       const { value, done } = await reader.read();
       if (done) break;
       if (!value) continue;
       buffer += value;
+      // Cap chunk buffer at 4,096 chars to bound memory
+      if (buffer.length > 4096) {
+        buffer = buffer.slice(-4096);
+      }
       const lines = buffer.split('\n');
       buffer = lines.pop();
-      for (const line of lines) sendFrameLine(line);
+      for (const line of lines) {
+        // Bound max line length at 512 chars
+        if (line.length <= 512) {
+          sendFrameLine(line);
+        }
+      }
     }
   } catch (err) {
     if (webSerialActive) {
       showError(`Web Serial read ended: ${err.message}`);
-      disconnectWebSerial();
+      disconnectWebSerial('Sensor Disconnected');
     }
   } finally {
+    stopSerialWatchdog();
     try { reader.releaseLock(); } catch (e) { /* ignore */ }
   }
 }
@@ -249,12 +389,15 @@ async function readWebSerialStream() {
  * that looks like valid data.
  */
 function sendFrameLine(line) {
+  if (!line || line.length > 512) return;
   const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith('#')) return;
+  if (!trimmed || trimmed.length > 512 || trimmed.startsWith('#')) return;
   if (!webSerialSocket || webSerialSocket.readyState !== WebSocket.OPEN) return;
+  if (webSerialSocket.bufferedAmount >= 65536) return;
 
   const parts = trimmed.replace(/,/g, ' ').split(/\s+/).filter((p) => p.length);
-  if (parts.length < 25) return;
+  // Validate token counts (25 <= N <= 28) before parsing to prevent framing noise and channel misalignment
+  if (parts.length < 25 || parts.length > 28) return;
 
   const vals = [];
   for (let i = 0; i < 25; i++) {
@@ -263,4 +406,5 @@ function sendFrameLine(line) {
     vals.push(v);
   }
   webSerialSocket.send(JSON.stringify({ raw_frame: vals }));
+  resetSerialWatchdog();
 }

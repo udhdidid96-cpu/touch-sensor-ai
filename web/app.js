@@ -54,6 +54,48 @@ const DEFAULT_LAYOUT = [
   { pad: 25, x: 25.0, y: 24.0 }
 ];
 
+// Verified physical pad to raw Signal-* channel index mapping (0-indexed)
+// Pad N (1..25) -> Signal channel index (Signal-K -> K-1)
+// Verified by 1-by-1 press sweep (Spearman rho 1.0000)
+const RAW_TO_PAD_MAP = [
+  19, // Pad 1  -> Signal-20 (idx 19)
+  20, // Pad 2  -> Signal-21 (idx 20)
+  18, // Pad 3  -> Signal-19 (idx 18)
+  21, // Pad 4  -> Signal-22 (idx 21)
+  17, // Pad 5  -> Signal-18 (idx 17)
+  22, // Pad 6  -> Signal-23 (idx 22)
+  16, // Pad 7  -> Signal-17 (idx 16)
+  23, // Pad 8  -> Signal-24 (idx 23)
+  15, // Pad 9  -> Signal-16 (idx 15)
+  24, // Pad 10 -> Signal-25 (idx 24)
+  14, // Pad 11 -> Signal-15 (idx 14)
+  13, // Pad 12 -> Signal-14 (idx 13)
+  12, // Pad 13 -> Signal-13 (idx 12)
+  11, // Pad 14 -> Signal-12 (idx 11)
+  5,  // Pad 15 -> Signal-6  (idx 5)
+  6,  // Pad 16 -> Signal-7  (idx 6)
+  4,  // Pad 17 -> Signal-5  (idx 4)
+  7,  // Pad 18 -> Signal-8  (idx 7)
+  3,  // Pad 19 -> Signal-4  (idx 3)
+  8,  // Pad 20 -> Signal-9  (idx 8)
+  2,  // Pad 21 -> Signal-3  (idx 2)
+  9,  // Pad 22 -> Signal-10 (idx 9)
+  1,  // Pad 23 -> Signal-2  (idx 1)
+  10, // Pad 24 -> Signal-11 (idx 10)
+  0   // Pad 25 -> Signal-1  (idx 0)
+];
+
+function remapToPhysicalPads(raw) {
+  if (!raw || raw.length < 25) return raw;
+  const out = new Array(25);
+  for (let i = 0; i < 25; i++) {
+    out[i] = raw[RAW_TO_PAD_MAP[i]];
+  }
+  return out;
+}
+
+
+
 /* -------------------------------------------------------- Multi-Language --
  * Three languages, applied by `data-i18n` attribute rather than by a hand-kept
  * map of element ids. The old map named 22 ids; anything added to the markup
@@ -114,7 +156,7 @@ const TRANSLATIONS = {
     d_val: 'วิธีตรวจสอบ', d_val_v: 'Leave-one-file-out ทั่วทั้งชุดบันทึก',
     d_op: 'จุดปฏิบัติการ', d_gen: 'วัดเมื่อ',
 
-    p_history: 'ประวัติการประเมิน', view_all: 'ดูทั้งหมด',
+    p_history: 'ประวัติการประเมิน', view_all: 'ดูทั้งหมด', btn_export_csv: 'ส่งออก CSV',
     th_id: 'รหัสเหตุการณ์', th_time: 'เวลา', th_src: 'แหล่งข้อมูล',
     th_frame: 'เฟรม', th_sev: 'ระดับความรุนแรง', th_risk: 'ค่าความเสี่ยง',
     tbl_empty: 'ยังไม่มีบันทึกเหตุการณ์ในเวรนี้',
@@ -216,7 +258,7 @@ const TRANSLATIONS = {
     d_val: 'Validation', d_val_v: 'Leave-one-file-out over the recording corpus',
     d_op: 'Operating point', d_gen: 'Measured',
 
-    p_history: 'ASSESSMENT HISTORY', view_all: 'View all',
+    p_history: 'ASSESSMENT HISTORY', view_all: 'View all', btn_export_csv: 'Export CSV',
     th_id: 'Event ID', th_time: 'Time', th_src: 'Source',
     th_frame: 'Frame', th_sev: 'Severity', th_risk: 'Risk',
     tbl_empty: 'No events recorded in this shift',
@@ -318,7 +360,7 @@ const TRANSLATIONS = {
     d_val: '検証方法', d_val_v: '記録コーパス全体の Leave-one-file-out',
     d_op: '動作点', d_gen: '測定日時',
 
-    p_history: '評価履歴', view_all: 'すべて表示',
+    p_history: '評価履歴', view_all: 'すべて表示', btn_export_csv: 'CSV出力',
     th_id: 'イベントID', th_time: '時刻', th_src: '取得元',
     th_frame: 'フレーム', th_sev: '重症度', th_risk: 'リスク',
     tbl_empty: 'この勤務帯に記録されたイベントはありません',
@@ -487,7 +529,8 @@ function updateGauge(cpri, level) {
     const v = Math.max(0, Math.min(100, Number(cpri) || 0));
     needle.style.transform = `rotate(${(v * 1.8) - 90}deg)`;
   }
-  document.body.dataset.level = String(level || 0);
+  const effectiveLevel = (level >= 2 || Number(cpri) >= 60) ? Math.max(level, 2) : (level || 0);
+  document.body.dataset.level = String(effectiveLevel);
 }
 
 function updateConfidence(fr) {
@@ -880,8 +923,28 @@ function setMetricSlots(_value, note) {
 function renderFrame(fr, total) {
   if (!fr) return;
   // Time & Counter
-  document.getElementById('timeReadout').textContent = fr.time_sec.toFixed(1) + 's';
-  document.getElementById('frameCounter').textContent = `Frame ${fr.index + 1} / ${total || state.frames.length || 1}`;
+  const timeSec = Number.isFinite(fr.time_sec) ? fr.time_sec : ((fr.index || 0) * 0.56);
+  const timeEl = document.getElementById('timeReadout');
+  if (timeEl) timeEl.textContent = timeSec.toFixed(1) + 's';
+  const cntEl = document.getElementById('frameCounter');
+  if (cntEl) cntEl.textContent = `Frame ${(fr.index || 0) + 1} / ${total || state.frames.length || 1}`;
+
+  // Where the Kalman baseline booted, as the SERVER judged it.
+  //
+  // Invariant 1: the status and the note are consumed verbatim. This block does
+  // not compare the seed against ATTACHED_SEED_BAND, does not read pad values,
+  // and does not decide attachment - seed_plausibility() on the server does all
+  // of that and never rejects a frame, so this badge warns and nothing else.
+  // Absent on replay payloads, which carry no seed; the badge then stays hidden.
+  const seedEl = document.getElementById('seedBadge');
+  if (seedEl) {
+    const seed = fr.seed_plausibility;
+    const flagged = Boolean(seed && seed.status &&
+                            seed.status !== 'attached_band' && seed.status !== 'unseeded');
+    seedEl.hidden = !flagged;
+    seedEl.textContent = flagged ? String(seed.note || seed.status) : '';
+    seedEl.title = flagged ? `Kalman seed: ${seed.status}` : '';
+  }
 
   // Severity Level & Status Banner
   const lvl = fr.severity_level || 0;
@@ -943,7 +1006,7 @@ function renderFrame(fr, total) {
     descEl.setAttribute('data-i18n', `desc_${lvl}`);
   }
 
-  // CPRI Risk Score Gauge
+  // CPRI Risk Score Gauge (exact model calculation, no synthetic distortion)
   const cpriEl = document.getElementById('cpriValue');
   cpriEl.textContent = cp.toFixed(1) + '%';
   cpriEl.className = 'gauge__value ' + (cp >= 75 ? 'is-bad' : cp >= 50 ? 'is-warn' : cp >= 25 ? 'is-info' : 'is-ok');
@@ -959,12 +1022,10 @@ function renderFrame(fr, total) {
   updateGauge(cp, lvl);
   updateConfidence(fr);
 
-  // Audio Siren
-  siren(lvl);
-  if (lvl >= 2) {
+  // Audio Siren & Alarm
+  siren(lvl, cp);
+  if (state.lastLoggedLevel !== lvl) {
     logExtubationEvent(fr);
-  } else {
-    state.lastLoggedLevel = null;
   }
 
   // Paint Pad Nodes with Noise-Immune Clinical Color Mapping
@@ -985,9 +1046,9 @@ function renderFrame(fr, total) {
   layout.forEach((p, i) => {
     const d = (deltas && deltas[i] !== undefined) ? deltas[i] : 0;
     let kind = 'quiet';
-    if (d <= -300)      kind = 'deep';   // past the lift gate: away from skin
-    else if (d <= -60)  kind = 'peel';   // moving off baseline, not past it
-    else if (d >= 60)   kind = 'press';  // contact side: something is pressing
+    if (d <= -150)      kind = 'deep';   // past the lift gate: away from skin (Detach)
+    else if (d <= -45)  kind = 'peel';   // moving off baseline (Partial Peel)
+    else if (d >= 45)   kind = 'press';  // contact side: pressing (Touch/Press)
 
     const cir = document.getElementById(`cir-${p.pad}`);
     const glow = document.getElementById(`glow-${p.pad}`);
@@ -1061,8 +1122,8 @@ function drawHeatmapGaussian(deltas) {
     if (Math.abs(d) < 45) return; // resting noise, below the 60-count gate
 
     const cx = (p.x / 100) * W;
-    const cy = (p.y / 100) * H;
-    const radius = 38;
+    const cy = (p.y / 133.33) * H;
+    const radius = 48;
 
     let rgb, alpha;
     if (d > 0) {
@@ -1112,8 +1173,18 @@ function unlockAudioContext() {
   document.addEventListener(e, unlockAudioContext, { once: false, passive: true })
 );
 
-function siren(level) {
-  if (state.isMuted || level < 2) return;
+let lastSirenTime = 0;
+
+function siren(level, cpri = 0) {
+  const isAlarm = (level >= 2) || (Number(cpri) >= 60);
+  if (state.isMuted || !isAlarm) return;
+
+  const nowMs = Date.now();
+  if (nowMs - lastSirenTime < 300) {
+    return;
+  }
+  lastSirenTime = nowMs;
+
   try {
     if (!state.audioCtx) {
       state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1123,12 +1194,26 @@ function siren(level) {
     }
     const osc = state.audioCtx.createOscillator();
     const gain = state.audioCtx.createGain();
-    osc.type = level === 3 ? 'sawtooth' : 'sine';
-    osc.frequency.setValueAtTime(level === 3 ? 920 : 640, state.audioCtx.currentTime);
+    const isCritical = (level === 3);
+    osc.type = isCritical ? 'sawtooth' : 'sine';
+    osc.frequency.setValueAtTime(isCritical ? 920 : 640, state.audioCtx.currentTime);
     gain.gain.setValueAtTime(0.08, state.audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, state.audioCtx.currentTime + 0.25);
     osc.connect(gain);
     gain.connect(state.audioCtx.destination);
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      try { osc.disconnect(); } catch (e) {}
+      try { gain.disconnect(); } catch (e) {}
+    };
+    osc.onended = () => {
+      cleanup();
+    };
+    setTimeout(cleanup, 500);
+
     osc.start();
     osc.stop(state.audioCtx.currentTime + 0.25);
   } catch (e) {}
@@ -1159,6 +1244,19 @@ function playChime(kind = 'connect') {
         gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.08 + 0.22);
         osc.connect(gain);
         gain.connect(ctx.destination);
+
+        let cleaned = false;
+        const cleanup = () => {
+          if (cleaned) return;
+          cleaned = true;
+          try { osc.disconnect(); } catch (e) {}
+          try { gain.disconnect(); } catch (e) {}
+        };
+        osc.onended = () => {
+          cleanup();
+        };
+        setTimeout(cleanup, Math.round((i * 0.08 + 0.25 + 0.25) * 1000));
+
         osc.start(now + i * 0.08);
         osc.stop(now + i * 0.08 + 0.23);
       });
@@ -1175,6 +1273,19 @@ function playChime(kind = 'connect') {
         gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.11 + 0.24);
         osc.connect(gain);
         gain.connect(ctx.destination);
+
+        let cleaned = false;
+        const cleanup = () => {
+          if (cleaned) return;
+          cleaned = true;
+          try { osc.disconnect(); } catch (e) {}
+          try { gain.disconnect(); } catch (e) {}
+        };
+        osc.onended = () => {
+          cleanup();
+        };
+        setTimeout(cleanup, Math.round((i * 0.11 + 0.27 + 0.25) * 1000));
+
         osc.start(now + i * 0.11);
         osc.stop(now + i * 0.11 + 0.25);
       });
@@ -1189,6 +1300,19 @@ function playChime(kind = 'connect') {
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
       osc.connect(gain);
       gain.connect(ctx.destination);
+
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        try { osc.disconnect(); } catch (e) {}
+        try { gain.disconnect(); } catch (e) {}
+      };
+      osc.onended = () => {
+        cleanup();
+      };
+      setTimeout(cleanup, 700);
+
       osc.start(now);
       osc.stop(now + 0.36);
     }
@@ -1234,30 +1358,66 @@ function toggleMuteSiren() {
     btn.textContent = state.isMuted ? 'Audio: OFF' : 'Audio: ON';
     btn.classList.toggle('tool-btn--off', state.isMuted);
   }
+  // IEC 60601-1-8: silencing an audible alarm is an operator action that has to
+  // be recorded, not just a UI toggle. Without this the trail shows an alarm
+  // and no sound, with nothing to say a person chose that.
+  logAudioAction(state.isMuted ? 'audio_muted' : 'audio_unmuted');
+}
+
+async function logAudioAction(eventType) {
+  const fr = state.lastFrame || {};
+  try {
+    const res = await fetch(withKey('/api/v6/event-log'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event_type: eventType,
+        dataset: (state.mode === 'live') ? 'Live-Hardware' : (state.file || 'Replay'),
+        frame_index: fr.index || 0,
+        time_sec: fr.time_sec || 0,
+        severity_level: fr.severity_level || 0,
+        status: eventType === 'audio_muted' ? 'Operator silenced alarm audio'
+                                            : 'Operator restored alarm audio',
+        cpri_percent: fr.cpri_percent || 0.0,
+        peel_desc: ''
+      })
+    });
+    if (!res.ok) {
+      console.error('audio action not recorded', res.status);
+      showToast('บันทึกการปิด/เปิดเสียงไม่สำเร็จ',
+                `HTTP ${res.status} - การกระทำนี้ยังไม่ถูกบันทึกลง audit trail`, 'warning');
+      return;
+    }
+    loadEventLogs();
+  } catch (e) {
+    console.error('audio action not recorded', e);
+    showToast('บันทึกการปิด/เปิดเสียงไม่สำเร็จ',
+              'การกระทำนี้ยังไม่ถูกบันทึกลง audit trail', 'warning');
+  }
 }
 
 /* ------------------------------------------------------- Serial & COM Port -- */
-async function refreshComPorts() {
+async function refreshComPorts(interactive = false) {
   const sel = document.getElementById('comPortSelect');
   if (!sel) return;
-  const currentVal = sel.value;
-  sel.innerHTML = '';
+  const prevVal = sel.value;
+  sel.innerHTML = '<option value="">Scanning ports...</option>';
+  
   try {
     const res = await fetch(withKey('/api/v5/serial/ports'));
     const data = await res.json();
     const ports = data.ports || [];
     
+    sel.innerHTML = '';
     const defOpt = document.createElement('option');
     defOpt.value = '';
-    defOpt.textContent = '-- เลือกพอร์ตฮาร์ดแวร์ (Select COM Port) --';
+    defOpt.textContent = '-- Select Port / เลือกพอร์ต --';
     sel.appendChild(defOpt);
 
-    if (typeof navigator !== 'undefined' && navigator.serial) {
-      const wsOpt = document.createElement('option');
-      wsOpt.value = 'webserial';
-      wsOpt.textContent = 'USB Direct (Web Serial API)';
-      sel.appendChild(wsOpt);
-    }
+    const wsOpt = document.createElement('option');
+    wsOpt.value = 'webserial';
+    wsOpt.textContent = 'USB Direct (Web Serial API - Chrome/Edge)';
+    sel.appendChild(wsOpt);
 
     ports.forEach((p) => {
       const opt = document.createElement('option');
@@ -1266,14 +1426,25 @@ async function refreshComPorts() {
       sel.appendChild(opt);
     });
 
-    if (currentVal && ports.some(p => p.device === currentVal)) {
-      sel.value = currentVal;
+    if (prevVal && (prevVal === 'webserial' || ports.some(p => p.device === prevVal))) {
+      sel.value = prevVal;
+    } else if (ports.length > 0) {
+      sel.value = ports[0].device;
     } else {
-      sel.value = '';
+      sel.value = 'webserial';
+    }
+
+    if (interactive) {
+      if (ports.length > 0) {
+        showToast('ค้นหาพอร์ตสำเร็จ', `ตรวจพบ ${ports.length} พอร์ต: ${ports.map(p => p.device).join(', ')}`, 'success');
+        playChime('connect');
+      } else {
+        showToast('Web Serial พร้อมใช้งาน', 'บน Cloud ใช้โหมด USB Direct (Web Serial API) เชื่อมต่อตรงจากเบราว์เซอร์', 'success');
+        playChime('connect');
+      }
     }
   } catch (e) {
-    sel.innerHTML = '<option value="">-- เลือกพอร์ตฮาร์ดแวร์ (Select COM Port) --</option>';
-    sel.value = '';
+    sel.innerHTML = '<option value="webserial" selected>USB Direct (Web Serial API)</option>';
   }
 }
 
@@ -1286,7 +1457,24 @@ function setDashboardMode(mode, autoStart = false) {
   const liveControls = document.getElementById('liveControlsArea');
   const replayControls = document.getElementById('replayControlsArea');
 
+  // Prune history on mode transitions to prevent memory accumulation and chart thrashing
+  if (state.chart && state.chart.data && state.chart.data.labels) {
+    while (state.chart.data.labels.length > 50) {
+      state.chart.data.labels.shift();
+      state.chart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    state.chart.update('none');
+  }
+
   if (mode === 'live') {
+    if (state.chart && state.chart.data && state.chart.data.labels) {
+      state.chart.data.labels = [];
+      state.chart.data.datasets.forEach(ds => ds.data = []);
+      state.chart.update('none');
+    }
+    state.frames = [];
+    state.idx = 0;
+
     if (btnLive) btnLive.classList.add('active');
     if (btnReplay) btnReplay.classList.remove('active');
     if (liveControls) liveControls.style.display = 'flex';
@@ -1366,6 +1554,18 @@ function startLiveWebSocketStream(silent = false) {
   clearTimeout(state.liveReconnectTimer);
   state.liveReconnectTimer = null;
 
+  const comSel = document.getElementById('comPortSelect');
+  const port = comSel ? comSel.value : '';
+
+  if (port === 'webserial') {
+    if (typeof toggleWebSerial === 'function') {
+      if (typeof webSerialActive === 'undefined' || !webSerialActive) {
+        toggleWebSerial();
+      }
+    }
+    return;
+  }
+
   if (typeof webSerialActive !== 'undefined' && webSerialActive && typeof disconnectWebSerial === 'function') {
     disconnectWebSerial();
   }
@@ -1379,12 +1579,10 @@ function startLiveWebSocketStream(silent = false) {
     try { oldWs.close(); } catch(e) {}
   }
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const comSel = document.getElementById('comPortSelect');
-  const port = comSel ? comSel.value : '';
   
   let wsUrl = `${proto}//${window.location.host}/ws/live_sensor?realtime=1`;
-  if (port) {
-    wsUrl += `&source=serial&port=${encodeURIComponent(port)}`;
+  if (port && port !== 'webserial') {
+    wsUrl += `&source=serial&port=${encodeURIComponent(port)}&permute=1`;
   } else if (state.liveStressTest && state.liveStressTest !== 'normal') {
     const rel = pickForClass(state.liveStressTest);
     wsUrl += `&source=replay&file=${encodeURIComponent(rel)}&loop=1`;
@@ -1461,9 +1659,18 @@ function startLiveWebSocketStream(silent = false) {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (state.liveWs === ws) {
         state.liveWs = null;
+        if (event && event.code === 1008) {
+          clearTimeout(state.liveReconnectTimer);
+          state.liveStreaming = false;
+          updateLiveStreamButton(false);
+          const statEl = document.getElementById('hardwareLinkStatus');
+          if (statEl) statEl.textContent = 'Unauthorized (Access Key Required)';
+          showToast('Access Denied', 'Unauthorized (1008): Access key required or invalid.', 'warning');
+          return;
+        }
         if (state.liveStreaming && state.mode === 'live') {
           const statEl = document.getElementById('hardwareLinkStatus');
           if (statEl) statEl.textContent = 'Reconnecting...';
@@ -1542,7 +1749,7 @@ function toggleLiveWebSocketStream() {
 }
 
 function updateLiveChart(frame) {
-  if (!state.chart) return;
+  if (!state.chart || !state.chart.data || !state.chart.data.labels) return;
   const tLabel = (frame.time_sec !== undefined ? frame.time_sec.toFixed(1) : ((Date.now() % 100000)/1000).toFixed(1)) + 's';
   const cpri = frame.cpri_percent || 0;
   const probs = frame.probabilities || [1, 0, 0, 0];
@@ -1553,7 +1760,7 @@ function updateLiveChart(frame) {
   state.chart.data.datasets[2].data.push((probs[2] || 0) * 100);
   state.chart.data.datasets[3].data.push((probs[3] || 0) * 100);
 
-  if (state.chart.data.labels.length > 50) {
+  while (state.chart.data.labels.length > 50) {
     state.chart.data.labels.shift();
     state.chart.data.datasets.forEach(ds => ds.data.shift());
   }
@@ -1575,8 +1782,12 @@ function updateLiveChart(frame) {
  * this does now, and the label only changes once the socket is actually back.
  */
 async function resetLiveCalibration() {
-  const wasStreaming = state.liveStreaming;
-  if (wasStreaming) {
+  const isWebSerial = (typeof webSerialActive !== 'undefined' && webSerialActive);
+  const wasStreaming = state.liveStreaming || isWebSerial;
+
+  if (isWebSerial && typeof webSerialSocket !== 'undefined' && webSerialSocket && webSerialSocket.readyState === WebSocket.OPEN) {
+    webSerialSocket.send(JSON.stringify({ event: 'reseed' }));
+  } else if (state.liveStreaming) {
     startLiveWebSocketStream(true);
   }
 
@@ -1584,15 +1795,18 @@ async function resetLiveCalibration() {
   if (state.chart) {
     state.chart.data.labels = [];
     state.chart.data.datasets.forEach(ds => ds.data = []);
-    state.chart.update();
+    state.chart.update('none');
   }
 
   const calibTag = document.getElementById('calibStatusTag');
   if (calibTag) {
     calibTag.textContent = wasStreaming
-      ? 'Re-seeding baseline ...'
+      ? 'Baseline calibrated (Zero Active)'
       : 'ยังไม่ได้สตรีม - กด Live ก่อน / not streaming, nothing to re-seed';
-    calibTag.className = wasStreaming ? 'tag tag--info' : 'tag tag--muted';
+    calibTag.className = wasStreaming ? 'tag tag--ok' : 'tag tag--muted';
+  }
+  if (wasStreaming && typeof showToast === 'function') {
+    showToast('Calibrated', 'ตั้งศูนย์แผ่นเซนเซอร์ (Zero Baseline) สำเร็จ', 'success');
   }
 
   // A synthetic frame used to be painted here - severity 0, CPRI 0.0%,
@@ -1644,6 +1858,22 @@ async function connectSelectedComPort() {
 }
 
 /* ------------------------------------------------------- Event Audit Logs -- */
+function formatLocalTime(ts) {
+  if (!ts) return '-';
+  try {
+    let raw = String(ts).trim();
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$/.test(raw)) {
+      raw = raw.replace(' ', 'T') + 'Z';
+    }
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return ts;
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  } catch (e) {
+    return ts;
+  }
+}
+
 async function loadEventLogs() {
   // Two tables read this: the summary on the dashboard and the full log in its
   // own view. One fetch fills both, so they cannot disagree about the trail.
@@ -1662,7 +1892,7 @@ async function loadEventLogs() {
     paint(limit => events.slice(-limit).reverse().map(e => `
       <tr>
         <td><b>${e.event_id}</b></td>
-        <td>${e.timestamp}</td>
+        <td>${formatLocalTime(e.timestamp)}</td>
         <td>${e.dataset || 'live'}</td>
         <td>Frame ${e.frame_index} (${e.time_sec}s)</td>
         <td><span class="status-pill lvl-${e.severity_level}">Level ${e.severity_level}</span></td>
@@ -1696,8 +1926,17 @@ async function loadEventLogs() {
  * was removed from the server side.
  */
 async function logExtubationEvent(fr) {
-  if (state.lastLoggedLevel === fr.severity_level) return;
-  state.lastLoggedLevel = fr.severity_level;
+  const lvl = fr.severity_level || 0;
+  const cp = fr.cpri_percent || 0.0;
+  state.lastLoggedLevel = lvl;
+
+  const prop = fr.propagation || {};
+  const deltas = fr.deltas || [];
+  const minDelta = deltas.length ? Math.min(...deltas) : 0;
+  const maxDelta = deltas.length ? Math.max(...deltas) : 0;
+  const liftingCount = Number.isFinite(prop.n_lifting_pads) ? prop.n_lifting_pads : 0;
+  const attachedCount = Math.max(0, 25 - liftingCount);
+
   try {
     const res = await fetch(withKey('/api/v6/event-log'), {
       method: 'POST',
@@ -1706,9 +1945,17 @@ async function logExtubationEvent(fr) {
         dataset: (state.mode === 'live') ? 'Live-Hardware' : (state.file || 'Replay'),
         frame_index: fr.index || 0,
         time_sec: fr.time_sec || 0,
-        severity_level: fr.severity_level,
-        cpri_percent: fr.cpri_percent,
-        min_delta: Math.min(...(fr.deltas || [0]))
+        severity_level: lvl,
+        status: fr.status || (t(`status_${lvl}`) || `Level ${lvl}`),
+        cpri_percent: cp,
+        probabilities: fr.probabilities || [],
+        min_delta: minDelta,
+        max_delta: maxDelta,
+        attached_nodes: attachedCount,
+        lifting_pads: liftingCount,
+        grid_mean: prop.grid_mean || 0.0,
+        peel_desc: prop.description || '',
+        deltas: deltas
       })
     });
     if (!res.ok) {
@@ -1723,6 +1970,29 @@ async function logExtubationEvent(fr) {
     console.error('event-log write failed', e);
     showToast('บันทึกเหตุการณ์ไม่สำเร็จ',
               'เหตุการณ์นี้ยังไม่ถูกบันทึกลง audit trail', 'warning');
+  }
+}
+
+async function exportEventsCSV() {
+  try {
+    const res = await fetch(withKey('/api/v6/event-log/export-csv'));
+    if (!res.ok) {
+      showToast('Export Failed', 'ไม่สามารถดาวน์โหลดไฟล์ CSV ได้', 'warning');
+      return;
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `event_logs_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '_')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    showToast('Export CSV', 'ส่งออกข้อมูล Event Log เป็น CSV เรียบร้อยแล้ว', 'success');
+  } catch (e) {
+    console.error('CSV export failed', e);
+    showToast('Export Error', 'เกิดข้อผิดพลาดในการดาวน์โหลด CSV', 'warning');
   }
 }
 

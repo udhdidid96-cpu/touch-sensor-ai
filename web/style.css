@@ -41,10 +41,10 @@
   --bad-soft:    #fdeae8;
 
   /* signal hues for canvas work (heatmap, chart, pads) */
-  --sig-press:   #0e8fb5;
-  --sig-peel:    #d08700;
-  --sig-deep:    #d93a2b;
-  --sig-quiet:   #12a06a;
+  --sig-press:   #06b6d4;
+  --sig-peel:    #f59e0b;
+  --sig-deep:    #ef4444;
+  --sig-quiet:   #10b981;
   --sig-cpri:    #5b62d6;
 
   /* --- type ------------------------------------------------------------ */
@@ -506,6 +506,14 @@ body[data-level="3"] .topbar { box-shadow: inset 0 -3px 0 var(--bad); }
 .pipe__n { font-size: 11.5px; font-weight: 650; color: var(--ink); }
 .pipe__d { font-size: 10.5px; color: var(--ink-3); }
 .pipe__s { font-size: 10.5px; font-weight: 600; color: var(--ok); font-variant-numeric: tabular-nums; }
+/* Boot-up attachment advisory. Non-blocking by design: the server never rejects
+   a seed, it only reports where it landed, so this warns and nothing else. */
+.pipe__s--warn {
+  color: var(--warn); background: var(--warn-soft);
+  border: 1px solid var(--warn); border-radius: 4px;
+  padding: 1px 6px; max-width: 168px; text-align: center; line-height: 1.3;
+}
+.pipe__s--warn[hidden] { display: none; }
 .pipe__arrow { display: none; }
 
 /* ------------------------------------------------------------ validation -- */
@@ -715,20 +723,21 @@ body[data-level="3"] .topbar { box-shadow: inset 0 -3px 0 var(--bad); }
    the halo stays translucent enough for the interpolated wash to show through
    it. The bands are the two constants the server actually uses: a 60-count
    noise gate and a −300-count lift gate. */
-.pad { stroke-width: 1.2; }
-.pad--quiet { fill: var(--panel);  stroke: var(--line); }
-.pad--press { fill: var(--sig-press); stroke: var(--sig-press); }
-.pad--peel  { fill: var(--sig-peel);  stroke: var(--sig-peel); }
-.pad--deep  { fill: var(--sig-deep);  stroke: var(--sig-deep); }
+/* The 25 sensor nodes. High-contrast clinical theme */
+.pad { stroke-width: 1.4; transition: fill 0.15s, stroke 0.15s; }
+.pad--quiet { fill: #0f172a; stroke: #10b981; }
+.pad--press { fill: #06b6d4; stroke: #06b6d4; }
+.pad--peel  { fill: #f59e0b; stroke: #f59e0b; }
+.pad--deep  { fill: #ef4444; stroke: #ef4444; }
 
-.padglow { fill: var(--sig-press); opacity: .10; }
-.padglow--quiet { opacity: .07; fill: var(--ink-3); }
-.padglow--press { opacity: .28; fill: var(--sig-press); }
-.padglow--peel  { opacity: .30; fill: var(--sig-peel); }
-.padglow--deep  { opacity: .34; fill: var(--sig-deep); }
+.padglow { transition: opacity 0.15s; }
+.padglow--quiet { opacity: .22; fill: #10b981; }
+.padglow--press { opacity: .85; fill: #06b6d4; filter: drop-shadow(0 0 8px #06b6d4); }
+.padglow--peel  { opacity: .85; fill: #f59e0b; filter: drop-shadow(0 0 8px #f59e0b); }
+.padglow--deep  { opacity: .90; fill: #ef4444; filter: drop-shadow(0 0 10px #ef4444); }
 
-.padtxt { font-weight: 600; fill: var(--ink-3); }
-.padtxt--quiet { fill: var(--ink-3); font-weight: 600; }
+.padtxt { font-weight: 700; pointer-events: none; }
+.padtxt--quiet { fill: #e2e8f0; font-weight: 700; }
 .padtxt--press, .padtxt--peel, .padtxt--deep { fill: #ffffff; font-weight: 700; }
 
 /* The device chip carries a port name or a standby word; either can be long in
