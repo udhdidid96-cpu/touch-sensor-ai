@@ -1,11 +1,12 @@
 {
-  "generated": "2026-09-18 17:03:48",
+  "generated": "2026-09-18 17:28:39",
   "calibration": "kalman_norm",
   "merged_from": [
-    "robustness_evaluation_kalman_norm.json",
     "rob_kn_c1.json",
     "rob_kn_c2.json",
-    "rob_kn_c3.json"
+    "rob_kn_c3.json",
+    "rob_kn_spike_1pct.json",
+    "robustness_evaluation_kalman_norm.json"
   ],
   "variants_missing": [],
   "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate() and extract_features(); merged from per-variant shards, identity cross-checked between shards",
@@ -33,8 +34,8 @@
       "n_normal": 41,
       "alarms_per_hour": 7.77336327517706,
       "missed": [],
-      "seconds": 202.0,
-      "_source": "robustness_evaluation_kalman_norm.json"
+      "seconds": 319.3,
+      "_source": "rob_kn_c1.json"
     },
     {
       "variant": "gain_global_p10",
@@ -53,8 +54,8 @@
       "n_normal": 41,
       "alarms_per_hour": 10.364484366902746,
       "missed": [],
-      "seconds": 205.3,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 380.2,
+      "_source": "rob_kn_c3.json",
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 2.59
     },
@@ -75,8 +76,8 @@
       "n_normal": 41,
       "alarms_per_hour": 10.364484366902746,
       "missed": [],
-      "seconds": 202.7,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 312.8,
+      "_source": "rob_kn_c3.json",
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 2.59
     },
@@ -121,8 +122,8 @@
       "n_normal": 41,
       "alarms_per_hour": 10.364484366902746,
       "missed": [],
-      "seconds": 308.3,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 380.0,
+      "_source": "rob_kn_c1.json",
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 2.59
     },
@@ -143,8 +144,8 @@
       "n_normal": 41,
       "alarms_per_hour": 7.77336327517706,
       "missed": [],
-      "seconds": 382.8,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 424.0,
+      "_source": "rob_kn_c1.json",
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 0.0
     },
@@ -169,8 +170,8 @@
         "Vertical Pull NO G/A_VPull_04.csv",
         "Vertical Pull NO G/A_VPull_06.csv"
       ],
-      "seconds": 418.2,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 535.2,
+      "_source": "rob_kn_c2.json",
       "delta_sensitivity": -0.075,
       "delta_alarms_per_hour": 0.0
     },
@@ -236,8 +237,8 @@
         "PowerP/VP_3.csv",
         "PowerP/VP_5.csv"
       ],
-      "seconds": 538.5,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 534.9,
+      "_source": "rob_kn_c2.json",
       "delta_sensitivity": -0.4,
       "delta_alarms_per_hour": -2.59
     },
@@ -261,8 +262,8 @@
         "Vertical Pull NO G/A_VPull_01.csv",
         "Vertical Pull NO G/A_VPull_04.csv"
       ],
-      "seconds": 527.5,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 508.2,
+      "_source": "rob_kn_c2.json",
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": -2.1
     },
@@ -286,8 +287,8 @@
         "Vertical Pull NO G/A_VPull_08.csv",
         "Vertical Pull NO G/A_VPull_09.csv"
       ],
-      "seconds": 529.6,
-      "_source": "robustness_evaluation_kalman_norm.json",
+      "seconds": 495.8,
+      "_source": "rob_kn_c2.json",
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": 2.59
     }

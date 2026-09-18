@@ -1,0 +1,35 @@
+{
+  "generated": "2026-09-18 17:05:27",
+  "calibration": "kalman_norm",
+  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate(raw, 'kalman_norm') and extract_features(); 'kalman' is the offline path as shipped, 'kalman_norm' adds F10",
+  "caveat": "robustness to MODELLED sensor variation on one mounting; not cross-session generalisation, which needs Data/S1..S3 and --cv session",
+  "operating_point": {
+    "window": 7,
+    "votes": 6,
+    "hold": 9
+  },
+  "results": [
+    {
+      "variant": "spike_1pct",
+      "calibration": "kalman_norm",
+      "files": 81,
+      "frames": 3349,
+      "sensitivity": 0.95,
+      "sensitivity_ci": [
+        0.835,
+        0.9862
+      ],
+      "detected": 38,
+      "n_anomaly": 40,
+      "false_alarm_rate": 0.07317073170731707,
+      "fa_files": 3,
+      "n_normal": 41,
+      "alarms_per_hour": 10.364484366902746,
+      "missed": [
+        "Vertical Pull NO G/A_VPull_08.csv",
+        "Vertical Pull NO G/A_VPull_09.csv"
+      ],
+      "seconds": 221.3
+    }
+  ]
+}
