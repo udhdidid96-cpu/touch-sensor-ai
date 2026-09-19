@@ -168,6 +168,138 @@ which points the same way as the noise rows do: at the absolute CDC board. Adopt
 `kalman_norm` as the default only together with a re-run of `--report`, and treat the
 remaining gain gap as a front-end item for round 2, not a calibration one.
 
+**Measured 2026-09-18, second pass — two findings that changed the design.** Both
+are cases where the data contradicted the starting assumption, and in both the
+method changed rather than the number.
+
+### Finding 1 — the patch is not flat, so a flat threshold cannot work
+
+The problem is real and sits in the corpus: six of the ten `Brief Touch`
+recordings were started with a finger already resting on one or two pads. Those
+channels seeded high during the 5-frame warmup and then read **470 to 810 counts
+below** a baseline that was never valid, for the whole file, past the -300 lift
+gate, in recordings labelled normal. `seed_plausibility()` could not see it,
+because it is a median over 25 pads and one or two elevated channels do not move
+a 25-channel median.
+
+The first threshold tried was the obvious one: flag a channel deviating more
+than 400 counts from its frame's median. **It flagged all five `N_base`
+recordings** — the ones with nothing touching the patch at all.
+
+The reason is physical and worth stating to the supervisor plainly, because it
+also bears on round 2. **The patch is not flat.** Laid on skin and on the rig it
+takes the contour of what it sits on, so each pad rests at a genuinely different
+absolute capacitance. Measured on the five resting recordings, the pad-to-pad
+spread around the frame median is **492 to 510 counts** — larger than some of the
+contamination being hunted. No fixed deviation threshold can separate the two,
+because the thing being measured is not deviation from flatness; the patch was
+never flat.
+
+What contamination actually breaks is the patch's **shape**. `SEED_RESTING_SHAPE`
+is that shape — the per-pad median of the five resting seeds — and the comparison
+is **offset-corrected**: the whole reference is shifted to the frame's own median
+before the per-pad deviation is taken.
+
+That offset correction is what makes the check survive round 2. Shifting the
+reference removes the absolute level from the comparison entirely, so the check
+is **invariant to a $C_0$ change made on purpose** — a thinner backing, a ground
+plane, or an absolute CDC board, all of which move $C_0$ by design. What has to
+be re-measured after the patch is rebuilt is the 25-value shape, not the logic,
+and `tests/test_seed_plausibility.py` re-derives that shape from `Data/` so it
+cannot drift from the recordings it describes.
+
+Maximum per-pad deviation from the offset-corrected shape, per file:
+
+| folder | min | median | max |
+|---|---:|---:|---:|
+| `N_base` (nothing touching the patch) | 9 | 24 | 189 |
+| `Peel` | 340 | 410 | 421 |
+| `Friction` | 241 | 343 | 466 |
+| `Horizontal Pull` | 498 | 507 | 536 |
+| `Power Pull` | 493 | 527 | 569 |
+| `Vertical Pull` | 498 | 520 | 627 |
+| `Brief Touch` | 206 | 374 | 632 |
+| `Normal Mix` | 522 | 581 | 1204 |
+| `Press` (started mid-press) | 456 | 1806 | 2442 |
+
+The gate is **575**: above every Peel, Friction, Horizontal Pull and Power Pull
+recording, more than three times the worst resting file, and below `N_Touch_02`
+(600) and `N_Touch_06` (632) — the two with independent within-file evidence of
+contamination. Tally at 575: `N_base` 0/5, `Peel` 0/10, `Friction` 0/10,
+`Horizontal Pull` 0/10, `Power Pull` 0/10, `Vertical Pull` 2/10, `Brief Touch`
+2/10, `Normal Mix` 3/5, `Press` 10/11.
+
+The margin over the two target files is 4% and 10%, which is thin, and the status
+is **advisory** because of it: it asks an operator to look, it does not gate a
+frame or change a classification. What repairs a bad zero live is the quiescent
+recovery, which needs no threshold on the seed at all — a channel below the lift
+gate that has not moved for three seconds, while fewer than `PEEL_MIN_PADS`
+channels are below it, has its Kalman gate and covariance opened until its
+baseline re-converges.
+
+### Finding 2 — the noise cliff is not a filtering problem
+
+The robustness sweep measured a cliff in episode sensitivity against the noise
+floor: **92.5% at sd 30, 87.5% at sd 60, 60.0% at sd 120** with 16 of 40 episodes
+missed. The false-alarm rate does not rise with noise, it **falls** — 5.2 alarms
+per hour at sd 120 — because the detector is going deaf rather than jumpy, which
+for this device is the dangerous direction.
+
+The hypothesis was straightforward. The annunciator needs **6 of 7 consecutive**
+frames to agree, single-frame jitter breaks those runs, and a 3-tap **median**
+removes an isolated bad frame while leaving a step edge exactly where it was — so
+a sustained pull or a sudden peel should pass through untouched.
+
+The activation gate was set by measurement, and the first two attempts were
+wrong. A per-frame statistic does not separate noise from signal: the median
+across pads of the frame-to-frame change reaches a 99th percentile of 128 counts
+and a maximum of 475 on the clean corpus, because a press sweep moves most of the
+patch at once. Per **file** it separates cleanly:
+
+| per-file median jitter | min | median | max |
+|---|---:|---:|---:|
+| bench (81 recordings) | 6.7 | 9.0 | 38.0 |
+| sd 30 | 25.7 | 32.5 | 56.7 |
+| sd 60 | 48.9 | 59.0 | 85.3 |
+| sd 120 | 104.9 | 117.5 | 141.0 |
+
+So the gate went at 44 — verified to change **0.0 counts on all 81 recordings**,
+which is what keeps `Data/metrics.json` reproducible, and to engage on every file
+at sd 60 and sd 120. Then the sweep was re-run with the filter in the path:
+
+| variant | sensitivity | false alarms | alarms/h | missed |
+|---|---|---|---|---|
+| `noise_sd60` | 87.5% → **72.5%** | 7.3% → **12.2%** | 7.8 → 15.5 | 5 → 11 |
+| `noise_sd120` | 60.0% → 62.5% | 4.9% → **12.2%** | 5.2 → 13.0 | 16 → 15 |
+
+**It made the cliff worse.** Fifteen points of sensitivity gone at sd 60 while
+false alarms rose; at sd 120 a 2.5-point move well inside the confidence interval
+for more than double the false alarms.
+
+The mechanism is the one thing a median cannot help with here, and it is a
+property of temporal filtering rather than of this particular filter. A causal
+3-tap window **delays an event by up to two frames and shortens it by as much
+again**, and the annunciator's decision is made of consecutive frames. The events
+in this corpus are short — `Vertical Pull` has 76 usable post-warmup frames
+across all ten files — so trimming two frames off each end costs more votes than
+the jitter was costing.
+
+The filter was removed from the serving path. The code and this negative result
+are kept together, with a test asserting that nothing in `main.py` calls it, so
+it cannot be re-enabled without re-running the sweep. The pipeline now reports
+`jitter_noise_counts` as telemetry so a noisy front end is visible on the
+console.
+
+**The conclusion for the supervisor: high-frequency noise immunity cannot be
+bought with causal post-filtering.** Any temporal filter pays for its smoothing
+in time, and time is exactly what the annunciator spends to make a decision. This
+is the same answer the gain rows gave — the residue there was the Kalman
+innovation gate and the `r_vec` clip, both absolute front-end constants — and it
+points the same way: **this is a front-end problem, not a software one.** It is
+the quantitative case for the absolute CDC board at femtofarad resolution and for
+the conductive ground plane, which raise the signal rather than trying to
+subtract the noise after the fact.
+
 **Noise: the margin is about ten times the bench floor, then it falls off.** The
 round-1 board's baseline noise is roughly 5–12 counts sd (Kalman `r_vec` after
 seeding). At 60 counts sd — the physics noise gate — sensitivity drops to 85 %. The
