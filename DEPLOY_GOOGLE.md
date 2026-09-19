@@ -39,10 +39,18 @@ Generate an access key once and keep it — the link you hand out contains it:
 python -c "import secrets; print(secrets.token_urlsafe(24))"
 ```
 
+The live service is **`smart-extubation-ai`** in **`asia-east1`**. This file said
+`smart-extubation` in `asia-southeast1` until 2026-09-19; no service of that name
+ever existed, so every command here created a new one instead of touching
+production. Names and regions corrected against `gcloud run services list`.
+
+**First deploy only** — this sets the key, and `--set-env-vars` replaces the
+service's entire environment:
+
 ```
-gcloud run deploy smart-extubation \
+gcloud run deploy smart-extubation-ai \
     --source . \
-    --region asia-southeast1 \
+    --region asia-east1 \
     --allow-unauthenticated \
     --memory 1Gi \
     --timeout 3600 \
@@ -53,15 +61,26 @@ gcloud run deploy smart-extubation \
 Then read back the URL, and append `?key=YOUR_KEY_HERE` to it:
 
 ```
-gcloud run services describe smart-extubation --region asia-southeast1 --format="value(status.url)"
+gcloud run services describe smart-extubation-ai --region asia-east1 --format="value(status.url)"
 ```
 
-**Redeploying.** If the service already exists, find its region and reuse the
-key that is already set on it, or every existing link stops working:
+**Redeploying — leave `--set-env-vars` OFF.** That flag replaces the whole
+environment, so passing it without the current key wipes `PROJECT2_ACCESS_KEY`
+and every link you have handed out stops working. Omit it and Cloud Run keeps
+the existing environment, along with the memory, timeout, max-instances and
+unauthenticated settings already on the service. You never have to read the
+secret back:
+
+```
+gcloud run deploy smart-extubation-ai --source . --region asia-east1
+```
+
+To see what is set without printing the value, ask for the names only:
 
 ```
 gcloud run services list --format="table(metadata.name, metadata.labels['cloud.googleapis.com/location'])"
-gcloud run services describe smart-extubation --region REGION --format="value(spec.template.spec.containers[0].env)"
+gcloud run services describe smart-extubation-ai --region asia-east1 \
+    --format="value(spec.template.spec.containers[0].env[].name)"
 ```
 
 If the build fails saying it ran out of memory, raise `--memory`.
@@ -81,8 +100,11 @@ out ends in `?key=...`. **That link is a password.** Anyone who has it has
 everything.
 
 Reuse the key already set on the service when you redeploy, or existing links
-stop working. To rotate it deliberately, redeploy with a new
-`--set-env-vars PROJECT2_ACCESS_KEY=...`.
+stop working. The safe way to reuse it is to **not pass `--set-env-vars` at
+all** — Cloud Run keeps the existing environment, and the secret never has to
+leave the service. To rotate it deliberately, and only then, redeploy with a new
+`--set-env-vars PROJECT2_ACCESS_KEY=...`, knowing that every old link dies with
+the old key.
 
 ## Three things that will surprise you
 
@@ -115,7 +137,7 @@ above allows a one-hour session, and you are billed for that hour.
 ## Taking it down
 
 ```
-gcloud run services delete smart-extubation --region asia-southeast1
+gcloud run services delete smart-extubation-ai --region asia-east1
 ```
 
 That stops all charges. The built image stays in Artifact Registry and costs a

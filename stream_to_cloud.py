@@ -21,7 +21,14 @@ except ImportError:
 
 import urllib.parse
 
-DEFAULT_CLOUD_URL = "https://touch-sensor-ai-156577365290.asia-southeast1.run.app"
+# The live console. Corrected 2026-09-19: this pointed at
+# touch-sensor-ai-156577365290.asia-southeast1.run.app, which was wrong twice
+# over - that service had not been deployed since 2026-08-25 and served no
+# request in the fortnight before it was deleted, and the host in the URL
+# carried a different project number from the one it actually answered on. A
+# bridge whose default target is a dead service fails in the worst way: it looks
+# like it is streaming and nothing is listening.
+DEFAULT_CLOUD_URL = "https://smart-extubation-ai-156577365290.asia-east1.run.app"
 N_PADS = 25
 
 # Frames arrive every 560 ms, so 1.5 s is two missed frames plus jitter. The
