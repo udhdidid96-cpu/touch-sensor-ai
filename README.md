@@ -102,6 +102,21 @@ RandomForest that had not been the shipped model for six days:
 Missed: none (0/40).
 False alarms: `N_Touch_01`, `N_Mix_01` — both reached level 3.
 
+**The same measurement on the path the server runs.** The table above votes the
+model on the offline delta, every frame. The server does not: `LivePipeline`
+seeds its baseline from frame 0 and never asks the model about a frame under the
+60-count noise gate. Streaming every held-out recording through `LivePipeline`
+itself, on the same out-of-fold fits (`main.evaluate_served`, checked by
+`--verify-metrics`):
+
+<!-- metrics:served_headline_en -->
+Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (2026-09-23, v6.2).
+<!-- /metrics:served_headline_en -->
+
+That row describes the running device. Why the two differ, including the 58 of
+240 offline alarm votes cast on frames under the gate:
+[docs/ML_ENHANCEMENT_PLAN.md](docs/ML_ENHANCEMENT_PLAN.md) section 9.
+
 > 100 % on 40 anomaly recordings from one sensor mounting is **not** a claim that
 > the device detects every extubation. The lower bound of that interval is
 > 91.2 %, the corpus is single-session, and the horizontal-pull blind spot below
@@ -112,17 +127,23 @@ Operating curve — published rather than tuned away:
 
 | window | k | hold | sensitivity | FA / recording | alarms / hour | latency |
 |---|---|---|---|---|---|---|
-| 5 | 3 | 9 | 100.0 % | 12.2 % | 20.7 | 3.92 s |
-| 3 | 3 | 0 | 100.0 % | 12.2 % | 25.9 | 3.92 s |
-| 5 | 4 | 9 | 100.0 % | 9.8 % | 15.5 | 4.48 s |
-| 7 | 5 | 9 | 100.0 % | 7.3 % | 13.0 | 5.04 s |
+| 5 | 3 | 9 | 100.0 % | 14.6 % | 20.7 | 3.92 s |
+| 3 | 3 | 0 | 100.0 % | 12.2 % | 28.5 | 3.92 s |
+| 5 | 4 | 9 | 100.0 % | 14.6 % | 23.3 | 4.48 s |
+| 7 | 5 | 9 | 100.0 % | 9.8 % | 18.1 | 5.04 s |
 | **7** | **6** | **9** | **100.0 %** | **4.9 %** | **7.8** | **5.60 s** ← default |
 | 5 | 5 | 9 | 97.5 % | 2.4 % | 5.2 | 5.04 s |
+
+_Rows re-copied from `Data/METRICS.md` on 2026-09-23. The four non-default rows
+here still held the values `METRICS.md` carried before its 2026-09-18
+regeneration; the default row had not moved._
 
 The default moved from 7-of-5 to **7-of-6** on 2026-08-19 because on this corpus
 7-of-6 dominates it: the same 100 % episode sensitivity, false alarms per
 recording 7.3 → 4.9 %, alarm burden 13.0 → 7.8 per hour, for 0.56 s more latency
-on a 5.6 s alarm. 5-of-5 is quieter still but drops a real event, which is not a
+on a 5.6 s alarm. Those are the 2026-08-19 figures; the current curve above gives
+9.8 → 4.9 % and 18.1 → 7.8 per hour, so the ordering holds.
+5-of-5 is quieter still but drops a real event, which is not a
 defensible trade for a safety device. Reference burden: a retrospective cohort
 reports a median 119 alarms per patient per day, about **5 per hour**
 ([Sci Rep 2022](https://www.nature.com/articles/s41598-022-26261-4)). That paper

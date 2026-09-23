@@ -14,9 +14,11 @@ Run:  python test_normal_mix.py
 from __future__ import annotations
 
 import glob
+import json
 import os
 import sys
 import traceback
+import warnings
 from typing import Callable, List, Tuple
 
 import numpy as np
@@ -532,15 +534,108 @@ def t_metrics_not_stale() -> str:
     the suite has already computed, so it costs nothing extra.
     """
     ds, oof, _ = _oof()
-    rep = M.verify_metrics(ds, oof=oof)
+    rep = M.verify_metrics(ds, oof=oof, served_levels=_served_levels())
     if rep["status"] == "absent":
         return "skipped (no Data/metrics.json in this sandbox)"
+    assert rep["served_checked"], "the served-path figures were not re-measured"
     assert rep["status"] == "current", (
         "Data/metrics.json no longer reproduces - the dashboard is serving "
         "numbers for code that has changed. Regenerate with "
         "`python main.py --report --stream`. Drift: "
         + "; ".join(f"{d['key']} {d['stored']} -> {d['measured']:.4f}" for d in rep["drift"]))
     return f"all headline figures reproduce (fingerprint {rep['dataset_fingerprint'][:8]})"
+
+
+@test("R9b a served-path figure that moves makes metrics.json stale")
+def t_served_figures_verified() -> str:
+    """The served block is only worth publishing if --verify-metrics guards it.
+
+    Tampers with a copy of metrics.json, never the sandbox's own, so no other
+    check sees the edit.
+    """
+    ds, oof, _ = _oof()
+    src = os.path.join(M.DATA_ROOT, "metrics.json")
+    if not os.path.isfile(src):
+        return "skipped (no Data/metrics.json in this sandbox)"
+    with open(src, encoding="utf-8") as fh:
+        stored = json.load(fh)
+    block = stored.get("served_episode_level")
+    assert block, "metrics.json has no served_episode_level - regenerate with --report"
+    block["sensitivity"] = block["sensitivity"] * 0.5
+    previous, tmp = M.DATA_ROOT, tempfile.mkdtemp(prefix="p2-served-")
+    try:
+        with open(os.path.join(tmp, "metrics.json"), "w", encoding="utf-8") as fh:
+            json.dump(stored, fh)
+        M.DATA_ROOT = tmp
+        rep = M.verify_metrics(ds, oof=oof, served_levels=_served_levels())
+    finally:
+        M.DATA_ROOT = previous
+        shutil.rmtree(tmp, ignore_errors=True)
+    keys = [d["key"] for d in rep["drift"]]
+    assert rep["status"] == "stale" and "served_episode_level.sensitivity" in keys, keys
+    return f"tampered served sensitivity caught ({len(keys)} drifted key)"
+
+
+@test("E5 the served replay is LivePipeline, noise gate included")
+def t_served_replay_is_live() -> str:
+    """replay_levels() must be the served detector, not the offline vote.
+
+    A model that says "pull" about everything is the sharpest probe: the offline
+    path would annunciate on every frame of a quiet recording, the served path
+    must not, because classify_deltas never asks the model about a frame under
+    the noise gate. The same model on a sustained six-pad lift must reach the
+    siren, or the replay is not wired to the annunciator at all.
+    """
+    class AlwaysPull:
+        classes_ = np.arange(M.N_CLASSES)
+
+        def predict_proba(self, X: np.ndarray) -> np.ndarray:
+            p = np.zeros((len(X), M.N_CLASSES))
+            p[:, 3] = 1.0
+            return p
+
+    rng = np.random.default_rng(0)
+    quiet = M.BASELINE_COUNTS + rng.normal(0.0, 5.0, size=(40, M.N_PADS))
+    lv_quiet = M.replay_levels(AlwaysPull(), quiet)
+    assert lv_quiet.max() == 0, "the served replay alarmed on frames under the noise gate"
+    lifted = quiet.copy()
+    lifted[15:, :6] -= 900.0
+    lv_lift = M.replay_levels(AlwaysPull(), lifted)
+    assert lv_lift.max() == 3, f"a sustained six-pad lift never reached the siren: {lv_lift}"
+    first = int(np.nonzero(lv_lift >= 2)[0][0])
+    return f"quiet: max level 0 over {len(quiet)} frames; lift at frame 15 -> siren at frame {first}"
+
+
+@test("R9c a cached model from another scikit-learn is retrained, not unpickled")
+def t_model_cache_version_guard() -> str:
+    """The deploy path shipped Data/trained_model.joblib, pickled by the
+    workstation's scikit-learn, into an image that installs a different one.
+    load_persisted_model() must refuse it on the recorded version alone."""
+    rng = np.random.default_rng(0)
+    model = M._new_rf(42).set_params(max_iter=2).fit(
+        rng.normal(size=(40, 34)), np.arange(40) % M.N_CLASSES)
+    prev = (M.MODEL_PERSISTENCE_PATH, M.MODEL_DIGEST_PATH)
+    tmp = tempfile.mkdtemp(prefix="p2-cache-")
+    try:
+        M.MODEL_PERSISTENCE_PATH = os.path.join(tmp, "trained_model.joblib")
+        M.MODEL_DIGEST_PATH = M.MODEL_PERSISTENCE_PATH + ".sha256.json"
+        M.persist_model(model, "corpus-a")
+        with warnings.catch_warnings():
+            # joblib's own NumPy 2.5 deprecation, one per array in the pickle
+            warnings.simplefilter("ignore", DeprecationWarning)
+            loaded = M.load_persisted_model("corpus-a")
+        assert loaded is not None, "a same-version cache must load"
+        with open(M.MODEL_DIGEST_PATH, encoding="utf-8") as fh:
+            meta = json.load(fh)
+        meta["sklearn"] = "0.0.0-another-build"
+        with open(M.MODEL_DIGEST_PATH, "w", encoding="utf-8") as fh:
+            json.dump(meta, fh)
+        assert M.load_persisted_model("corpus-a") is None, (
+            "a model pickled by another scikit-learn was loaded")
+    finally:
+        M.MODEL_PERSISTENCE_PATH, M.MODEL_DIGEST_PATH = prev
+        shutil.rmtree(tmp, ignore_errors=True)
+    return "same version loads; a different recorded version retrains"
 
 
 @test("R8c the detachment-spec audit label is derived from SPEC_DETACH_MAX")
@@ -888,21 +983,32 @@ def t_cli() -> str:
 # ===========================================================================
 _STREAM_CACHE: List[Any] = []
 _OOF_CACHE: List[Any] = []
+_SERVED_CACHE: List[Any] = []
 
 
 def _oof() -> Any:
-    """Leave-one-file-out predictions, computed once for the whole suite."""
+    """Leave-one-file-out predictions, computed once for the whole suite.
+
+    The same pass also streams every held-out recording through LivePipeline
+    (compute_oof's `served` list), so the served-path figures cost replays, not
+    a second 81-fold pass. `clf` is the last fold's model, as it always was.
+    """
     if not _OOF_CACHE:
-        from sklearn.model_selection import LeaveOneGroupOut
         ds = M.load_dataset("kalman", False, verbose=False)
         assert ds is not None
-        clf = M._new_rf(42)
-        oof = np.zeros(len(ds.X), dtype=int)
-        for tr, te in LeaveOneGroupOut().split(ds.X, ds.y, groups=ds.groups):
-            clf.fit(ds.X[tr], ds.y[tr])
-            oof[te] = clf.predict(ds.X[te])
+        served: List[np.ndarray] = []
+        oof = M.compute_oof(ds, 42, served=served)
+        last = ds.groups != ds.n_files - 1
+        clf = M._new_rf(42).fit(ds.X[last], ds.y[last])
         _OOF_CACHE.append((ds, oof, clf))
+        _SERVED_CACHE.append(served)
     return _OOF_CACHE[0]
+
+
+def _served_levels() -> Any:
+    """LivePipeline's annunciated levels per recording, from _oof()'s pass."""
+    _oof()
+    return _SERVED_CACHE[0]
 
 
 def _stream() -> Any:

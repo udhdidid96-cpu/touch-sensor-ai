@@ -191,9 +191,16 @@ def test_invariant_8_iec_62304_disclaimer():
 
 def test_invariant_9_metrics_json_reproduces(dataset):
     """Invariant 9: metrics.json must reproduce identically via verify_metrics()."""
-    from tests.test_regressions import _oof
-    _, oof, _ = _oof()
-    rep = M.verify_metrics(dataset, oof=oof)
+    # The module pytest collected, not `tests.test_regressions`: importing it by
+    # the package path loaded a SECOND copy with its own empty cache, and the
+    # suite paid for the 81-fold pass twice (220 s + 218 s on 2026-09-23).
+    import sys
+    tr = sys.modules.get("test_regressions")
+    if tr is None:
+        from tests import test_regressions as tr
+    _, oof, _ = tr._oof()
+    _served_levels = tr._served_levels
+    rep = M.verify_metrics(dataset, oof=oof, served_levels=_served_levels())
     if rep["status"] == "absent":
         pytest.skip("Data/metrics.json absent in this sandbox")
     assert rep["status"] == "current", (

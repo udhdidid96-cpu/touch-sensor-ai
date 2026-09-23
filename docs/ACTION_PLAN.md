@@ -8,13 +8,23 @@
 <!-- metrics:episode_headline_th -->
 sensitivity **100.0%** (95% CI 91.2–100.0) · false alarm **4.9% ต่อ recording** (95% CI 1.3–16.1) = **7.8 ครั้ง/ชม**
 · latency กลาง **5.60 วิ** (แย่สุด 17.36 วิ) · พลาด 0 เหตุการณ์
-· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-17, v6.2)
+· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-23, v6.2)
 <!-- /metrics:episode_headline_th -->
 
 > บล็อกข้างบนสร้างจาก `Data/metrics.json` ด้วย `python scripts/sync_metrics_blocks.py`
 > **ห้ามพิมพ์ทับด้วยมือ** — `tests/test_doc_metrics_sync.py` จะ fail ถ้ามันไม่ตรงไฟล์
 > ค่า "1.00 alarm onsets/event" อยู่ใน `Data/METRICS.md` แต่ยังไม่มีใน `metrics.json`
 > จึงยังดึงอัตโนมัติไม่ได้ — อ้างจาก `METRICS.md` โดยตรง
+
+**ตัวเลขของระบบที่รันจริง (เพิ่ม 2026-09-23):** บล็อกข้างบนวัดจากการให้โมเดลโหวตทุกเฟรมบน
+delta แบบ offline แต่เซิร์ฟเวอร์ตั้ง baseline จากเฟรมแรก และไม่ส่งเฟรมที่ต่ำกว่า noise gate
+ให้โมเดลเลย ถ้าจะพูดถึงระบบที่รันจริงให้ใช้บล็อกนี้ (ที่มา: `docs/ML_ENHANCEMENT_PLAN.md` ข้อ 9)
+
+<!-- metrics:served_headline_th -->
+เส้นทางที่เซิร์ฟเวอร์รันจริง (ทุกไฟล์ replay ผ่าน LivePipeline, out-of-fold): sensitivity **97.5%** (95% CI 87.1–99.6) · false alarm **4.9% ต่อ recording** (95% CI 1.3–16.1) = **5.2 ครั้ง/ชม**
+· latency กลาง **7.28 วิ** (แย่สุด 17.36 วิ) · พลาด 1 เหตุการณ์ (Vertical Pull NO G/A_VPull_06.csv)
+· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-23, v6.2)
+<!-- /metrics:served_headline_th -->
 
 > **แก้ metric หลักจาก v6.1** — ตัวเลข "accuracy 95%" เดิมใช้ majority vote ระดับไฟล์
 > ซึ่งขึ้นกับความยาวคลิป **ถ้าเก็บข้อมูลรอบ 2 ตาม SOP (60–120 วิ) ตัวเลขนั้นจะเป็น 0.000**

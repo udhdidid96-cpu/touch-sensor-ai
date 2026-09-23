@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-17",
+  "generated": "2026-09-23",
   "version": "6.2",
   "dataset": {
     "files": 81,
@@ -160,10 +160,34 @@
       }
     ]
   },
+  "served_episode_level": {
+    "path": "LivePipeline replay, out of fold (evaluate_served)",
+    "operating_point": {
+      "window": 7,
+      "votes": 6,
+      "hold": 9
+    },
+    "sensitivity": 0.975,
+    "sensitivity_ci": [
+      0.8711834051199223,
+      0.9955732825922052
+    ],
+    "false_alarm_rate": 0.04878048780487805,
+    "false_alarm_ci": [
+      0.013480662282573547,
+      0.16139266962351367
+    ],
+    "alarms_per_hour": 5.182242183451373,
+    "median_latency_s": 7.280000000000001,
+    "max_latency_s": 17.360000000000003,
+    "missed": [
+      "Vertical Pull NO G/A_VPull_06.csv"
+    ]
+  },
   "caveats": [
     "The +/- on the file-level accuracy is estimator seed variation on a handful of borderline files, NOT sampling uncertainty. Quote the Wilson or bootstrap CI instead.",
     "File-level majority vote depends on clip length: re-voting the same events padded to the round-2 SOP length of 60-120 s takes pull recall to 0.000 while episode detection stays at 1.000. Report episode-level metrics.",
-    "No anomaly file reaches the <= 25,000 count detachment spec (KES 2025 s2.1); deepest is 27,251 (12.5 pF below the 28,000 count resting value). THE CRITERION IS UNREACHABLE ON THIS SENSOR, so this is not a fixation problem: it asks for a 50.1 pF drop out of an attached patch of about 30.0 pF, and even at zero capacitance the reading floors at 26,204 counts, 1,204 short. One of BASELINE_COUNTS, COUNTS_PER_PF or SPEC_DETACH_MAX is wrong; settle it with the author of s2.1 rather than with a stronger pump. Detection does not use this criterion - it gates on the delta from the tracked baseline.",
+    "No anomaly file reaches the <= 25,000 count detachment spec (KES 2025 s2.1); deepest is 27,251 (12.5 pF below the 28,000 count resting value). THE CRITERION IS UNREACHABLE ON THIS SENSOR, so this is not a fixation problem: it asks for a 50.1 pF drop out of an attached patch of about 30.0 pF, and even at zero capacitance the reading floors at 26,204 counts, 1,204 short. A stronger pump or better adhesive cannot change that; only a geometry change that raises C0 - thinner backing (C ~ 1/d), a ground plane - can, or one of BASELINE_COUNTS, COUNTS_PER_PF, SPEC_DETACH_MAX is wrong. Measure C0 with an LCR meter (SOP v2 section 0.2) before buying either. Detection does not use this criterion - it gates on the delta from the tracked baseline.",
     "LOOP 5 IMU signals are synthetic. No fusion number belongs in a results table.",
     "Small classes: 0: Baseline n=5, 2: Peel n=10. A perfect 5/5 on the smallest of them carries a 95% CI of about 0.57-1.00, so it is not evidence of 100% performance.",
     "Horizontal detachment produces NO lift signal on this patch. Measured over the round-1 corpus, Horizontal Pull recordings reach a median deepest delta of only -64 counts (deepest -161) and 0 of 10 cross the -300 lift gate - quieter than Friction, which is a normal class. What moves on those recordings is the positive/contact side (median max +456), so any Horizontal Pull the system does flag, it flags as a press-like event and not as detachment. Vertical Pull and Peel do cross the gate (10/10 each). Do not describe this device as detecting detachment in general until a horizontal-pull signal has been demonstrated.",

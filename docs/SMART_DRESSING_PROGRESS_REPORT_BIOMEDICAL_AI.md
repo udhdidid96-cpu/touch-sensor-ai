@@ -114,18 +114,28 @@ HistGradientBoosting จัดการกับฟีเจอร์ที่�
 ในหอผู้ป่วยวิกฤต (ICU) ปัญหาสำคัญที่สุดคือ **Alarm Fatigue (ความล้าจากสัญญาณเตือนเท็จ)** ซึ่งงานวิจัยทางการแพทย์รายงานว่ามีสัญญาณเตือนดังขึ้นเฉลี่ย $5\text{ ครั้ง/ชม.}$ หรือกว่า $119\text{ ครั้ง/เตียง/วัน}$ (Scientific Reports, 2022)
 
 เพื่อแก้ปัญหานี้ ระบบใช้อัลกอริทึม **Debounced Annunciator (Window = 7, Min Votes = 6, Hold = 9 เฟรม)**:
-- ต้องการหลักฐานยืนยันความผิดปกติอย่างน้อย 6 ใน 7 เฟรมล่าสุด ($\approx 4.2\text{ วินาที}$) ก่อนจะส่งสัญญาณเตือน
+- ต้องการหลักฐานยืนยันความผิดปกติอย่างน้อย 6 ใน 7 เฟรมล่าสุด (หน้าต่าง $7 \times 0.56 \approx 3.9\text{ วินาที}$) ก่อนจะส่งสัญญาณเตือน
 - หน่วงการลดระดับเตือนภัยไว้ 9 เฟรม ($\approx 5.04\text{ วินาที}$) เพื่อป้องกันการส่งสัญญาณเตือนซ้ำซ้อน (1.00 onsets ต่อ 1 เหตุการณ์)
 - ผลลัพธ์ (out-of-fold, ดึงอัตโนมัติจาก `Data/metrics.json` — ห้ามพิมพ์ทับ):
 
 <!-- metrics:episode_headline_th -->
 sensitivity **100.0%** (95% CI 91.2–100.0) · false alarm **4.9% ต่อ recording** (95% CI 1.3–16.1) = **7.8 ครั้ง/ชม**
 · latency กลาง **5.60 วิ** (แย่สุด 17.36 วิ) · พลาด 0 เหตุการณ์
-· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-17, v6.2)
+· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-23, v6.2)
 <!-- /metrics:episode_headline_th -->
 
   ไฟล์ปกติที่เตือนผิดมี **2 ใน 41** (Brief Touch 1 ไฟล์, Normal Mix 1 ไฟล์) ดูตารางใน §2
   ไม่ใช่ 0% — ตัวเลข $0.0\%$ ที่เคยเขียนไว้ตรงนี้ขัดกับตารางของเอกสารฉบับนี้เอง แก้แล้ว 2026-09-17
+
+- ตัวเลขข้างบนให้โมเดลโหวตทุกเฟรมบน delta แบบ offline ส่วนระบบที่รันจริงตั้ง baseline
+  จากเฟรมแรกและไม่ส่งเฟรมที่ต่ำกว่า noise gate ให้โมเดล วัดแบบ out-of-fold เดียวกัน
+  (เพิ่ม 2026-09-23, ที่มา `docs/ML_ENHANCEMENT_PLAN.md` ข้อ 9):
+
+<!-- metrics:served_headline_th -->
+เส้นทางที่เซิร์ฟเวอร์รันจริง (ทุกไฟล์ replay ผ่าน LivePipeline, out-of-fold): sensitivity **97.5%** (95% CI 87.1–99.6) · false alarm **4.9% ต่อ recording** (95% CI 1.3–16.1) = **5.2 ครั้ง/ชม**
+· latency กลาง **7.28 วิ** (แย่สุด 17.36 วิ) · พลาด 1 เหตุการณ์ (Vertical Pull NO G/A_VPull_06.csv)
+· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-23, v6.2)
+<!-- /metrics:served_headline_th -->
 
 ---
 

@@ -1992,18 +1992,49 @@ def bootstrap_ci(y_true: Sequence[int], y_pred: Sequence[int], n_boot: int = 400
 # =============================================================================
 # 6b. EPISODE-LEVEL EVALUATION  (the unit the device actually decides on)
 # =============================================================================
-def compute_oof(ds: Dataset, seed: int = 42) -> np.ndarray:
+def compute_oof(ds: Dataset, seed: int = 42,
+                served: Optional[List[np.ndarray]] = None,
+                use_gradient: bool = False) -> np.ndarray:
     """Leave-one-file-out frame predictions.
 
     Split out so callers can share one pass: --report ran a full LOFO for the
     stream evaluation and another for every RF seed - six ~30 s passes per report.
+
+    Pass a list as `served` to score the detector the server runs as well: each
+    fold's model also streams its held-out recording through LivePipeline
+    (replay_levels) and the annunciated levels are appended in file order. Same
+    fit, so the served figure costs a replay, not a second pass.
     """
     clf = _new_rf(seed)
     oof = np.zeros(len(ds.X), dtype=int)
     for tr, te in LeaveOneGroupOut().split(ds.X, ds.y, groups=ds.groups):
         clf.fit(ds.X[tr], ds.y[tr])
         oof[te] = clf.predict(ds.X[te])
+        if served is not None:
+            fi = int(ds.groups[te[0]])
+            if fi != len(served):
+                raise RuntimeError("served levels must be collected in file order")
+            raw = read_raw_csv(os.path.join(DATA_ROOT, ds.files[fi]))
+            if raw is None:
+                raise CsvProblem(f"{ds.files[fi]}: loaded for training, unreadable for replay")
+            served.append(replay_levels(clf, raw, use_gradient))
     return oof
+
+
+def replay_levels(model: Optional[Any], raw: np.ndarray,
+                  use_gradient: bool = False) -> np.ndarray:
+    """The level the server annunciates on every frame of `raw`.
+
+    Streams the recording through LivePipeline, the object the websocket and
+    --replay serve: Kalman seeded from frame 0, quiescent recovery, F10, the
+    noise gate inside classify_deltas, then the debouncer. compute_oof() +
+    evaluate_stream() exercise none of that - they score the model on the offline
+    delta, every frame - so the report publishes this path next to it
+    (docs/ML_ENHANCEMENT_PLAN.md, measured 2026-09-23).
+    """
+    pipe = LivePipeline(model, use_gradient)
+    return np.asarray([int(pipe.process(row)["severity_level"])
+                       for row in np.asarray(raw, dtype=float)], dtype=int)
 
 
 def _count_onsets(levels: np.ndarray) -> int:
@@ -2044,35 +2075,56 @@ def evaluate_stream(ds: Dataset, seed: int = 42, verbose: bool = True,
     often does it fire on normal activity per hour - is invariant to clip
     length, is what a ward actually experiences, and is what this function
     reports. The file vote is kept alongside it for comparability only.
-    """
-    if oof is None:
-        oof = compute_oof(ds, seed)
 
+    What it replays is the model's vote on the OFFLINE delta, every frame. Only
+    the debouncer is the live one; for the whole served path see
+    evaluate_served().
+    """
+    votes: np.ndarray = compute_oof(ds, seed) if oof is None else oof
+
+    levels_by_file: List[np.ndarray] = []
+    for fi in range(ds.n_files):
+        deb = AlarmDebouncer()
+        levels_by_file.append(np.array(
+            [0 if k < KALMAN_WARMUP else deb.update(int(p))
+             for k, p in enumerate(votes[ds.groups == fi])], dtype=int))
+    out = _episode_figures(ds, levels_by_file)
+    for fi, row in enumerate(out["per_file"]):
+        row["file_vote"] = _file_vote(votes[ds.groups == fi])
+    out["seed"] = seed
+    out["curve"] = operating_curve(ds, votes)
+    if verbose:
+        print_stream_report(out)
+    return out
+
+
+def _episode_figures(ds: Dataset, levels_by_file: Sequence[np.ndarray]) -> Dict[str, Any]:
+    """Episode metrics from each recording's annunciated levels.
+
+    ONE definition for both paths. The offline replay (evaluate_stream) and the
+    served replay (evaluate_served) differ only in where the levels come from;
+    computing sensitivity, false alarms and alarms/hour twice is how two
+    headline figures for "the same" thing drift apart (see A7 in _count_onsets).
+    """
+    if len(levels_by_file) != ds.n_files:
+        raise ValueError(f"{len(levels_by_file)} level streams for {ds.n_files} recordings")
     per_file: List[Dict[str, Any]] = []
     for fi, label in enumerate(ds.labels):
-        mask = ds.groups == fi
-        preds = oof[mask]
-        deb = AlarmDebouncer()
-        levels: List[int] = []
-        for k, p in enumerate(preds):
-            levels.append(0 if k < KALMAN_WARMUP else deb.update(int(p)))
-        arr = np.array(levels)
+        arr = np.asarray(levels_by_file[fi], dtype=int)
         # A7: this used to add 1 when arr[0] >= 2, which operating_curve never
         # did - so the headline alarms/hour and its own curve row were computed
         # by two different rules. Unreachable today (the warmup pins frame 0 to
         # level 0) but it is exactly the kind of latent split that shows up as
         # an unexplainable mismatch once the warmup constant changes. One
         # definition now, shared with operating_curve via _count_onsets.
-        onsets = _count_onsets(arr)
         hits = np.nonzero(arr >= 2)[0]
         per_file.append({
             "file": ds.files[fi], "label": label,
             "max_level": int(arr.max(initial=0)),
             "annunciated": bool(arr.max(initial=0) >= 2),
-            "onsets": onsets,
+            "onsets": _count_onsets(arr),
             "latency_s": float(hits[0] * SAMPLE_PERIOD_S) if hits.size else None,
-            "frames": int(mask.sum()),
-            "file_vote": _file_vote(preds),
+            "frames": int(len(arr)),
         })
 
     normal = [r for r in per_file if r["label"] <= 1]
@@ -2081,9 +2133,8 @@ def evaluate_stream(ds: Dataset, seed: int = 42, verbose: bool = True,
     missed = [r for r in anomaly if not r["annunciated"]]
     normal_hours = sum(r["frames"] for r in normal) * SAMPLE_PERIOD_S / 3600.0
     lat = [r["latency_s"] for r in anomaly if r["latency_s"] is not None]
-
-    out = {
-        "seed": seed, "per_file": per_file,
+    return {
+        "per_file": per_file,
         "n_normal": len(normal), "n_anomaly": len(anomaly),
         "sensitivity": (len(anomaly) - len(missed)) / max(len(anomaly), 1),
         "sensitivity_ci": wilson(len(anomaly) - len(missed), len(anomaly)),
@@ -2101,10 +2152,26 @@ def evaluate_stream(ds: Dataset, seed: int = 42, verbose: bool = True,
                                max(len(anomaly) - len(missed), 1)),
         "operating_point": {"window": ALARM.window, "votes": ALARM.min_votes,
                             "hold": ALARM.hold},
-        "curve": operating_curve(ds, oof),
     }
+
+
+def evaluate_served(ds: Dataset, served_levels: Sequence[np.ndarray],
+                    verbose: bool = True) -> Dict[str, Any]:
+    """Episode metrics for the detector the server runs, out of fold.
+
+    `served_levels` comes from compute_oof(..., served=[...]): every recording
+    streamed through LivePipeline by the model that never saw it. Measured on
+    the round-1 corpus (docs/ML_ENHANCEMENT_PLAN.md section 9) this path and
+    evaluate_stream() disagree - one more missed event and a later median
+    alarm - because the served path seeds its baseline from frame 0 and never
+    asks the model about a frame under the noise gate, while the offline path
+    votes on every frame, sub-gate ones included. Both are published; neither
+    is allowed to stand in for the other.
+    """
+    out = _episode_figures(ds, served_levels)
     if verbose:
-        print_stream_report(out)
+        print_stream_report(out, "SERVED PATH (out-of-fold, every recording streamed "
+                                 "through LivePipeline)")
     return out
 
 
@@ -2150,9 +2217,11 @@ def operating_curve(ds: Dataset, oof: np.ndarray,
     return rows
 
 
-def print_stream_report(st: Dict[str, Any]) -> None:
+def print_stream_report(st: Dict[str, Any],
+                        title: str = "EPISODE-LEVEL PERFORMANCE (out-of-fold, "
+                                     "offline delta, through the live annunciator)") -> None:
     print("\n" + "=" * 70)
-    print("EPISODE-LEVEL PERFORMANCE (out-of-fold, through the live annunciator)")
+    print(title)
     print("=" * 70)
     lo, hi = st["sensitivity_ci"]
     print(f"  Sensitivity (episode detected) : {st['sensitivity']*100:5.1f}%  "
@@ -4564,7 +4633,8 @@ def _caveats(ds: Dataset) -> List[str]:
 
 
 def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, Any]],
-                 stamp: str, stream: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
+                 stamp: str, stream: Optional[Dict[str, Any]] = None,
+                 served: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
     """Emit every headline number to disk.
 
     The v5.0 whitepaper quoted 90.00% / macro F1 0.8791; the script produced
@@ -4625,6 +4695,20 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
             "max_latency_s": stream["max_latency_s"],
             "missed": stream["missed"], "curve": stream["curve"],
         } if stream else None),
+        # The same figures for the detector the server runs (evaluate_served).
+        # episode_level above votes the model on the offline delta, every frame;
+        # this block streams each held-out recording through LivePipeline.
+        "served_episode_level": ({
+            "path": "LivePipeline replay, out of fold (evaluate_served)",
+            "operating_point": served["operating_point"],
+            "sensitivity": served["sensitivity"], "sensitivity_ci": served["sensitivity_ci"],
+            "false_alarm_rate": served["false_alarm_rate"],
+            "false_alarm_ci": served["false_alarm_ci"],
+            "alarms_per_hour": served["alarms_per_hour"],
+            "median_latency_s": served["median_latency_s"],
+            "max_latency_s": served["max_latency_s"],
+            "missed": served["missed"],
+        } if served else None),
         "caveats": _caveats(ds),
     }
     if temporal:
@@ -4769,6 +4853,33 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
                   "published safe limit. Tuned on round-1 data — re-validate on "
                   "round 2 without touching it."]
 
+    if served:
+        op = served["operating_point"]
+        slo, shi = served["sensitivity_ci"]
+        flo, fhi = served["false_alarm_ci"]
+        lines += ["", "## Episode-level performance, served path (out-of-fold, LivePipeline)", "",
+                  "The table above votes the model on the offline Kalman delta, every frame. "
+                  "The server does not run that path: LivePipeline seeds its baseline from "
+                  "frame 0, repairs quiescent channels, rescales by F10 and never asks the "
+                  "model about a frame under the noise gate. Here each fold's model streams "
+                  "its held-out recording through LivePipeline itself, so this is the table "
+                  "that describes the running system. Why the two differ: "
+                  "docs/ML_ENHANCEMENT_PLAN.md section 9.", "",
+                  f"Operating point: {op['votes']}-of-{op['window']} frames, "
+                  f"hold {op['hold']} frames ({op['hold']*SAMPLE_PERIOD_S:.2f} s).", "",
+                  "| Metric | Value | 95% CI |", "|---|---|---|",
+                  f"| Sensitivity (episode detected) | {served['sensitivity']*100:.1f}% | "
+                  f"[{slo*100:.1f}, {shi*100:.1f}] |",
+                  f"| False alarm per recording | {served['false_alarm_rate']*100:.1f}% | "
+                  f"[{flo*100:.1f}, {fhi*100:.1f}] |",
+                  f"| False alarms per hour | {served['alarms_per_hour']:.1f} | — |",
+                  "| Time to alarm (median / worst) | "
+                  + (f"{served['median_latency_s']:.2f} s / {served['max_latency_s']:.2f} s"
+                     if served["median_latency_s"] is not None
+                     else "no episode detected") + " | — |",
+                  "", f"Missed events ({len(served['missed'])}): "
+                  f"{', '.join(served['missed']) or 'none'}"]
+
     lines += ["", "## Caveats that must appear alongside any of the above", ""]
     lines += [f"{i+1}. {c}" for i, c in enumerate(payload["caveats"])]
     if not temporal:
@@ -4906,6 +5017,17 @@ def load_persisted_model(ds_hash: str) -> Optional[Any]:
         if recorded.get("dataset") != ds_hash:
             logger_model.info("Cached model was trained on a different corpus; retraining")
             return None
+        # A pickle is only safe in the scikit-learn that wrote it. The cache is
+        # gitignored but was never dockerignored, so `gcloud run deploy --source .`
+        # shipped a model pickled by the workstation's scikit-learn (1.9.0 on
+        # 2026-09-23) into an image whose requirements.txt installs an older one.
+        # Cross-version unpickling is unsupported and can fail at predict time,
+        # on the first live frame, rather than here. One fit is cheaper.
+        running = __import__("sklearn").__version__
+        if recorded.get("sklearn") != running:
+            logger_model.info("Cached model was written by scikit-learn %s, this is %s; "
+                              "retraining", recorded.get("sklearn"), running)
+            return None
         with open(MODEL_PERSISTENCE_PATH, "rb") as fh:
             blob = fh.read()
         actual = hashlib.sha256(blob).hexdigest()
@@ -4944,7 +5066,9 @@ def persist_model(model: Any, ds_hash: str) -> None:
 
 
 def verify_metrics(ds: Dataset, tolerance: float = 0.02,
-                   oof: Optional[np.ndarray] = None) -> Dict[str, Any]:
+                   oof: Optional[np.ndarray] = None,
+                   served_levels: Optional[Sequence[np.ndarray]] = None,
+                   use_gradient: bool = False) -> Dict[str, Any]:
     """Re-measure the headline numbers and diff them against Data/metrics.json.
 
     `metrics.json` is what /api/v6/metrics serves and what the dashboard prints
@@ -4986,22 +5110,41 @@ def verify_metrics(ds: Dataset, tolerance: float = 0.02,
         return report
 
     # `oof` is accepted so a caller that has already paid for a leave-one-file-out
-    # pass (the test suite has) does not pay for a second one.
+    # pass (the test suite has) does not pay for a second one. The served-path
+    # figures need that pass's replays as well; a caller that brings `oof`
+    # without `served_levels` gets them reported as not re-measured.
     if oof is None:
-        oof = compute_oof(ds, 42)
-    st = evaluate_stream(ds, 42, verbose=False, oof=oof)
+        collected: List[np.ndarray] = []
+        votes = compute_oof(ds, 42, served=collected, use_gradient=use_gradient)
+        served_levels = collected
+    else:
+        votes = oof
+    st = evaluate_stream(ds, 42, verbose=False, oof=votes)
     y_true = [int(lab) for lab in ds.labels]
-    y_pred = [_file_vote(oof[ds.groups == i]) for i in range(ds.n_files)]
+    y_pred = [_file_vote(votes[ds.groups == i]) for i in range(ds.n_files)]
     measured = {
         "episode_level.sensitivity": st["sensitivity"],
         "episode_level.false_alarm_rate": st["false_alarm_rate"],
         "episode_level.alarms_per_hour": st["alarms_per_hour"],
+        "episode_level.median_latency_s": st["median_latency_s"],
         "random_forest.accuracy_mean": float(accuracy_score(y_true, y_pred)),
         "random_forest.macro_f1_mean": float(f1_score(y_true, y_pred, average="macro")),
         "dataset.files": float(ds.n_files),
         "dataset.frames": float(len(ds.X)),
         "dataset.features": float(ds.X.shape[1]),
     }
+    if served_levels is not None:
+        sv = evaluate_served(ds, served_levels, verbose=False)
+        measured.update({
+            "served_episode_level.sensitivity": sv["sensitivity"],
+            "served_episode_level.false_alarm_rate": sv["false_alarm_rate"],
+            "served_episode_level.alarms_per_hour": sv["alarms_per_hour"],
+            "served_episode_level.median_latency_s": sv["median_latency_s"],
+        })
+    report["served_checked"] = served_levels is not None
+    # A latency is None only when nothing was detected, which the sensitivity
+    # beside it already checks - so a None latency is left out, not compared.
+    measured = {k: float(v) for k, v in measured.items() if v is not None}
 
     def _dig(key: str) -> Optional[float]:
         node: Any = stored
@@ -5018,7 +5161,15 @@ def verify_metrics(ds: Dataset, tolerance: float = 0.02,
             drift.append({"key": key, "stored": None, "measured": now, "note": "absent"})
             continue
         scale = max(abs(was), 1e-9)
-        if abs(now - was) / scale > tolerance:
+        # A time-to-alarm is counted in frames, so its resolution is one frame,
+        # not 2%. Measured 2026-09-23: the same code under scikit-learn 1.8.0 /
+        # numpy 2.4.6 moved the served median by exactly one frame (7.28 ->
+        # 6.72 s) while every rate stayed inside 2%. More than a frame is drift.
+        if key.endswith("latency_s"):
+            moved = abs(now - was) > SAMPLE_PERIOD_S + 1e-9
+        else:
+            moved = abs(now - was) / scale > tolerance
+        if moved:
             drift.append({"key": key, "stored": was, "measured": now,
                           "rel_change": (now - was) / scale})
     report["status"] = "stale" if drift else "current"
@@ -5043,9 +5194,11 @@ def print_metric_verification(rep: Dict[str, Any]) -> bool:
         return False
     print(f"  metrics.json written: {rep.get('generated')}")
     print(f"  operating point     : {rep.get('operating_point')}")
+    if not rep.get("served_checked", False):
+        print("  served path         : NOT re-measured (no LivePipeline replays supplied)")
     if rep["status"] == "current":
         print(f"\n  OK - every headline figure reproduces within "
-              f"{2:.0f}% of the file on disk.")
+              f"{2:.0f}% of the file on disk (times to alarm within one frame).")
         return True
     print(f"\n  STALE - {len(rep['drift'])} figure(s) no longer reproduce:\n")
     print(f"    {'figure':<36}{'on disk':>12}{'measured':>12}{'change':>10}")
@@ -5275,7 +5428,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               "to a new sensor mounting (see ACTION_PLAN.md P0-3)")
 
     if args.verify_metrics:
-        return 0 if print_metric_verification(verify_metrics(ds)) else 2
+        return 0 if print_metric_verification(
+            verify_metrics(ds, use_gradient=args.gradient)) else 2
 
     if args.monitor:
         # Trained the same way the live path serves - calibration=kalman is the
@@ -5288,9 +5442,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.eval or args.plots or args.report or args.eval_temporal or args.stream:
         temporal = None
-        shared_oof = (compute_oof(ds, 42) if (args.stream or args.report) else None)
+        # The served replays ride on the same fits as the out-of-fold votes.
+        served_levels: Optional[List[np.ndarray]] = (
+            [] if (args.stream or args.report) else None)
+        shared_oof = (compute_oof(ds, 42, served=served_levels, use_gradient=args.gradient)
+                      if (args.stream or args.report) else None)
         stream = (evaluate_stream(ds, verbose=True, oof=shared_oof)
                   if (args.stream or args.report) else None)
+        served = (evaluate_served(ds, served_levels)
+                  if served_levels is not None else None)
         if args.eval_temporal:
             print(f"\nLOOP 2 - temporal sequence model, {args.temporal_seeds} CV seed(s)")
             temporal = evaluate_temporal_multi(
@@ -5310,7 +5470,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 generate_plots(ds, res, model)
         if args.report:
             assert res is not None
-            jp, mp = write_report(ds, res, temporal, args.stamp or "unstamped", stream)
+            jp, mp = write_report(ds, res, temporal, args.stamp or "unstamped", stream, served)
             print(f"  metrics -> {jp}")
             print(f"  metrics -> {mp}")
         # batch modes: report and exit.

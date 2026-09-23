@@ -87,6 +87,44 @@ def episode_headline_en(m: Dict[str, Any]) -> str:
     )
 
 
+def served_headline_th(m: Dict[str, Any]) -> str:
+    """Thai twin of served_headline_en, laid out like episode_headline_th."""
+    ep = m["served_episode_level"]
+    op = ep["operating_point"]
+    lat = (f"latency กลาง **{ep['median_latency_s']:.2f} วิ** "
+           f"(แย่สุด {ep['max_latency_s']:.2f} วิ)"
+           if ep["median_latency_s"] is not None else "ไม่พบเหตุการณ์ใดเลย")
+    return (
+        f"เส้นทางที่เซิร์ฟเวอร์รันจริง (ทุกไฟล์ replay ผ่าน LivePipeline, out-of-fold): "
+        f"sensitivity **{_pct(ep['sensitivity'])}** (95% CI {_ci(ep['sensitivity_ci'])}) "
+        f"· false alarm **{_pct(ep['false_alarm_rate'])} ต่อ recording** "
+        f"(95% CI {_ci(ep['false_alarm_ci'])}) "
+        f"= **{ep['alarms_per_hour']:.1f} ครั้ง/ชม**\n"
+        f"· {lat} · พลาด {len(ep['missed'])} เหตุการณ์"
+        + (f" ({', '.join(ep['missed'])})" if ep["missed"] else "") + "\n"
+        f"· operating point {op['window']}-of-{op['votes']} hold {op['hold']} "
+        f"· ที่มา `Data/metrics.json` ({m['generated']}, v{m['version']})"
+    )
+
+
+def served_headline_en(m: Dict[str, Any]) -> str:
+    """The same figures for the path the server runs (main.evaluate_served)."""
+    ep = m["served_episode_level"]
+    op = ep["operating_point"]
+    lat = (f"median time-to-alarm **{ep['median_latency_s']:.2f} s** "
+           f"(worst {ep['max_latency_s']:.2f} s)"
+           if ep["median_latency_s"] is not None else "no episode detected")
+    return (
+        f"Served path (every recording streamed through LivePipeline), out-of-fold, "
+        f"{op['window']}-of-{op['votes']} hold {op['hold']}: "
+        f"sensitivity **{_pct(ep['sensitivity'])}** [{_ci(ep['sensitivity_ci'])}], "
+        f"false alarm **{_pct(ep['false_alarm_rate'])}** per recording "
+        f"[{_ci(ep['false_alarm_ci'])}] = **{ep['alarms_per_hour']:.1f} alarms/hour**, "
+        f"{lat}, {len(ep['missed'])} missed ({', '.join(ep['missed']) or 'none'}). "
+        f"Source: `Data/metrics.json` ({m['generated']}, v{m['version']})."
+    )
+
+
 def file_level_en(m: Dict[str, Any]) -> str:
     rf = m["random_forest"]
     ds = m["dataset"]
@@ -101,6 +139,8 @@ def file_level_en(m: Dict[str, Any]) -> str:
 RENDERERS: Dict[str, Callable[[Dict[str, Any]], str]] = {
     "episode_headline_th": episode_headline_th,
     "episode_headline_en": episode_headline_en,
+    "served_headline_th": served_headline_th,
+    "served_headline_en": served_headline_en,
     "file_level_en": file_level_en,
 }
 
