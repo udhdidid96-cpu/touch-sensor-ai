@@ -7,8 +7,8 @@ Set this rule to **Model Decision** with the description
 ## The suite
 
 ```bash
-python -m pytest tests/ -q          # 113 tests, 0 failed is the bar
-python main.py --verify-metrics     # re-measure the headline figures
+python -m pytest tests/ -q          # 218 tests on 2026-09-23, 0 failed is the bar
+python main.py --verify-metrics     # re-measure the headline figures, served path included
 python main.py --audit Data         # corpus audit incl. the lift-gate criterion
 python main.py --verify-pads        # PAD_ORDER against the 1-by-1 sweep
 ```
@@ -19,6 +19,14 @@ never ran — do not add more.
 A leave-one-file-out fold costs 1.5–1.9 s in a fresh process and about 10 s in
 the same process after `tests/test_all_endpoints.py` has run. That is known and
 unexplained; it is most of the suite runtime on a 2-core box, not a hang.
+Separately, until 2026-09-23 the suite paid for the 81-fold pass twice:
+`test_invariants.py` imported `tests.test_regressions`, a second copy of the
+module with its own empty cache. It now reuses the module pytest collected.
+
+`--verify-metrics` checks rates to 2% and times to alarm to one frame (0.56 s):
+a time is counted in frames, and a different scikit-learn build moved the served
+median by exactly one. `requirements.txt` pins the numeric stack the published
+figures were measured with; moving a pin means regenerating the report.
 
 ## Why the guards are shaped the way they are
 

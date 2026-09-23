@@ -13,14 +13,17 @@
 # Build deps live in a throwaway stage so the runtime image does not carry a
 # compiler. scikit-learn and scipy publish manylinux wheels, so this is usually
 # unused - but it keeps a source build from failing the whole deploy.
-FROM python:3.11-slim AS builder
+# Python 3.13 because requirements.txt pins the numeric stack Data/metrics.json
+# was measured with, and numpy 2.5 needs >= 3.12. On 3.11 the old ranges resolved
+# to an older scikit-learn and the served time to alarm moved a frame.
+FROM python:3.13-slim AS builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.11-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 # Do not run as root. A container that accepts file uploads should not be able
 # to write outside the paths it needs.
@@ -40,6 +43,12 @@ USER project2
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8081
+
+# Train the served model here, with the scikit-learn this image installs. The
+# workstation's cache is excluded (.dockerignore) because it was pickled by
+# whatever scikit-learn that machine runs; without this step every cold start
+# would load the corpus and fit before binding the port.
+RUN python -u main.py --no-serve
 
 EXPOSE 8081
 

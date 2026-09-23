@@ -22,4 +22,8 @@ tests/
 # Exclude only large non-essential plots
 Data/research_plots/
 
+# Model cache - see .dockerignore. The Dockerfile trains the image's own.
+Data/*.joblib
+Data/*.joblib.sha256.json
+
 CODE_REVIEW_*.md

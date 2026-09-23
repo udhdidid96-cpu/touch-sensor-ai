@@ -115,10 +115,13 @@ against the container's memory while they exist. For a demo this is fine. If
 you need the trail to persist, the events have to go to Cloud Storage or a
 database instead of a local file — that is a code change, not a deploy flag.
 
-**2. Cold start takes several seconds.** With `--max-instances 3` and no minimum,
+**2. Cold start takes a moment.** With `--max-instances 3` and no minimum,
 Google shuts the last instance down when idle and the next visitor waits while
-the 9 MB model loads. `--min-instances 1` removes the wait but bills you around
-the clock. The script leaves it at zero on purpose.
+the instance loads the corpus and the model. The model is trained when the
+image is built (`RUN python -u main.py --no-serve` in the Dockerfile), with the
+scikit-learn the image installs, so a start only loads it. `--min-instances 1`
+removes the wait but bills you around the clock. The script leaves it at zero on
+purpose.
 
 **3. The serial port is not there.** Live capture from the sensor patch reads a
 COM port on the machine running the server. In a Google datacentre there is no
@@ -146,19 +149,41 @@ you want it fully gone.
 
 ## Verified before shipping
 
-The container's Python environment, the startup path and the access gate were
-exercised on Linux/Python 3.11 with the pinned `requirements.txt`:
+**2026-09-23**, on the workstation, in fresh virtual environments built from
+`requirements.txt` (logs kept outside the repository):
 
-- `--host 0.0.0.0` with no key → refuses to start, prints the reason. Good.
-- `--host 0.0.0.0` with a key → serves; model loaded from
-  `Data/trained_model.joblib`, no retrain.
+- **Python 3.13 with the pinned stack** (scikit-learn 1.9.0, numpy 2.5.0, scipy
+  1.18.0, pandas 3.0.3), which is what the image now installs.
+  `pip install -r requirements.txt` resolves. `python main.py --verify-metrics`
+  reproduces `Data/metrics.json`, served-path figures included.
+- **The image's build and start, simulated in that environment.** `Data/` was
+  copied without the model cache, as `.dockerignore` now excludes it. The build
+  step (`main.py --no-serve`) trained and saved a model in 2.7 s. The next start
+  loaded it without retraining, 1.5 s end to end. `--host 0.0.0.0` with no
+  `PROJECT2_ACCESS_KEY` refused to start (exit 2).
+- **What the old image would have run.** Python 3.11 with the old ranges resolved
+  to scikit-learn 1.8.0 / numpy 2.4.6 / pandas 2.3.3. Every published rate
+  reproduced. The served median time to alarm moved one frame (7.28 s to
+  6.72 s). The workstation's cached model, pickled by scikit-learn 1.9.0 and
+  shipped because it was never dockerignored, unpickled with three
+  `InconsistentVersionWarning`s and served predictions anyway.
+
+That third item is why three things changed. The numeric stack is pinned. The
+image is Python 3.13 and trains its own model. `load_persisted_model()` now
+refuses a cache written by a different scikit-learn.
+
+From an earlier check on Linux/Python 3.11 (the access gate is unchanged since):
+
 - Without the key: `/`, `/api/v6/metrics`, `/api/v5/datasets`, `/static/app.js`
   all return **401**.
 - With the key: all return **200**, and the console, its stylesheet, `app.js`
   and the vendored Chart.js are served intact.
 
-What was not exercised here: the Docker build itself (no Docker daemon in the
-environment this was checked in) and websocket streaming behind Cloud Run's
-proxy. Neither is likely to bite — the Dockerfile is a plain two-stage build and
-Cloud Run supports websockets natively — but they are the two steps to watch on
-your first deploy.
+What was not exercised:
+
+- The Docker build itself (no Docker daemon on the workstation).
+- A Linux run of the pinned stack. CI on Python 3.13 is the first one. The
+  time-to-alarm check tolerates one frame for exactly this reason.
+- Websocket streaming behind Cloud Run's proxy.
+
+Watch those three on the first deploy.
