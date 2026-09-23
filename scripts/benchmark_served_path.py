@@ -408,13 +408,65 @@ def merge(expected: Optional[int] = None) -> int:
     return 0
 
 
+def diagnose() -> int:
+    """Post-hoc, not part of the decision: what the first offline alarms stand on.
+
+    For each anomaly recording the published path annunciates, count the
+    supporting votes (out-of-fold prediction >= 2) in the window that raised the
+    first alarm, and how many of them are frames whose largest served |delta| is
+    under the noise gate - frames the server never asks the model about.
+    """
+    ds, _, raws = load_corpus()
+    oof = main.compute_oof(ds, 42)
+    rows, quiet, total = [], 0, 0
+    for fi, label in enumerate(ds.labels):
+        if label < 2:
+            continue
+        preds = oof[ds.groups == fi]
+        peak = np.max(np.abs(served_deltas(raws[fi])), axis=1)
+        deb = main.AlarmDebouncer()
+        levels = np.asarray([0 if k < main.KALMAN_WARMUP else deb.update(int(p))
+                             for k, p in enumerate(preds)])
+        hits = np.nonzero(levels >= 2)[0]
+        if not hits.size:
+            continue
+        first = int(hits[0])
+        start = max(main.KALMAN_WARMUP, first - main.ALARM.window + 1)
+        votes = [k for k in range(start, first + 1) if preds[k] >= 2]
+        below = [k for k in votes if peak[k] < main.NOISE_GATE_COUNTS]
+        active = np.nonzero(peak[main.KALMAN_WARMUP:] >= main.NOISE_GATE_COUNTS)[0]
+        quiet, total = quiet + len(below), total + len(votes)
+        rows.append({"file": ds.files[fi], "first_offline_alarm_frame": first,
+                     "votes": len(votes), "votes_below_gate": len(below),
+                     "first_frame_at_or_above_gate": (int(active[0]) + main.KALMAN_WARMUP
+                                                      if active.size else None)})
+    out = os.path.join(main.DATA_ROOT, "served_path_diagnosis.json")
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump({"generated": time.strftime("%Y-%m-%d %H:%M:%S"),
+                   "what": ("votes behind each first offline alarm, and how many are "
+                            "frames the served noise gate never lets the model see"),
+                   "post_hoc": True,
+                   "noise_gate_counts": main.NOISE_GATE_COUNTS,
+                   "votes_below_gate": quiet, "votes": total,
+                   "recordings_all_votes_below_gate": sum(
+                       r["votes"] > 0 and r["votes_below_gate"] == r["votes"] for r in rows),
+                   "recordings": rows}, fh, indent=1)
+    print(f"{quiet}/{total} votes behind the first offline alarms are below the "
+          f"{main.NOISE_GATE_COUNTS:g}-count gate -> {out}")
+    return 0
+
+
 def main_cli() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--shard", default="", help="k/n: score every n-th fold from k")
     ap.add_argument("--merge", action="store_true", help="combine shards and decide")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="post-hoc: sub-gate votes behind the first offline alarms")
     ap.add_argument("--expect", type=int, default=81)
     args = ap.parse_args()
+    if args.diagnose:
+        return diagnose()
     if args.merge:
         return merge(args.expect)
     part, parts = (int(x) for x in (args.shard or "1/1").split("/"))

@@ -1,0 +1,291 @@
+{
+ "generated": "2026-09-23 23:26:55",
+ "what": "votes behind each first offline alarm, and how many are frames the served noise gate never lets the model see",
+ "post_hoc": true,
+ "noise_gate_counts": 60.0,
+ "votes_below_gate": 58,
+ "votes": 240,
+ "recordings_all_votes_below_gate": 4,
+ "recordings": [
+  {
+   "file": "Peel/A_Peel_01.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_02.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_03.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_04.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_05.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 6
+  },
+  {
+   "file": "Peel/A_Peel_06.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_07.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_08.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_09.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Peel/A_Peel_10.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_01.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 6
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_02.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_03.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_04.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_05.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 6
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_06.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 2,
+   "first_frame_at_or_above_gate": 7
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_07.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 2,
+   "first_frame_at_or_above_gate": 7
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_08.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 6
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_09.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Vertical Pull NO G/A_VPull_10.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_01.csv",
+   "first_offline_alarm_frame": 22,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 10
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_02.csv",
+   "first_offline_alarm_frame": 31,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 10
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_03.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 6,
+   "first_frame_at_or_above_gate": 19
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_04.csv",
+   "first_offline_alarm_frame": 20,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 16
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_05.csv",
+   "first_offline_alarm_frame": 16,
+   "votes": 6,
+   "votes_below_gate": 3,
+   "first_frame_at_or_above_gate": 13
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_06.csv",
+   "first_offline_alarm_frame": 18,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 8
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_07.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 3,
+   "first_frame_at_or_above_gate": 7
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_08.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 7
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_09.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 3,
+   "first_frame_at_or_above_gate": 7
+  },
+  {
+   "file": "Horizontal Pull NO G/A_HPull_10.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 3,
+   "first_frame_at_or_above_gate": 8
+  },
+  {
+   "file": "PowerP/HP_1.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 2,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "PowerP/HP_2.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 5
+  },
+  {
+   "file": "PowerP/HP_3.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 6,
+   "first_frame_at_or_above_gate": 16
+  },
+  {
+   "file": "PowerP/HP_4.csv",
+   "first_offline_alarm_frame": 11,
+   "votes": 6,
+   "votes_below_gate": 5,
+   "first_frame_at_or_above_gate": 10
+  },
+  {
+   "file": "PowerP/HP_5.csv",
+   "first_offline_alarm_frame": 17,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 11
+  },
+  {
+   "file": "PowerP/VP_1.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 4,
+   "first_frame_at_or_above_gate": 9
+  },
+  {
+   "file": "PowerP/VP_2.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 6,
+   "first_frame_at_or_above_gate": 13
+  },
+  {
+   "file": "PowerP/VP_3.csv",
+   "first_offline_alarm_frame": 16,
+   "votes": 6,
+   "votes_below_gate": 0,
+   "first_frame_at_or_above_gate": 11
+  },
+  {
+   "file": "PowerP/VP_4.csv",
+   "first_offline_alarm_frame": 10,
+   "votes": 6,
+   "votes_below_gate": 6,
+   "first_frame_at_or_above_gate": 12
+  },
+  {
+   "file": "PowerP/VP_5.csv",
+   "first_offline_alarm_frame": 14,
+   "votes": 6,
+   "votes_below_gate": 1,
+   "first_frame_at_or_above_gate": 10
+  }
+ ]
+}
