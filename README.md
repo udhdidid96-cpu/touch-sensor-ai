@@ -110,7 +110,7 @@ itself, on the same out-of-fold fits (`main.evaluate_served`, checked by
 `--verify-metrics`):
 
 <!-- metrics:served_headline_en -->
-Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (2026-09-23, v6.2).
+Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (unstamped, v6.2).
 <!-- /metrics:served_headline_en -->
 
 That row describes the running device. Why the two differ, including the 58 of

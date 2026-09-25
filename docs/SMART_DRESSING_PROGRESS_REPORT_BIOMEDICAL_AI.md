@@ -19,10 +19,15 @@
    - 3.1 ข้อจำกัดของระบบเดิม: ปัญหา Start-up Zero-Calibration & Offset Drift
    - 3.2 สถาปัตยกรรมบอร์ด Capacitance-to-Digital Converter (CDC Board)
    - 3.3 ประโยชน์เชิงคลินิก: การตัด Zero-calibration และการตรวจจับตำแหน่ง/ทิศทางท่อแบบ Static
-4. [ประเด็นที่ 4: การปรับปรุงแท่นทดลองและการซิงค์ข้อมูล (Setup Refinement & OBS Studio Sync)](#4-setup-refinement--obs-sync)
-   - 4.1 การปรับปรุงระบบดูดสุญญากาศ (High-Vacuum System) และความหนาของแผ่นรองรับ
-   - 4.2 ระบบบันทึกภาพวิดีโอและสัญญาณแบบซิงค์ด้วย OBS Studio (Dual-Stream Ground Truth Protocol)
-   - 4.3 การวัด Lead Time และการคำนวณกรอบเวลาเตือนภัยล่วงหน้า (Early Warning Lead Time Quantification)
+4. [ประเด็นที่ 4: วิศวกรรมการชดเชยพื้นผิวโค้งมนและพื้นที่ต่างระดับ (Non-Planar Contours & Step-Height Discontinuity)](#4-step-height-compensation)
+   - 4.1 กายวิภาคใบหน้าและสันต่างระดับของท่อช่วยหายใจ (Anatomical Curvatures & ETT Step Discontinuity)
+   - 4.2 ผลกระทบทางฟิสิกส์: ปรากฏการณ์ Tenting และความไวที่ลดลง ($\partial C / \partial z$ Non-Linearity)
+   - 4.3 สถาปัตยกรรมทางวิศวกรรมเพื่อแก้ปัญหาพื้นที่ต่างระดับ 4 ระดับ (4-Tier Engineering Solution)
+5. [ประเด็นที่ 5: การปรับปรุงแท่นทดลองและการซิงค์ข้อมูล (Setup Refinement & OBS Studio Sync)](#5-setup-refinement--obs-sync)
+   - 5.1 การปรับปรุงระบบดูดสุญญากาศ (High-Vacuum System) และความหนาของแผ่นรองรับ
+   - 5.2 ระบบบันทึกภาพวิดีโอและสัญญาณแบบซิงค์ด้วย OBS Studio (Dual-Stream Ground Truth Protocol)
+   - 5.3 การวัด Lead Time และการคำนวณกรอบเวลาเตือนภัยล่วงหน้า (Early Warning Lead Time Quantification)
+6. [ประเด็นที่ 6: สรุปรายการส่งมอบ (Deliverables Summary)](#6-deliverables-summary)
 
 ---
 
@@ -121,7 +126,7 @@ HistGradientBoosting จัดการกับฟีเจอร์ที่�
 <!-- metrics:episode_headline_th -->
 sensitivity **100.0%** (95% CI 91.2–100.0) · false alarm **4.9% ต่อ recording** (95% CI 1.3–16.1) = **7.8 ครั้ง/ชม**
 · latency กลาง **5.60 วิ** (แย่สุด 17.36 วิ) · พลาด 0 เหตุการณ์
-· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-23, v6.2)
+· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (unstamped, v6.2)
 <!-- /metrics:episode_headline_th -->
 
   ไฟล์ปกติที่เตือนผิดมี **2 ใน 41** (Brief Touch 1 ไฟล์, Normal Mix 1 ไฟล์) ดูตารางใน §2
@@ -134,7 +139,7 @@ sensitivity **100.0%** (95% CI 91.2–100.0) · false alarm **4.9% ต่อ rec
 <!-- metrics:served_headline_th -->
 เส้นทางที่เซิร์ฟเวอร์รันจริง (ทุกไฟล์ replay ผ่าน LivePipeline, out-of-fold): sensitivity **97.5%** (95% CI 87.1–99.6) · false alarm **4.9% ต่อ recording** (95% CI 1.3–16.1) = **5.2 ครั้ง/ชม**
 · latency กลาง **7.28 วิ** (แย่สุด 17.36 วิ) · พลาด 1 เหตุการณ์ (Vertical Pull NO G/A_VPull_06.csv)
-· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (2026-09-23, v6.2)
+· operating point 7-of-6 hold 9 · ที่มา `Data/metrics.json` (unstamped, v6.2)
 <!-- /metrics:served_headline_th -->
 
 ---
@@ -251,8 +256,65 @@ NEW SYSTEM: Absolute Capacitance (Dedicated CDC IC: AD7147 / AD7746 / FDC2214)
 
 ---
 
-<a name="4-setup-refinement--obs-sync"></a>
-## 4. การปรับปรุงแท่นทดลองและการซิงค์ข้อมูล (Setup Refinement & OBS Studio Sync)
+<a name="4-step-height-compensation"></a>
+## 4. วิศวกรรมการชดเชยพื้นผิวโค้งมนและพื้นที่ต่างระดับ (Non-Planar Contours & Step-Height Discontinuity)
+
+```
+===================================================================================
+กายวิภาคและการต่างระดับเมื่อใช้งานจริง (Non-Planar & Step-Height Discontinuity)
+===================================================================================
+
+                [แผ่นแปะทอดตัวโค้งตามสัน]
+               ╭───────────────────────╮
+               │ Pad-11  Pad-12  Pad-13│
+    ┌──────────┴───────────────────────┴──────────┐  <-- Smart Dressing (FPC)
+    │                                             │
+    │                   ╭───────╮                 │
+    │                   │  ETT  │ (OD 9-11.5 mm)  │
+    │                   │ Tube  │                 │
+    │                   ╰───────╯                 │
+────┴───────╮                               ╭─────┴─────────────────────── ผิวหนัง
+ ผิวระนาบ     │<--- โพรงอากาศ (Air Gap) --->│   ผิวระนาบ
+ แนบสนิท     │      (Tenting Effect)       │   แนบสนิท
+ C0 = 35 pF │      C0 = 12-18 pF          │   C0 = 35 pF
+```
+
+### 4.1 กายวิภาคใบหน้าและสันต่างระดับของท่อช่วยหายใจ (Anatomical Curvatures & ETT Step Discontinuity)
+ในการทดสอบเบื้องต้น (81 ไฟล์) ชุดข้อมูลถูกบันทึกบน **"แท่นทดสอบแผ่นเรียบอะคริลิก" (Flat Planar Acrylic Surface)** ส่งผลให้ Baseline ($C_0$) ของทั้ง 25 แชนแนลมีค่าสม่ำเสมอ ($\approx 28,000\text{ counts}$) อย่างไรก็ตาม ในบริบททางคลินิกจริงบนผู้ป่วยวิกฤต (ICU):
+1. **ความโค้งมน 3 มิติของกายวิภาคใบหน้า (3D Anatomical Curvature):** บริเวณโหนกแก้ม (Zygomatic arch), แนวกราม (Mandible), และร่องข้างแก้ม มีรัศมีความโค้ง $R \approx 15 - 50\text{ mm}$
+2. **สันต่างระดับของท่อช่วยหายใจ (ETT Step-Height Discontinuity):** ท่อช่วยหายใจผู้ใหญ่ (Fr 28–34) มีเส้นผ่านศูนย์กลางภายนอก (OD) อยู่ที่ **$9.0 - 11.5\text{ mm}$** ร่วมกับแถบพลาสเตอร์ยึดท่อหนาอีก $1 - 3\text{ mm}$ เมื่อแผ่นแปะเซนเซอร์ทอดข้ามสายท่อ จึงต้องข้าม **"สันต่างระดับสูง $3 - 10\text{ mm}$"** ทันที
+
+### 4.2 ผลกระทบทางฟิสิกส์: ปรากฏการณ์ Tenting และความไวที่ลดลง ($\partial C / \partial z$ Non-Linearity)
+เมื่อแผ่นแปะต้องพาดข้ามพื้นที่ต่างระดับ จะเกิดปรากฏการณ์ทางฟิสิกส์ไฟฟ้าความจุ 3 ประการ:
+1. **ปรากฏการณ์ขึงตึงเกิดโพรงอากาศ (Tenting Effect & Micro Air Gaps):**
+   แผ่น FPC มีความแข็งแกร็งต่อการดัดงอ ($D = \frac{E t^3}{12(1-\nu^2)}$) ไม่สามารถหักมุม $90^\circ$ แนบสนิทกับโคนท่อได้ทันที เกิดเป็นโพรงอากาศรูปสามเหลี่ยม (Air Gap Wedge) ซอกข้างท่อ เนื่องจาก $\varepsilon_{\text{air}} \approx 1.0 \ll \varepsilon_{\text{skin}} \approx 50 - 80$ ทำให้ Pad ที่คร่อมเหนือโพรงอากาศมีค่า Baseline เริ่มต้น $C_{0,i}$ **ดรอปต่ำลงเหลือเพียง $12 - 18\text{ pF}$** (เทียบกับ Pad แนบผิวที่ $30 - 38\text{ pF}$)
+2. **ปัญหาความไม่เป็นเชิงเส้นของความไว ($\frac{\partial C}{\partial z}$ Sensitivity Saturation):**
+   $$\frac{\partial C}{\partial z} = -\frac{\varepsilon_0 A \cdot \varepsilon_{\text{medium}}}{\left(\frac{d_{\text{substrate}}\varepsilon_{\text{medium}}}{\varepsilon_{\text{substrate}}} + z\right)^2}$$
+   - **Pad แนบสนิท ($z \approx 0$):** อัตราอนุพันธ์ $|\frac{\partial C}{\partial z}|$ ชันมาก การยกตัวเพียง $0.5\text{ mm}$ ดรอปค่าความจุลงทันที **$-800$ ถึง $-1,500\text{ counts}$**
+   - **Pad ที่อยู่บนโพรงอากาศต่างระดับ ($z \ge 1.5\text{ mm}$ อยู่แล้ว):** ค่าอนุพันธ์ตกอยู่ในโซนอิ่มตัว (Flat asymptote) การเผยอหลุดเพิ่มอีก $1.0\text{ mm}$ ให้ค่าความจุลดลงเพียง **$-100$ ถึง $-200\text{ counts}$** หากใช้อัลกอริทึมที่มีเกณฑ์ Lift Gate แบบคงที่ (เช่น $\le -300\text{ counts}$) ช่องสัญญาณเหล่านี้จะ **ตรวจไม่ผ่านเกณฑ์ (เกิด False Negative)** ทำให้ตาบอดต่อการหลุดลอกบริเวณสันสายท่อ
+3. **การสะสมตัวของความเค้นที่ขอบสัน (Stress Concentration):** สันต่างระดับทำหน้าที่เป็นจุดคานงัด (Fulcrum) ก่อให้เกิด Peel Stress Concentration ทำให้การหลุดลอกทางกลศาสตร์มักเริ่มต้นที่ขอบรอยต่อต่างระดับเสมอ
+
+### 4.3 สถาปัตยกรรมทางวิศวกรรมเพื่อแก้ปัญหาพื้นที่ต่างระดับ 4 ระดับ (4-Tier Engineering Solution)
+ระบบ Smart Dressing ได้วางแนวทางป้องกันและชดเชยพื้นที่ต่างระดับอย่างเป็นระบบ:
+1. **Data & Algorithm Layer (ในซอฟต์แวร์ `main.py` ปัจจุบัน):**
+   - **Normalized Fractional Deltas (F10):** คำนวณการเปลี่ยนแปลงแบบสเกลสัมพัทธ์ $\delta_i = \Delta C_i / C_{0,i}$ ทำให้ความไวของระบบไม่ขึ้นกับความสูงต่ำของ Baseline แต่ละ Pad
+   - **Per-Pad Adaptive Lift Gates:** ฟังก์ชัน `analyze_surface_topography()` ปรับเกณฑ์การยกตัวอัตโนมัติรายแชนแนล:
+     $$\text{Gate}_i = \min(-150, -\alpha \cdot C_{0,i}) \quad (\alpha = 0.011)$$
+     ทำให้ Pad ที่คร่อมรอยต่างระดับยังคงตรวจจับการเผยอหลุดได้ แม้ค่าความจุเริ่มต้นจะต่ำกว่าปกติ
+   - **Surface Topography Profiling (`/api/v6/topography/analyze`):** วิเคราะห์การกระจายตัวของ Baseline เพื่อจำแนกประเภทพื้นผิว (`'planar'`, `'moderate_contour'`, `'stepped_ridge'`) ระบุแชนแนลที่เกิดโพรงอากาศ (`tenting_pads`) และแจ้งเตือนพยาบาลให้รีดขอบแผ่นแปะให้แนบสนิท
+2. **Hardware & Sensor Mechanical Layer (รอบที่ 2):**
+   - ใช้วัสดุกาวทางการแพทย์ชนิด **Viscoelastic Hydrocolloid Base** ที่มีความหนืดและยืดหยุ่นสูง เพื่อไหลเติมเต็มช่องว่างโพรงอากาศข้างท่อ
+   - ออกแบบแผ่นวงจร FPC ยืดหยุ่นสูงพิเศษที่มีความหนา $\le 25\ \mu\text{m}$ พร้อมลายทองแดงแบบ Serpentine Meander เพื่อให้ดัดโค้งตามกายวิภาค 3 มิติได้อย่างอิสระ
+   - เพิ่มรอยบากผ่อนแรง (Strain-Relief Keyhole Slits) คั่นระหว่างโซนยึดสายท่อกับโซนเซนเซอร์
+3. **Absolute CDC Sensing Layer:**
+   - ชิป CDC อ่านค่าสัมบูรณ์ fF ได้โดยตรง ไม่ถูกหลอกด้วย Offset การเปิดเครื่อง และสามารถสร้าง Contact Quality Index (CQI) แสดงความสมบูรณ์ของการแนบติดบนหน้าจอ Console
+4. **Bench Experimental Setup (รอบที่ 2):**
+   - พัฒนาแท่นทดสอบจำลองใบหน้า 3 มิติ (3D Anatomical Facial Phantom) ร่วมกับบล็อกสันต่างระดับมาตรฐาน ($3\text{ mm}, 5\text{ mm}, 8\text{ mm}$) เพื่อทดสอบและยืนยันประสิทธิภาพของ Adaptive Gates ในสภาวะต่างระดับจริง
+
+---
+
+<a name="5-setup-refinement--obs-sync"></a>
+## 5. การปรับปรุงแท่นทดลองและการซิงค์ข้อมูล (Setup Refinement & OBS Studio Sync)
 
 ```
 +-----------------------------------------------------------------------------------------+
@@ -275,14 +337,14 @@ NEW SYSTEM: Absolute Capacitance (Dedicated CDC IC: AD7147 / AD7746 / FDC2214)
 +-----------------------------------------------------------------------------------------+
 ```
 
-### 4.1 การปรับปรุงระบบดูดสุญญากาศ (High-Vacuum Suction & Substrate Coupling)
+### 5.1 การปรับปรุงระบบดูดสุญญากาศ (High-Vacuum Suction & Substrate Coupling)
 - **ปัญหาเดิม:** ปั๊มสุญญากาศตัวเดิมมีแรงดูดต่ำ ($\approx -15\text{ kPa}$) และแผ่นรองรับซิลิโคนหนาเกินไป ทำให้แรงดึงในแนวเฉือน (Shear) ถูกซับแรงไปในความยืดหยุ่นของซิลิโคน ไม่ส่งผ่านแรงเค้นไปยังเซนเซอร์
 - **การปรับปรุง:**
   1. อัปเกรดปั๊มสุญญากาศเป็นชนิดแรงดูดสูงอุตสาหกรรม (Industrial High-Vacuum Pump: แรงดูดต่อเนื่อง **$-40$ ถึง $-60\text{ kPa}$**) เพื่อดูดแผ่นรองให้แนบสนิทกับแท่นทดลองอย่างสม่ำเสมอ
   2. ลดความหนาของแผ่นรองซับสเตรตลงให้เหลือ $\le 0.5\text{ mm}$
   3. เพิ่มชั้นกาวทางการแพทย์ชนิดไฮโดรคอลลอยด์ (Hydrocolloid Adhesive Layer) เพื่อให้การดึงในแนวราบส่งถ่ายแรงดึงผิว (Shear Stress) ไปยังขั้วไฟฟ้าและเปิดช่องว่างลอกหลุดได้อย่างสมจริง
 
-### 4.2 ระบบบันทึกภาพวิดีโอและสัญญาณแบบซิงค์ด้วย OBS Studio
+### 5.2 ระบบบันทึกภาพวิดีโอและสัญญาณแบบซิงค์ด้วย OBS Studio
 เพื่อสร้างข้อมูลอ้างอิงความจริงภาคสนาม (Ground Truth) ที่แม่นยำระดับมิลลิวินาที:
 1. **การจัดวาง Layout ใน OBS Studio:**
    - **หน้าต่างซ้าย (Physical View):** ภาพจากกล้องเว็บแคมความละเอียดสูง (1080p @ 60 fps) ถ่ายมุมระนาบ $90^\circ$ ส่องเห็นแผ่นแปะ, สายท่อ, สเกลไม้บรรทัดวัดระยะเลื่อน (Millimeter scale), และเครื่องวัดแรงดึง (Force gauge)
@@ -290,7 +352,7 @@ NEW SYSTEM: Absolute Capacitance (Dedicated CDC IC: AD7147 / AD7746 / FDC2214)
 2. **กลไกการซิงค์เวลา (Time Synchronization Beacon):**
    - ใช้อุปกรณ์กำเนิดแสงวาบ (LED Flash Marker) หรือการส่ง Event Trigger ผ่านทางพอร์ต Serial/WebSocket เพื่อให้เกิดสัญลักษณ์บนหน้าจอและในภาพวิดีโอพร้อมกันในเฟรมเดียว
 
-### 4.3 การคำนวณ Lead Time (ระยะเวลาเตือนภัยล่วงหน้า)
+### 5.3 การคำนวณ Lead Time (ระยะเวลาเตือนภัยล่วงหน้า)
 ด้วยการซิงค์ภาพและสัญญาณผ่าน OBS Studio ระบบจะสามารถพิสูจน์ค่า **Lead Time ($\Delta t_{\text{lead}}$)** ทางคลินิกได้อย่างโปร่งใส:
 
 $$\Delta t_{\text{lead}} = t_{\text{critical\_displacement}} - t_{\text{first\_alarm}}$$
@@ -302,9 +364,11 @@ $$\Delta t_{\text{lead}} = t_{\text{critical\_displacement}} - t_{\text{first\_a
 
 ---
 
-## 5. สรุปรายการส่งมอบ (Deliverables Summary)
+<a name="6-deliverables-summary"></a>
+## 6. สรุปรายการส่งมอบ (Deliverables Summary)
 
-1. **เอกสารรายงานทางเทคนิค (Technical Report):** เอกสารฉบับนี้ (`docs/SMART_DRESSING_PROGRESS_REPORT_BIOMEDICAL_AI.md`) ครอบคลุมทั้งทฤษฎีสนามไฟฟ้า การให้เหตุผลของโมเดล การวิเคราะห์ 5 สถานการณ์ และแนวทางการอัปเกรดฮาร์ดแวร์
+1. **เอกสารรายงานทางเทคนิค (Technical Report):** เอกสารฉบับนี้ (`docs/SMART_DRESSING_PROGRESS_REPORT_BIOMEDICAL_AI.md`) ครอบคลุมทั้งทฤษฎีสนามไฟฟ้า การให้เหตุผลของโมเดล การวิเคราะห์ 5 สถานการณ์ การอัปเกรดฮาร์ดแวร์ และการชดเชยพื้นที่ต่างระดับ
 2. **สคริปต์ทดสอบและประเมินผล 5 สถานการณ์ (`scripts/evaluate_5_scenarios.py`):** เครื่องมือรันการทดสอบและสกัดข้อมูลสัญญาณเชิงลึกจาก 81 ไฟล์ เพื่อนำผลลัพธ์ไปลงตารางในเล่มวิทยานิพนธ์หรือเปเปอร์วิชาการ
 3. **คู่มือปฏิบัติการบันทึกภาพซิงค์ข้อมูล OBS Studio (`docs/OBS_STUDIO_GROUND_TRUTH_SYNC_GUIDE.md`):** แนวทางปฏิบัติการตั้งค่ากล้อง แสง และหน้าจอสำหรับการทดลองในรอบที่ 2
 4. **ความพร้อมของระบบซอฟต์แวร์รองรับบอร์ด CDC (`main.py`):** การปรับปรุงส่วนรับข้อมูลและ Protocol ให้รองรับทั้งโหมด Relative Delta ดั้งเดิม และโหมด Absolute Femtofarads ของบอร์ดใหม่
+5. **วิศวกรรมชดเชยรอยต่อต่างระดับและความโค้งมน (Step-Height & Contour Compensation):** การคำนวณ Normalized Fractional Deltas ($\delta_i = \Delta C_i / C_{0,i}$) และ Per-Pad Adaptive Lift Gates สำหรับแท่นทดสอบ 3 มิติและสรีระผู้ป่วยจริง (`/api/v6/topography/analyze`)

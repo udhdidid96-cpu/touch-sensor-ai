@@ -171,6 +171,30 @@ Remaining work is hardware-side: fabricate and bench the CDC board, capture a 1-
 
 ---
 
+## 8.1 Step-height discontinuity and non-planar anatomical curvature compensation
+
+**The clinical step-height and curvature reality.** The initial 81 bench recordings were acquired on a flat planar acrylic plate, where all 25 sensing pads seat flush at uniform quiescent baselines ($C_0 \approx 28,000\text{ counts}$ or $\approx 28-35\text{ pF}$). In clinical application on ICU patients:
+1. **3D Anatomical Curvature:** Human facial contours (zygomatic arch, mandible, and nasolabial folds) have local radii of curvature $R \approx 15 - 50\text{ mm}$.
+2. **ETT Step-Height Discontinuity:** Adult Endotracheal Tubes (ETT Fr 28–34) possess an outer diameter of **$9.0 - 11.5\text{ mm}$**, augmented by $1 - 3\text{ mm}$ of adhesive anchoring tape. When the dressing drapes across the tube, it traverses a **$3 - 10\text{ mm}$ vertical step**.
+
+**Capacitive electrodynamics over step boundaries:**
+- **Tenting Effect & Air Gaps:** Due to finite FPC flexural rigidity ($D = \frac{E t^3}{12(1-\nu^2)}$), the dressing cannot make a perpendicular $90^\circ$ bend at the tube base, producing a triangular air-gap wedge where $\varepsilon_{\text{air}} \approx 1.0 \ll \varepsilon_{\text{skin}} \approx 50 - 80$. Pads bridging the step drop baseline capacitance to $12 - 18\text{ pF}$ (compared to $30 - 38\text{ pF}$ on flush skin).
+- **Non-Linear Sensitivity Degradation ($\frac{\partial C}{\partial z}$):**
+  $$\frac{\partial C}{\partial z} = -\frac{\varepsilon_0 A \cdot \varepsilon_{\text{medium}}}{\left(\frac{d_{\text{substrate}}\varepsilon_{\text{medium}}}{\varepsilon_{\text{substrate}}} + z\right)^2}$$
+  On flush skin ($z \approx 0$), $|\frac{\partial C}{\partial z}|$ is steep: a $0.5\text{ mm}$ lift yields $-800\text{ to } -1,500\text{ counts}$. Over an air tent ($z \ge 1.5\text{ mm}$), the sensor operates in the flat asymptotic tail: an identical detachment produces only $-100\text{ to } -200\text{ counts}$. A fixed count gate ($\le -300\text{ counts}$) would experience a **false negative**, going blind to detachment at the ridge!
+- **Stress Concentration:** The step acts as a mechanical fulcrum, causing peel initiation at the ridge border before spreading across the planar wings.
+
+**The 4-Tier Engineering Solution in the Pipeline:**
+1. **Algorithmic Compensation (`main.py`):**
+   - **Scale-Normalized Fractional Deltas (F10):** $\delta_i = \Delta C_i / C_{0,i}$, making sensitivity scale-invariant across both tented and flush pads.
+   - **Per-Pad Adaptive Lift Gates:** Computed via `analyze_surface_topography()` as $\text{Gate}_i = \min(-150, -\alpha \cdot C_{0,i})$ (where $\alpha = 0.011$). Tented pads receive appropriately scaled gates rather than being blinded by a fixed $-300\text{ count}$ threshold.
+   - **Surface Topography Profiling:** Classifies surface into `'planar'`, `'moderate_contour'`, or `'stepped_ridge'`, flagging tenting pads and prompting clinical inspection.
+2. **Sensor Mechanics (Round 2):** Ultra-thin serpentine FPC ($\le 25\ \mu\text{m}$) with viscoelastic hydrocolloid adhesive backing that conforms and fills micro-air wedges.
+3. **Absolute CDC Layer:** Delivers true fF baselines without boot-calibration drift, yielding a continuous Contact Quality Index (CQI).
+4. **Bench Experimental Validation:** 3D facial phantom with interchangeable calibrated step blocks ($3\text{ mm}, 5\text{ mm}, 8\text{ mm}$) to validate adaptive gate performance on non-planar surfaces.
+
+---
+
 ## 9. Test-rig and acquisition upgrades feeding this validation (advisor review, 2026-09-17)
 
 - **Suction fixation.** The round-1 vacuum rig held the dressing without adhesive and with insufficient suction; the backing was thick enough to absorb shear, which is the leading hypothesis for the horizontal-pull blind spot and for the corpus never reaching the detachment spec. Round 2 uses a high-suction source (−40 to −60 kPa; an industrial/vacuum-cleaner-grade source is acceptable per the advisor) with a thinned backing membrane (≤ 0.5 mm) and medical-grade hydrocolloid adhesive, so tube-applied force reaches the pads. Acceptance criterion: ≥ 8/10 peel recordings must reach ≤ 25,000 counts.

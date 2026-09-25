@@ -1,6 +1,7 @@
 {
-  "generated": "2026-09-18 14:03:41",
-  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate() and extract_features(); offline path as shipped",
+  "generated": "2026-09-25 00:18:42",
+  "calibration": "kalman",
+  "protocol": "leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts before calibrate(raw, 'kalman') and extract_features(); 'kalman' is the offline path as shipped, 'kalman_norm' adds F10",
   "caveat": "robustness to MODELLED sensor variation on one mounting; not cross-session generalisation, which needs Data/S1..S3 and --cv session",
   "operating_point": {
     "window": 7,
@@ -10,6 +11,7 @@
   "results": [
     {
       "variant": "identity",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 1.0,
@@ -24,10 +26,11 @@
       "n_normal": 41,
       "alarms_per_hour": 7.77336327517706,
       "missed": [],
-      "seconds": 366.7
+      "seconds": 246.0
     },
     {
       "variant": "gain_global_p10",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 1.0,
@@ -42,12 +45,13 @@
       "n_normal": 41,
       "alarms_per_hour": 10.364484366902746,
       "missed": [],
-      "seconds": 271.6,
+      "seconds": 241.1,
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 2.59
     },
     {
       "variant": "gain_global_m10",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.95,
@@ -65,12 +69,13 @@
         "Vertical Pull NO G/A_VPull_01.csv",
         "Vertical Pull NO G/A_VPull_04.csv"
       ],
-      "seconds": 270.1,
+      "seconds": 266.8,
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": 2.59
     },
     {
       "variant": "gain_global_p20",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.975,
@@ -87,12 +92,13 @@
       "missed": [
         "Vertical Pull NO G/A_VPull_01.csv"
       ],
-      "seconds": 228.3,
+      "seconds": 365.2,
       "delta_sensitivity": -0.025,
       "delta_alarms_per_hour": 5.18
     },
     {
       "variant": "gain_global_m20",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.975,
@@ -109,12 +115,13 @@
       "missed": [
         "Vertical Pull NO G/A_VPull_04.csv"
       ],
-      "seconds": 278.6,
+      "seconds": 345.3,
       "delta_sensitivity": -0.025,
       "delta_alarms_per_hour": 0.0
     },
     {
       "variant": "gain_per_pad_10",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 1.0,
@@ -129,12 +136,13 @@
       "n_normal": 41,
       "alarms_per_hour": 7.77336327517706,
       "missed": [],
-      "seconds": 288.2,
+      "seconds": 362.4,
       "delta_sensitivity": 0.0,
       "delta_alarms_per_hour": 0.0
     },
     {
       "variant": "noise_sd30",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.925,
@@ -153,12 +161,13 @@
         "Vertical Pull NO G/A_VPull_04.csv",
         "Vertical Pull NO G/A_VPull_06.csv"
       ],
-      "seconds": 419.9,
+      "seconds": 325.4,
       "delta_sensitivity": -0.075,
       "delta_alarms_per_hour": 2.59
     },
     {
       "variant": "noise_sd60",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.85,
@@ -180,12 +189,13 @@
         "Horizontal Pull NO G/A_HPull_09.csv",
         "PowerP/VP_3.csv"
       ],
-      "seconds": 849.4,
+      "seconds": 362.0,
       "delta_sensitivity": -0.15,
       "delta_alarms_per_hour": 5.18
     },
     {
       "variant": "noise_sd120",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.625,
@@ -216,12 +226,13 @@
         "PowerP/VP_3.csv",
         "PowerP/VP_5.csv"
       ],
-      "seconds": 667.9,
+      "seconds": 353.8,
       "delta_sensitivity": -0.375,
       "delta_alarms_per_hour": -2.59
     },
     {
       "variant": "frame_drop_10",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3063,
       "sensitivity": 0.95,
@@ -239,12 +250,13 @@
         "Vertical Pull NO G/A_VPull_01.csv",
         "Vertical Pull NO G/A_VPull_04.csv"
       ],
-      "seconds": 567.0,
+      "seconds": 365.6,
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": -2.1
     },
     {
       "variant": "spike_1pct",
+      "calibration": "kalman",
       "files": 81,
       "frames": 3349,
       "sensitivity": 0.95,
@@ -262,7 +274,7 @@
         "Vertical Pull NO G/A_VPull_08.csv",
         "Vertical Pull NO G/A_VPull_09.csv"
       ],
-      "seconds": 568.9,
+      "seconds": 325.8,
       "delta_sensitivity": -0.05,
       "delta_alarms_per_hour": 2.59
     }

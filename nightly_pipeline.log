@@ -1,0 +1,37 @@
+[2026-09-24 23:30:50] Starting Autonomous Nightly Pipeline execution.
+[2026-09-24 23:30:50] Checking for active evaluate_robustness.py background processes...
+[2026-09-24 23:30:50] No active evaluate_robustness process detected (or already completed).
+[2026-09-24 23:30:50] === Starting Step: Full Train & Report (--report) ===
+[2026-09-24 23:30:50] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe main.py --report
+[2026-09-24 23:43:14] === PASSED: Full Train & Report (--report) in 744.0s ===
+[2026-09-24 23:43:14] === Starting Step: Verify Metrics Reproduction ===
+[2026-09-24 23:43:14] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe main.py --verify-metrics
+[2026-09-24 23:49:40] === PASSED: Verify Metrics Reproduction in 385.8s ===
+[2026-09-24 23:49:40] === Starting Step: 5-Scenario Benchmark Evaluation ===
+[2026-09-24 23:49:40] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe scripts/evaluate_5_scenarios.py
+[2026-09-24 23:55:09] === PASSED: 5-Scenario Benchmark Evaluation in 328.8s ===
+[2026-09-24 23:55:09] === Starting Step: Full Pytest Guard Suite ===
+[2026-09-24 23:55:09] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe run.py test
+[2026-09-25 00:15:33] === FAILED (Code 1): Full Pytest Guard Suite in 1223.8s ===
+[2026-09-25 00:15:33] Halting pipeline due to test failures.
+[2026-09-25 00:16:34] Starting Autonomous Nightly Pipeline execution.
+[2026-09-25 00:16:34] Checking for active evaluate_robustness.py background processes...
+[2026-09-25 00:16:34] No active evaluate_robustness process detected (or already completed).
+[2026-09-25 00:16:34] === Starting Step: Full Train & Report (--report) ===
+[2026-09-25 00:16:34] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe main.py --report
+[2026-09-25 00:25:36] === PASSED: Full Train & Report (--report) in 541.5s ===
+[2026-09-25 00:25:36] === Starting Step: Verify Metrics Reproduction ===
+[2026-09-25 00:25:36] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe main.py --verify-metrics
+[2026-09-25 00:29:52] === PASSED: Verify Metrics Reproduction in 256.5s ===
+[2026-09-25 00:29:52] === Starting Step: Sync Document Metrics Blocks ===
+[2026-09-25 00:29:52] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe scripts/sync_metrics_blocks.py
+[2026-09-25 00:29:53] === PASSED: Sync Document Metrics Blocks in 0.1s ===
+[2026-09-25 00:29:53] === Starting Step: 5-Scenario Benchmark Evaluation ===
+[2026-09-25 00:29:53] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe scripts/evaluate_5_scenarios.py
+[2026-09-25 00:33:54] === PASSED: 5-Scenario Benchmark Evaluation in 241.4s ===
+[2026-09-25 00:33:54] === Starting Step: Full Pytest Guard Suite ===
+[2026-09-25 00:33:54] Command: C:\Users\denpo\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe run.py test
+[2026-09-25 00:47:37] === PASSED: Full Pytest Guard Suite in 823.1s ===
+[2026-09-25 00:47:37] Generated Data/NIGHTLY_SUCCESS_REPORT.md.
+[2026-09-25 00:47:37] All tasks completed with 100% success. Triggering safe shutdown (120s countdown)...
+[2026-09-25 00:47:37] Shutdown scheduled.

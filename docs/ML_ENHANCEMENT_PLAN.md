@@ -10,7 +10,7 @@ and nothing above it is edited to fit them.
 Every published figure comes from `compute_oof()` + `evaluate_stream()`:
 
 <!-- metrics:episode_headline_en -->
-Episode-level, out-of-fold, 7-of-6 hold 9: sensitivity **100.0%** [91.2–100.0], false alarm **4.9%** per recording [1.3–16.1] = **7.8 alarms/hour**, median time-to-alarm **5.60 s** (worst 17.36 s), 0 missed events. Source: `Data/metrics.json` (2026-09-23, v6.2).
+Episode-level, out-of-fold, 7-of-6 hold 9: sensitivity **100.0%** [91.2–100.0], false alarm **4.9%** per recording [1.3–16.1] = **7.8 alarms/hour**, median time-to-alarm **5.60 s** (worst 17.36 s), 0 missed events. Source: `Data/metrics.json` (unstamped, v6.2).
 <!-- /metrics:episode_headline_en -->
 
 That path is not the one the server runs. Reading the code side by side:
@@ -232,7 +232,7 @@ offline headline (`served_episode_level` in `Data/metrics.json`, from
 `--verify-metrics` checks them:
 
 <!-- metrics:served_headline_en -->
-Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (2026-09-23, v6.2).
+Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (unstamped, v6.2).
 <!-- /metrics:served_headline_en -->
 
 C3 and C4 are the candidates worth pre-registering against round-2 data,
