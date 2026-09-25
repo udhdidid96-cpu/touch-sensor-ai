@@ -148,15 +148,15 @@ published sweep retrains on the noise and reports 37, 35 and 24.
 ## 5. Headline figures as published now
 
 <!-- metrics:episode_headline_en -->
-Episode-level, out-of-fold, 7-of-6 hold 9: sensitivity **100.0%** [91.2–100.0], false alarm **4.9%** per recording [1.3–16.1] = **7.8 alarms/hour**, median time-to-alarm **5.60 s** (worst 17.36 s), 0 missed events. Source: `Data/metrics.json` (unstamped, v6.2).
+Episode-level, out-of-fold, 7-of-6 hold 9: sensitivity **100.0%** [91.2–100.0], false alarm **4.9%** per recording [1.3–16.1] = **7.8 alarms/hour**, median time-to-alarm **5.60 s** (worst 17.36 s), 0 missed events. Source: `Data/metrics.json` (2026-09-25, v6.2).
 <!-- /metrics:episode_headline_en -->
 
 <!-- metrics:served_headline_en -->
-Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (unstamped, v6.2).
+Served path (every recording streamed through LivePipeline), out-of-fold, 7-of-6 hold 9: sensitivity **97.5%** [87.1–99.6], false alarm **4.9%** per recording [1.3–16.1] = **5.2 alarms/hour**, median time-to-alarm **7.28 s** (worst 17.36 s), 1 missed (Vertical Pull NO G/A_VPull_06.csv). Source: `Data/metrics.json` (2026-09-25, v6.2).
 <!-- /metrics:served_headline_en -->
 
 <!-- metrics:file_level_en -->
-File-level (file CV, 1 seeds, 81 files / 3349 frames / 34 features): accuracy **97.5%**, macro F1 **0.9612**. Source: `Data/metrics.json` (unstamped, v6.2).
+File-level (file CV, 1 seeds, 81 files / 3349 frames / 34 features): accuracy **97.5%**, macro F1 **0.9612**. Source: `Data/metrics.json` (2026-09-25, v6.2).
 <!-- /metrics:file_level_en -->
 
 ## 6. Deployment readiness (Cloud Run)
