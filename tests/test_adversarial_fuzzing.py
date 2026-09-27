@@ -11,17 +11,20 @@ Verifies zero unhandled exceptions and zero Kalman filter state poisoning.
 """
 from __future__ import annotations
 
-import math
+from typing import TYPE_CHECKING, List
+
 import numpy as np
 import pytest
 
-import main as M
 from main import (
     LivePipeline,
     N_PADS,
     BASELINE_COUNTS,
     SerialFrameSource,
 )
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 def _generate_adversarial_frames(n_frames: int = 1050) -> list[np.ndarray]:
@@ -126,6 +129,7 @@ def test_live_pipeline_survives_1000_adversarial_frames():
 
     # Recovery Verification:
     # Inject 10 normal resting frames (28,000 counts) and verify recovery
+    rec_out = {}
     for _ in range(10):
         rec_out = pipe.process(np.full(N_PADS, BASELINE_COUNTS))
 
@@ -158,6 +162,7 @@ def test_live_pipeline_single_pad_extreme_surge_is_filtered():
     # The surge channel must have been filtered to baseline counts
     assert out["severity_level"] < 2, f"Spike triggered false alarm level {out['severity_level']}"
     # Baseline on pad 12 should not jump to 80,000
+    assert pipe.kalman.b is not None
     assert pipe.kalman.b[12] < 35000.0, f"Pad 12 baseline corrupted by surge: {pipe.kalman.b[12]}"
 
 
@@ -188,14 +193,16 @@ def test_live_pipeline_cdc_mode_adversarial_fuzzing():
     assert out_nan["disconnected"] is True
 
     # Recover with normal CDC frames
+    out_rec = {}
     for _ in range(10):
         out_rec = pipe.process(np.full(N_PADS, 30.0))
 
     assert not out_rec.get("disconnected", False)
+    assert pipe.kalman.b is not None
     assert np.all(np.isfinite(pipe.kalman.b))
 
 
-def test_websocket_malformed_json_and_fuzzing(client):
+def test_websocket_malformed_json_and_fuzzing(client: TestClient):
     """F1/F13: WebSocket /ws/live_sensor?source=client handles corrupt JSON and bad payloads without crashing."""
     with client.websocket_connect("/ws/live_sensor?source=client") as ws:
         # Initial greeting
@@ -247,14 +254,14 @@ def test_serial_frame_source_adversarial_lines():
     and bounded lengths without throwing unhandled exceptions.
     """
     class MockPort:
-        def __init__(self, lines):
+        def __init__(self, lines: List[bytes]) -> None:
             self._lines = list(lines)
             self.closed = False
 
-        def readline(self):
+        def readline(self) -> bytes:
             return self._lines.pop(0) if self._lines else b""
 
-        def close(self):
+        def close(self) -> None:
             self.closed = True
 
     # 1. Line with non-numeric characters
@@ -266,12 +273,10 @@ def test_serial_frame_source_adversarial_lines():
     # 4. Valid line
     valid_line = (",".join(["28000"] * 25) + "\r\n").encode()
 
-    src = SerialFrameSource.__new__(SerialFrameSource)
-    src._ser = MockPort([corrupt_chars, short_line, nan_line, valid_line])
-    src._stop = __import__("threading").Event()
+    src = SerialFrameSource("mock", permute=False,
+                            ser=MockPort([corrupt_chars, short_line, nan_line, valid_line]))
     src.IDLE_TIMEOUT_S = 0.15
     src.EMPTY_READ_SLEEP_S = 0.001
-    src.permute = False
 
     frames = list(src.frames())
     # Exactly one valid frame should emerge; all 3 malformed lines dropped safely

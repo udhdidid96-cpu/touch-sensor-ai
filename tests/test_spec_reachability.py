@@ -21,12 +21,7 @@ was already raised once, to 28,500 on 2026-08-18, which passed all 81 files
 including bare baselines because the resting value sits below it.
 """
 import math
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import main  # noqa: E402
+import main
 
 
 def test_the_three_constants_are_unchanged():
@@ -60,5 +55,5 @@ def test_reachability_flips_when_the_baseline_is_large_enough():
 def test_the_audit_caveat_says_unreachable_not_check_your_fixation():
     """The wrong diagnosis here costs a whole data-collection day."""
     import inspect
-    src = inspect.getsource(main._caveats)
+    src = inspect.getsource(main.report_caveats)
     assert "UNREACHABLE ON THIS SENSOR" in src

@@ -9,18 +9,12 @@ The property worth pinning is scale invariance: a patch resting at a different
 C0 must produce the same deltas. It is also worth pinning that the mode did NOT
 quietly become the default, because metrics.json was measured under `kalman`.
 """
-import os
-import sys
-
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-
-import main as M  # noqa: E402
+import main as M
 
 
-def _bench(n=120, seed=0):
+def _bench(n: int = 120, seed: int = 0) -> np.ndarray:
     """A resting patch with a press dipping four pads, at the nominal C0."""
     rng = np.random.default_rng(seed)
     raw = M.BASELINE_COUNTS + rng.normal(0, 15, size=(n, M.N_PADS))

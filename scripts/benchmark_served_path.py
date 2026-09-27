@@ -60,13 +60,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for extra in (REPO_ROOT, os.path.join(REPO_ROOT, "scripts")):
-    if extra not in sys.path:
-        sys.path.insert(0, extra)
+if __name__ == "__main__":
+    # Run as a script, only scripts/ is on sys.path; main.py lives in the
+    # repository root.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import main  # noqa: E402
-import evaluate_robustness as ER  # noqa: E402
+import evaluate_robustness as ER
+import main
 
 # Shards are intermediate; the merged file keeps every fold, so they live in
 # the OS temp directory and never in the working copy.
@@ -86,9 +86,7 @@ MAX_FILE_ACCURACY_LOSS = 1
 ALPHA = 0.05 / (len(CANDIDATES) - 1)          # Bonferroni over C1-C4
 
 
-# --------------------------------------------------------------------------- #
 # the corpus and the two calibrations
-# --------------------------------------------------------------------------- #
 
 def load_corpus() -> Tuple[Any, List[str], List[np.ndarray]]:
     ds = main.load_dataset("kalman", False, verbose=False)
@@ -115,12 +113,12 @@ def served_deltas(raw: np.ndarray) -> np.ndarray:
         captured.append(np.asarray(result, dtype=float) * main.BASELINE_COUNTS)
         return result
 
-    main.compute_fractional_deltas = capture  # type: ignore[assignment]
+    main.compute_fractional_deltas = capture
     try:
         for row in raw:
             pipe.process(row)
     finally:
-        main.compute_fractional_deltas = original  # type: ignore[assignment]
+        main.compute_fractional_deltas = original
     if len(captured) != len(raw):
         raise RuntimeError(f"captured {len(captured)} deltas for {len(raw)} frames")
     return np.vstack(captured)
@@ -135,7 +133,9 @@ def aug_rng(path: str, sd: float) -> np.random.Generator:
 def training_tables(ds: Any, paths: List[str], raws: List[np.ndarray]
                     ) -> Dict[str, List[Tuple[np.ndarray, np.ndarray]]]:
     """Per candidate, per file: (features, frame labels) available to training."""
-    offline, served, augmented = [], [], []
+    offline: List[Tuple[np.ndarray, np.ndarray]] = []
+    served: List[Tuple[np.ndarray, int]] = []
+    augmented: List[Tuple[List[np.ndarray], int]] = []
     for fi, (path, raw) in enumerate(zip(paths, raws)):
         label = int(ds.labels[fi])
         off = ds.frames[fi]
@@ -167,19 +167,18 @@ def training_tables(ds: Any, paths: List[str], raws: List[np.ndarray]
     }
 
 
-# --------------------------------------------------------------------------- #
 # one fold
-# --------------------------------------------------------------------------- #
 
 def fit(table: List[Tuple[np.ndarray, np.ndarray]], held: int) -> Any:
     x = np.vstack([t[0] for i, t in enumerate(table) if i != held and len(t[0])])
     y = np.hstack([t[1] for i, t in enumerate(table) if i != held and len(t[1])])
-    return main._new_rf(42).fit(x, y)
+    return main.new_rf(42).fit(x, y)
 
 
 def served_levels(model: Any, raw: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     pipe = main.LivePipeline(model)
-    levels, raw_levels = [], []
+    levels: List[int] = []
+    raw_levels: List[int] = []
     for row in raw:
         out = pipe.process(row)
         levels.append(int(out["severity_level"]))
@@ -200,10 +199,10 @@ def outcome(levels: np.ndarray, raw_levels: np.ndarray) -> Dict[str, Any]:
     hits = np.nonzero(levels >= 2)[0]
     return {"annunciated": bool(hits.size),
             "max_level": int(levels.max(initial=0)),
-            "onsets": main._count_onsets(levels),
+            "onsets": main.count_onsets(levels),
             "latency_s": float(hits[0] * main.SAMPLE_PERIOD_S) if hits.size else None,
             "frames": int(len(levels)),
-            "file_vote": main._file_vote(raw_levels)}
+            "file_vote": main.file_vote(raw_levels)}
 
 
 def run_fold(fi: int, ds: Any, paths: List[str], raws: List[np.ndarray],
@@ -213,7 +212,7 @@ def run_fold(fi: int, ds: Any, paths: List[str], raws: List[np.ndarray],
     result: Dict[str, Any] = {"file": ds.files[fi], "label": int(ds.labels[fi]),
                               "scores": {s: {} for s in SCORED}}
     for variant in VARIANTS:
-        raw = ER.VARIANTS[variant](raws[fi].copy(), ER._rng_for(paths[fi], variant))
+        raw = ER.VARIANTS[variant](raws[fi].copy(), ER.rng_for(paths[fi], variant))
         result["scores"]["C0_offline"][variant] = outcome(*offline_levels(models["C0"], raw))
         result["scores"]["C0_served"][variant] = outcome(*served_levels(models["C0"], raw))
         for c in CANDIDATES[1:]:
@@ -221,9 +220,7 @@ def run_fold(fi: int, ds: Any, paths: List[str], raws: List[np.ndarray],
     return result
 
 
-# --------------------------------------------------------------------------- #
 # scoring
-# --------------------------------------------------------------------------- #
 
 def summarise(folds: List[Dict[str, Any]], scored: str, variant: str) -> Dict[str, Any]:
     rows = [(f["label"], f["scores"][scored][variant]) for f in folds]
@@ -333,16 +330,14 @@ def harness_check(table: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     return {"valid": not diff, "mismatches": diff, "published": want}
 
 
-# --------------------------------------------------------------------------- #
 # main
-# --------------------------------------------------------------------------- #
 
 def run_shard(part: int, parts: int) -> str:
     ds, paths, raws = load_corpus()
     t0 = time.time()
     tables = training_tables(ds, paths, raws)
     print(f"  training tables built in {time.time() - t0:.0f}s", flush=True)
-    folds = []
+    folds: List[Dict[str, Any]] = []
     for fi in range(part - 1, ds.n_files, parts):
         t1 = time.time()
         folds.append(run_fold(fi, ds, paths, raws, tables))
@@ -418,7 +413,8 @@ def diagnose() -> int:
     """
     ds, _, raws = load_corpus()
     oof = main.compute_oof(ds, 42)
-    rows, quiet, total = [], 0, 0
+    rows: List[Dict[str, Any]] = []
+    quiet = total = 0
     for fi, label in enumerate(ds.labels):
         if label < 2:
             continue

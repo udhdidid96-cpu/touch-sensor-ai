@@ -16,8 +16,14 @@ import os
 import re
 import urllib.parse
 import uuid
+from typing import TYPE_CHECKING, Any, Dict, List, Set, Tuple
 
 import main as M
+
+if TYPE_CHECKING:
+    import httpx2
+    from fastapi.testclient import TestClient
+    from sklearn.ensemble import HistGradientBoostingClassifier
 
 
 def _enc(rel: str) -> str:
@@ -25,10 +31,8 @@ def _enc(rel: str) -> str:
     return "/".join(urllib.parse.quote(p) for p in rel.split("/"))
 
 
-# --------------------------------------------------------------------------
 # health / metadata
-# --------------------------------------------------------------------------
-def test_health_reports_a_loaded_model(client):
+def test_health_reports_a_loaded_model(client: TestClient):
     body = client.get("/api/v6/health").json()
     assert body["status"] == "ok"
     assert body["model_loaded"] is True
@@ -36,7 +40,7 @@ def test_health_reports_a_loaded_model(client):
     assert body["sample_period_s"] == M.SAMPLE_PERIOD_S
 
 
-def test_layout_exposes_25_pads_with_their_wiring(client):
+def test_layout_exposes_25_pads_with_their_wiring(client: TestClient):
     pads = client.get("/api/v6/layout").json()["pads"]
     assert len(pads) == M.N_PADS
     assert [p["pad"] for p in pads] == list(range(1, M.N_PADS + 1))
@@ -44,7 +48,7 @@ def test_layout_exposes_25_pads_with_their_wiring(client):
     assert sorted(p["signal_channel"] for p in pads) == list(range(1, M.N_PADS + 1))
 
 
-def test_dashboard_is_served_from_the_web_folder(client):
+def test_dashboard_is_served_from_the_web_folder(client: TestClient):
     """A12: the dashboard is web/index.html now, not a string literal in main.py."""
     resp = client.get("/")
     assert resp.status_code == 200
@@ -64,7 +68,7 @@ def _strip_comments(src: str) -> str:
     return re.sub(r"(?m)^\s*//.*$", " ", src)
 
 
-def test_dashboard_claims_no_medical_certification(client):
+def test_dashboard_claims_no_medical_certification(client: TestClient):
     """A12: the previous build printed "ISO 62304 CLASS B COMPLIANT" above two
     clinician signature lines. Nothing here has been assessed against IEC 62304,
     and software is not certified to it by writing a dashboard.
@@ -114,7 +118,7 @@ def test_dashboard_claims_no_medical_certification(client):
          "app.js is not a disclaimer a viewer can read")
 
 
-def test_dashboard_does_not_fabricate_its_numbers(client):
+def test_dashboard_does_not_fabricate_its_numbers(client: TestClient):
     """A12: CPRI came from Math.sin(), the class probabilities were literals and
     the ICU grid held eight invented patients. Every figure is API-sourced now.
 
@@ -225,7 +229,7 @@ def test_dashboard_does_not_fabricate_its_numbers(client):
             f"?source=client; classify_deltas() decides, the browser renders.")
 
 
-def test_frontend_wiring_and_helper_integrity(client):
+def test_frontend_wiring_and_helper_integrity(client: TestClient):
     """Ensure uploadSelectedCSV, withKey, showError, clearError are properly implemented
     and that no inline hex color assignments violate rules/frontend.md."""
     js = client.get("/static/app.js").text
@@ -246,7 +250,7 @@ def test_frontend_wiring_and_helper_integrity(client):
         assert not hit, f"inline hex color assignment in {name}: {hit.group(0)!r}"
 
 
-def test_metrics_endpoint_serves_the_generated_file(client):
+def test_metrics_endpoint_serves_the_generated_file(client: TestClient):
     """Anything that displays a number reads it from here."""
     resp = client.get("/api/v6/metrics")
     assert resp.status_code in (200, 503)
@@ -258,23 +262,21 @@ def test_metrics_endpoint_serves_the_generated_file(client):
         assert "--report" in resp.json()["detail"]
 
 
-def test_serial_ports_endpoint_survives_having_no_hardware(client):
+def test_serial_ports_endpoint_survives_having_no_hardware(client: TestClient):
     body = client.get("/api/v5/serial/ports").json()
     assert isinstance(body["ports"], list)
     assert body["available"] == len(body["ports"])
 
 
-# --------------------------------------------------------------------------
 # dataset listing and analysis
-# --------------------------------------------------------------------------
-def test_datasets_lists_recordings(client):
+def test_datasets_lists_recordings(client: TestClient):
     names = client.get("/api/v5/datasets").json()["datasets"]
     assert names and all(n.endswith(".csv") for n in names)
     assert names == sorted(names)
     assert not any(n.startswith("/") or ".." in n for n in names)
 
 
-def test_dataset_analysis_shape_and_bounds(client, sample_csv):
+def test_dataset_analysis_shape_and_bounds(client: TestClient, sample_csv: str):
     body = client.get(f"/api/v5/dataset/{_enc(sample_csv)}").json()
     frames = body["frames"]
     assert body["total_frames"] == len(frames) > 0
@@ -286,7 +288,7 @@ def test_dataset_analysis_shape_and_bounds(client, sample_csv):
         assert 0.0 <= fr["cpri_percent"] <= 100.0
 
 
-def test_dataset_analysis_honours_the_warmup_guard(client, sample_csv):
+def test_dataset_analysis_honours_the_warmup_guard(client: TestClient, sample_csv: str):
     """R4/L1: the first KALMAN_WARMUP frames must never annunciate.
 
     The Kalman baseline is seeded from those frames, so their deltas are near
@@ -300,7 +302,7 @@ def test_dataset_analysis_honours_the_warmup_guard(client, sample_csv):
     assert all(f["cpri_percent"] == 0.0 for f in warm)
 
 
-def test_dataset_analysis_applies_the_debouncer(client):
+def test_dataset_analysis_applies_the_debouncer(client: TestClient):
     """R4: this endpoint feeds the dashboard's default view.
 
     It once returned the bare per-frame argmax, so 5 of 40 normal recordings
@@ -318,7 +320,7 @@ def test_dataset_analysis_applies_the_debouncer(client):
         assert worst < 3, f"{rel} escalated to the Level 3 siren on a normal recording"
 
 
-def test_calibration_query_param_is_whitelisted(client, sample_csv):
+def test_calibration_query_param_is_whitelisted(client: TestClient, sample_csv: str):
     for asked, expected in [("static", "static"), ("kalman", "kalman"),
                             ("../etc", "kalman"), ("", "kalman")]:
         body = client.get(f"/api/v5/dataset/{_enc(sample_csv)}",
@@ -326,10 +328,8 @@ def test_calibration_query_param_is_whitelisted(client, sample_csv):
         assert body["calibration"] == expected
 
 
-# --------------------------------------------------------------------------
 # heatmap
-# --------------------------------------------------------------------------
-def test_heatmap_grid_is_rows_y_by_cols_x(client, sample_csv):
+def test_heatmap_grid_is_rows_y_by_cols_x(client: TestClient, sample_csv: str):
     """FIX F1: v5.0 built (80, 60) and reshaped to (60, 80), mirroring the patch."""
     body = client.get(f"/api/v6/heatmap/{_enc(sample_csv)}", params={"frame": 0}).json()
     assert body["rows"] == M.SPATIAL.n_rows and body["cols"] == M.SPATIAL.n_cols
@@ -338,14 +338,14 @@ def test_heatmap_grid_is_rows_y_by_cols_x(client, sample_csv):
     assert "propagation" in body
 
 
-def test_heatmap_rejects_an_out_of_range_frame(client, sample_csv):
+def test_heatmap_rejects_an_out_of_range_frame(client: TestClient, sample_csv: str):
     assert client.get(f"/api/v6/heatmap/{_enc(sample_csv)}",
                       params={"frame": 10 ** 6}).status_code == 416
     assert client.get(f"/api/v6/heatmap/{_enc(sample_csv)}",
                       params={"frame": -1}).status_code == 416
 
 
-def test_heatmap_honours_the_requested_calibration(client, sample_csv):
+def test_heatmap_honours_the_requested_calibration(client: TestClient, sample_csv: str):
     """R14: this endpoint used to ignore ?calibration= and serve the default."""
     a = client.get(f"/api/v6/heatmap/{_enc(sample_csv)}",
                    params={"frame": 0, "calibration": "static"}).json()
@@ -354,15 +354,13 @@ def test_heatmap_honours_the_requested_calibration(client, sample_csv):
     assert a["calibration"] == "static" and b["calibration"] == "kalman"
 
 
-# --------------------------------------------------------------------------
 # errors and containment
-# --------------------------------------------------------------------------
-def test_missing_dataset_is_404_not_500(client):
+def test_missing_dataset_is_404_not_500(client: TestClient):
     assert client.get("/api/v5/dataset/Peel/nope.csv").status_code == 404
     assert client.get("/api/v6/heatmap/Peel/nope.csv").status_code == 404
 
 
-def test_path_traversal_is_refused_on_both_file_endpoints(client):
+def test_path_traversal_is_refused_on_both_file_endpoints(client: TestClient):
     """FIX F3: Starlette does not normalise '..' for a {name:path} converter."""
     for evil in ["../main.py", "../../etc/passwd", "Peel/../../main.py",
                  "..%2F..%2Fmain.py"]:
@@ -371,10 +369,8 @@ def test_path_traversal_is_refused_on_both_file_endpoints(client):
             assert code in (400, 404), f"{route}{evil} returned {code}"
 
 
-# --------------------------------------------------------------------------
 # live socket
-# --------------------------------------------------------------------------
-def test_websocket_replays_a_recording_end_to_end(client, sample_csv):
+def test_websocket_replays_a_recording_end_to_end(client: TestClient, sample_csv: str):
     url = (f"/ws/live_sensor?source=replay"
            f"&file={urllib.parse.quote(sample_csv)}&realtime=0")
     with client.websocket_connect(url) as ws:
@@ -397,7 +393,7 @@ def test_websocket_replays_a_recording_end_to_end(client, sample_csv):
         assert "propagation" in first
 
 
-def test_websocket_reports_a_bad_file_instead_of_dropping(client):
+def test_websocket_reports_a_bad_file_instead_of_dropping(client: TestClient):
     url = "/ws/live_sensor?source=replay&file=../../main.py&realtime=0"
     with client.websocket_connect(url) as ws:
         msg = ws.receive_json()
@@ -406,31 +402,29 @@ def test_websocket_reports_a_bad_file_instead_of_dropping(client):
         assert "error" in msg
 
 
-def test_websocket_serial_source_needs_a_port(client):
+def test_websocket_serial_source_needs_a_port(client: TestClient):
     with client.websocket_connect("/ws/live_sensor?source=serial") as ws:
         assert "error" in ws.receive_json()
 
 
-# --------------------------------------------------------------------------
 # access gate (A13) — off unless PROJECT2_ACCESS_KEY is set
-# --------------------------------------------------------------------------
-def test_access_gate_is_off_by_default(client):
+def test_access_gate_is_off_by_default(client: TestClient):
     assert client.get("/api/v6/health").status_code == 200
 
 
-def _gated_client(dataset, key="unit-test-key"):
+def _gated_client(dataset: M.Dataset, key: str = "unit-test-key") -> Tuple[TestClient, str]:
     import os
     from fastapi.testclient import TestClient
     os.environ["PROJECT2_ACCESS_KEY"] = key
     try:
-        app = M.create_app({"model": M._new_rf(42).fit(dataset.X, dataset.y),
+        app = M.create_app({"model": M.new_rf(42).fit(dataset.X, dataset.y),
                             "use_gradient": False, "calibration": "kalman"})
     finally:
         os.environ.pop("PROJECT2_ACCESS_KEY", None)
     return TestClient(app), key
 
 
-def test_access_gate_rejects_and_admits(dataset):
+def test_access_gate_rejects_and_admits(dataset: M.Dataset):
     c, key = _gated_client(dataset)
     assert c.get("/api/v6/health").status_code == 401
     assert c.get("/api/v6/health?key=wrong").status_code == 401
@@ -439,7 +433,7 @@ def test_access_gate_rejects_and_admits(dataset):
     assert c.get("/api/v6/health", headers={"X-Access-Key": key}).status_code == 200
 
 
-def test_access_gate_also_covers_the_websocket(dataset):
+def test_access_gate_also_covers_the_websocket(dataset: M.Dataset):
     """A13b: @app.middleware("http") does not run for websocket scopes, so the
     gate missed /ws/live_sensor — the one route that opens a serial port on the
     host machine. That is the endpoint a public tunnel most needs closed."""
@@ -457,7 +451,7 @@ def test_access_gate_also_covers_the_websocket(dataset):
         assert ws.receive_json()["event"] == "started"
 
 
-def test_no_regulatory_compliance_claim_anywhere_in_python(client):
+def test_no_regulatory_compliance_claim_anywhere_in_python(client: TestClient):
     """B1: the ISO 62304 sweep only scanned index.html and app.js, so
     `AlarmDebouncer`'s "per IEC 60601-1-8 expectations" survived it.
 
@@ -491,7 +485,7 @@ def test_no_regulatory_compliance_claim_anywhere_in_python(client):
             f"been assessed against: {hit.group(0)!r} in {line.strip()!r}")
 
 
-def test_serial_port_must_be_one_this_machine_enumerates(client):
+def test_serial_port_must_be_one_this_machine_enumerates(client: TestClient):
     """B6: the ?port= string went straight to serial.Serial(), so anyone with
     the link could name any path on the host — and pyserial's differing error
     text made it a filesystem existence oracle."""
@@ -501,7 +495,7 @@ def test_serial_port_must_be_one_this_machine_enumerates(client):
     assert "attached" in msg and "/etc/hosts" not in str(msg["attached"])
 
 
-def test_non_ascii_access_key_is_rejected_not_a_500(dataset):
+def test_non_ascii_access_key_is_rejected_not_a_500(dataset: M.Dataset):
     """B2: hmac.compare_digest raises TypeError on non-ASCII str, so ?key=é
     escaped the gate as an unhandled 500 instead of a 401."""
     c, key = _gated_client(dataset)
@@ -510,7 +504,7 @@ def test_non_ascii_access_key_is_rejected_not_a_500(dataset):
     assert c.get("/api/v6/health?key=" + key).status_code == 200
 
 
-def test_serial_connect_validates_port_and_handles_loopback(client):
+def test_serial_connect_validates_port_and_handles_loopback(client: TestClient):
     # Empty port returns disconnected loopback mode
     res1 = client.post("/api/v5/serial/connect", json={"port": ""})
     assert res1.status_code == 200
@@ -522,7 +516,7 @@ def test_serial_connect_validates_port_and_handles_loopback(client):
     assert "not available" in res2.json()["detail"]
 
 
-def test_event_log_records_only_real_telemetry(client):
+def test_event_log_records_only_real_telemetry(client: TestClient):
     # GET initial logs
     res_get = client.get("/api/v6/event-log")
     assert res_get.status_code == 200
@@ -550,7 +544,7 @@ def test_event_log_records_only_real_telemetry(client):
     assert res_bad.status_code == 400
 
 
-def test_event_log_records_all_extended_telemetry_and_exports_csv(client, clean_event_log):
+def test_event_log_records_all_extended_telemetry_and_exports_csv(client: TestClient, clean_event_log: str):
     # POST event with full telemetry
     full_payload = {
         "dataset": "Live-Hardware",
@@ -591,7 +585,7 @@ def test_event_log_records_all_extended_telemetry_and_exports_csv(client, clean_
     assert "-2450.0" in csv_body
 
 
-def test_upload_custom_csv_endpoint(client):
+def test_upload_custom_csv_endpoint(client: TestClient):
     # Non-CSV extension is rejected with 400
     res_bad_ext = client.post("/api/v6/upload-csv", files={"file": ("test.txt", b"hello", "text/plain")})
     assert res_bad_ext.status_code == 400
@@ -610,7 +604,7 @@ def test_upload_custom_csv_endpoint(client):
     assert data["total_frames"] == 20
 
 
-def test_upload_custom_csv_size_limit_and_collision(client):
+def test_upload_custom_csv_size_limit_and_collision(client: TestClient):
     # Test M3: Upload over 5 MB returns HTTP 413
     huge_data = b"0," * 24 + b"0\n" + b"28000," * 24 + b"28000\n"
     huge_payload = huge_data * 150000  # > 5 MB
@@ -631,11 +625,11 @@ def test_upload_custom_csv_size_limit_and_collision(client):
     assert res2.json()["filename"] != unique_fn  # collision prevented
 
 
-def test_event_log_concurrency_safety(client):
+def test_event_log_concurrency_safety(client: TestClient):
     # Test M2: Concurrent event log POSTs
     import concurrent.futures
 
-    def _send_log(i):
+    def _send_log(i: int) -> httpx2.Response:
         return client.post("/api/v6/event-log", json={
             "dataset": "Normal Mix/N_Mix_01.csv",
             "frame_index": i,
@@ -654,9 +648,9 @@ def test_event_log_concurrency_safety(client):
     assert logs["total_events"] >= 10
 
 
-def test_access_key_gate_rate_limiting(dataset):
+def test_access_key_gate_rate_limiting(dataset: M.Dataset):
     # Test M7: Rate limit after 10 failed key guesses
-    c, key = _gated_client(dataset)
+    c, _ = _gated_client(dataset)
     for _ in range(10):
         c.get("/api/v6/health?key=badkey")
 
@@ -666,7 +660,7 @@ def test_access_key_gate_rate_limiting(dataset):
     assert "Too Many Failed" in res_limited.text
 
 
-def test_websocket_multi_client(client, sample_csv):
+def test_websocket_multi_client(client: TestClient, sample_csv: str):
     # Test M8: Multi-client WebSocket stream
     url = f"/ws/live_sensor?source=replay&file={urllib.parse.quote(sample_csv)}&realtime=0"
     with client.websocket_connect(url) as ws1:
@@ -680,10 +674,8 @@ def test_websocket_multi_client(client, sample_csv):
             assert f1["index"] == 0 and f2["index"] == 0
 
 
-# --------------------------------------------------------------------------
 # regressions from the 2026-08-17 review
-# --------------------------------------------------------------------------
-def test_rate_limit_state_is_per_app_not_module_global(dataset, model):
+def test_rate_limit_state_is_per_app_not_module_global(dataset: M.Dataset, model: HistGradientBoostingClassifier):
     """The failed-attempt table used to be a module-level defaultdict.
 
     Every app built in one process therefore shared it: a test that exhausted the
@@ -704,10 +696,10 @@ def test_rate_limit_state_is_per_app_not_module_global(dataset, model):
     assert c2.get(f"/api/v6/health?key={key2}").status_code == 200
 
 
-def test_websocket_auth_is_rate_limited_too(dataset, model):
+def test_websocket_auth_is_rate_limited_too(dataset: M.Dataset, model: HistGradientBoostingClassifier):
     """The socket skipped the throttle entirely, so the key was brute-forceable
     at full speed through the one route that opens a serial port on the host."""
-    c, key = _gated_client(dataset)
+    c, _ = _gated_client(dataset)
     refused = 0
     for _ in range(12):
         try:
@@ -721,7 +713,7 @@ def test_websocket_auth_is_rate_limited_too(dataset, model):
         "WebSocket auth failures are not counted against the rate limit"
 
 
-def test_client_ingest_classifies_server_side(client):
+def test_client_ingest_classifies_server_side(client: TestClient):
     """?source=client must accept frames and answer with a classified payload.
 
     main.py contained no ws.receive_* call at all, and any unrecognised source=
@@ -756,7 +748,7 @@ def test_client_ingest_classifies_server_side(client):
         assert ws.receive_json()["event"] == "finished"
 
 
-def test_rejected_upload_never_deletes_existing_files(client, isolated_data_root):
+def test_rejected_upload_never_deletes_existing_files(client: TestClient, isolated_data_root: str):
     """Quota eviction used to run BEFORE the size check.
 
     Measured: against a full Custom_Uploads/, one oversized POST returned a
@@ -795,7 +787,7 @@ def test_rejected_upload_never_deletes_existing_files(client, isolated_data_root
     assert len(after) == M.MAX_CUSTOM_UPLOADS and "fresh.csv" in after
 
 
-def test_audit_trail_is_never_silently_truncated(client, clean_event_log):
+def test_audit_trail_is_never_silently_truncated(client: TestClient, clean_event_log: str):
     """A corrupt trail must fail loudly, not be replaced by one event.
 
     Measured before the fix: one unparseable byte plus one POST took a 23-event
@@ -822,12 +814,12 @@ def test_audit_trail_is_never_silently_truncated(client, clean_event_log):
         os.remove(stray)
 
 
-def test_event_ids_are_unique_across_a_truncation(client, clean_event_log):
+def test_event_ids_are_unique_across_a_truncation(client: TestClient, clean_event_log: str):
     """event_id was f"EVT-{len(logs)+1:04d}", so it restarted at 1 whenever the
     trail got shorter - duplicate identifiers for different events."""
     payload = {"dataset": "d", "frame_index": 1, "time_sec": 0.5,
                "severity_level": 2, "cpri_percent": 50.0, "min_delta": -800.0}
-    ids = set()
+    ids: Set[str] = set()
     for _ in range(5):
         ids.add(client.post("/api/v6/event-log", json=payload).json()["event"]["event_id"])
     assert len(ids) == 5
@@ -840,7 +832,7 @@ def test_event_ids_are_unique_across_a_truncation(client, clean_event_log):
     assert len(ids) == 8, "event ids collided after the trail was shortened"
 
 
-def test_datasets_endpoint_exposes_the_whole_corpus(client, dataset):
+def test_datasets_endpoint_exposes_the_whole_corpus(client: TestClient, dataset: M.Dataset):
     """It walked only Custom_Uploads/ for a while, which hid all 81 recordings
     from the dashboard AND silently disarmed
     test_dataset_analysis_applies_the_debouncer, whose 'normals' list is built by
@@ -855,7 +847,7 @@ def test_datasets_endpoint_exposes_the_whole_corpus(client, dataset):
     assert len(names) >= dataset.n_files
 
 
-def test_the_two_serving_paths_agree(client, sample_csv, model):
+def test_the_two_serving_paths_agree(client: TestClient, sample_csv: str, model: HistGradientBoostingClassifier):
     """LIVE and REVIEW must not disagree about the same recording.
 
     They did: with the rule cascade in LivePipeline and the model argmax in the
@@ -867,7 +859,7 @@ def test_the_two_serving_paths_agree(client, sample_csv, model):
            f"&file={urllib.parse.quote(sample_csv)}&realtime=0")
     with client.websocket_connect(url) as ws:
         assert ws.receive_json()["event"] == "started"
-        live = []
+        live: List[Dict[str, Any]] = []
         while True:
             msg = ws.receive_json()
             if msg.get("event") == "finished":

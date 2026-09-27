@@ -101,7 +101,7 @@ Decided 2026-08-19. Do not change without re-measuring and saying so.
 
 - **HistGradientBoosting**(`max_iter=150, max_depth=8, class_weight="balanced"`)
   on **34 features** = 25 pad deltas + 9 statistics.
-  `_new_rf` keeps its name for call-site compatibility only; it is not a forest.
+  `new_rf` keeps its name for call-site compatibility only; it is not a forest.
 - **Annunciator: 7-of-6, hold 9.** 100% episode sensitivity, 7.8 alarms/hour.
 - Measured leave-one-file-out over the 81 recordings: **97.53% file accuracy.**
 - Those are the model's votes on the offline delta. Since 2026-09-23 the report

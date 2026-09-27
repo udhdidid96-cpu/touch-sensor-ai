@@ -59,14 +59,16 @@ import json
 import os
 import sys
 import time
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, REPO_ROOT)
+if __name__ == "__main__":
+    # Run as a script, only scripts/ is on sys.path; main.py lives in the
+    # repository root.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import main  # noqa: E402
+import main
 
 Perturb = Callable[[np.ndarray, np.random.Generator], np.ndarray]
 
@@ -129,23 +131,24 @@ VARIANTS: Dict[str, Perturb] = {
 QUICK = ["identity", "gain_global_p20", "noise_sd60"]
 
 
-def _rng_for(path: str, variant: str) -> np.random.Generator:
+def rng_for(path: str, variant: str) -> np.random.Generator:
     """Deterministic per file and per variant, so a re-run reproduces."""
     key = f"{variant}:{os.path.basename(path)}".encode("utf-8")
     return np.random.default_rng(int.from_bytes(hashlib.sha256(key).digest()[:8], "big"))
 
 
 def run_variant(name: str, perturb: Perturb, seed: int = 42,
-                calibration: str = "kalman") -> Dict[str, object]:
+                calibration: str = "kalman") -> Dict[str, Any]:
     original = main.read_raw_csv
 
-    def patched(path: str, *args, **kwargs):
-        raw = original(path, *args, **kwargs)
+    def patched(path: str, strict: bool = False,
+                convention_out: Optional[List[str]] = None) -> Optional[np.ndarray]:
+        raw = original(path, strict, convention_out)
         if raw is None:
             return None
-        return perturb(np.asarray(raw, dtype=float), _rng_for(path, name))
+        return perturb(np.asarray(raw, dtype=float), rng_for(path, name))
 
-    main.read_raw_csv = patched  # type: ignore[assignment]
+    main.read_raw_csv = patched
     t0 = time.time()
     try:
         ds = main.load_dataset(calibration, False, verbose=False)
@@ -154,14 +157,14 @@ def run_variant(name: str, perturb: Perturb, seed: int = 42,
         oof = main.compute_oof(ds, seed)
         st = main.evaluate_stream(ds, seed, verbose=False, oof=oof)
     finally:
-        main.read_raw_csv = original  # type: ignore[assignment]
+        main.read_raw_csv = original
 
     n_anom = int(st["n_anomaly"])
     n_norm = int(st["n_normal"])
     detected = int(round(float(st["sensitivity"]) * n_anom))
     fa_files = int(round(float(st["false_alarm_rate"]) * n_norm))
     lo, hi = main.wilson(detected, n_anom)
-    missed = st.get("missed", [])
+    missed: List[str] = st.get("missed", [])        # file names, from evaluate_stream()
     return {
         "variant": name,
         "calibration": calibration,
@@ -173,7 +176,7 @@ def run_variant(name: str, perturb: Perturb, seed: int = 42,
         "false_alarm_rate": float(st["false_alarm_rate"]),
         "fa_files": fa_files, "n_normal": n_norm,
         "alarms_per_hour": float(st["alarms_per_hour"]),
-        "missed": [m.get("file", m) if isinstance(m, dict) else m for m in missed],
+        "missed": list(missed),
         "seconds": round(time.time() - t0, 1),
     }
 
@@ -213,7 +216,7 @@ def main_cli() -> int:
     if not explicit_subset and names[0] != "identity":
         names = ["identity"] + [n for n in names if n != "identity"]
 
-    results: List[Dict[str, object]] = []
+    results: List[Dict[str, Any]] = []
     print(f"{'variant':18s} {'sens':>7s} {'95% CI':>15s} {'FA/rec':>7s} {'alarm/h':>8s} {'missed':>6s} {'sec':>6s}")
     for name in names:
         r = run_variant(name, VARIANTS[name], calibration=args.calibration)

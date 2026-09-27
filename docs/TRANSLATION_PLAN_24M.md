@@ -114,7 +114,7 @@ How to read them:
 ### 2.2 Five facts that shape every phase
 
 1. **One session.** 81 recordings and 3,349 frames, all from one mounting. Leave-one-file-out holds out a file, not an attachment.
-2. **Horizontal pull produces no lift signal, whichever calibration is used.** The median deepest delta is −111 counts with the static baseline, −71 with the Kalman tracker and −75 on the served path. In all three, 0 of 10 files cross −300. METRICS caveat 6 quotes −64 (deepest −161, median max +456), but that text is a hard-coded string in `_caveats()` that no current calibration reproduces. The finding stands. The numbers should be regenerated from data, and the calibration named.
+2. **Horizontal pull produces no lift signal, whichever calibration is used.** The median deepest delta is −111 counts with the static baseline, −71 with the Kalman tracker and −75 on the served path. In all three, 0 of 10 files cross −300. METRICS caveat 6 quotes −64 (deepest −161, median max +456), but that text is a hard-coded string in `report_caveats()` that no current calibration reproduces. The finding stands. The numbers should be regenerated from data, and the calibration named.
 3. **One frame takes 0.56 s (about 1.8 Hz).** `docs/Hardware_Deck_Spec.md` still leaves "why the frame period lands at ≈600 ms" as [FILL].
 4. **Sensitivity falls steeply as front-end noise rises.** `docs/ENGINEERING_REVIEW_2026-09-23.md` §3 tested the served detector, trained on the clean bench data, with noise added:
 
@@ -683,7 +683,7 @@ Each item is reproduced by `scripts/translation_plan_checks.py` or can be read d
 3. **F10 is close to the identity on raw counts** (§3.3): it rescales by at most about 4% between pads.
 4. **The Kalman tracker has a slow-detachment blind zone** (§3.4): 0.124 pF/s on the device path, and 0.095 pF/s offline at bench noise (0.065–0.175 across the allowed noise range).
 5. **Time to alarm is measured from file start, warm-up included** (`_episode_figures`), and its floor is 5.60 s (§3.5). Measure latency from an annotated onset.
-6. **Caveat 6 is a literal.** `_caveats()` promises that "every figure below is now measured from the dataset", but the horizontal-pull numbers are typed into a string.
+6. **Caveat 6 is a literal.** `report_caveats()` promises that "every figure below is now measured from the dataset", but the horizontal-pull numbers are typed into a string.
 7. **A failed pad is absorbed without an alarm.** When one electrode steps −1,500 counts and stays still, quiescent recovery engages after 2.8 s. The pad's delta is back inside the noise gate after 9.0 s, and nothing flags a fault. The docstring calls this a known residual risk for a genuine single-pad lift. For a hardware fault it is a loss of coverage, and it needs a technical alarm.
 8. **Channel faults are only partly detected.** A NaN or negative value on any pad marks the whole frame as disconnected. But the range checks (< 3,000 or > 50,000 counts) use `np.all`, so they fire only when every pad fails together. A single pad that saturates above 50,000 counts is silently replaced by its baseline: its delta reads 0 and nothing is flagged. A single pad stuck low is re-zeroed by quiescent recovery (item 7). Both belong on the hazard list.
 9. **CPRI is a heuristic.** It maps probabilities and delta magnitudes to 0–100% by hand-set formulas (`cpri()`). Until it is validated, label it as a display index, not a risk estimate.

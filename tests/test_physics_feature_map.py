@@ -14,6 +14,7 @@ it costs milliseconds; the JSON is what carries the measurement.
 """
 import json
 import os
+from typing import List
 
 import pytest
 
@@ -44,7 +45,7 @@ def _load():
 
 def test_every_measured_cell_appears_in_the_page():
     stats, doc = _load()
-    missing = []
+    missing: List[str] = []
     for scenario, r in stats["scenarios"].items():
         if not r["frames"]:
             continue

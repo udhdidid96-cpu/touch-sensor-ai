@@ -13,13 +13,18 @@ Strictly verifies all 9 non-negotiable project invariants:
 """
 from __future__ import annotations
 
-import glob
 import os
 import re
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 
 import main as M
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+    from sklearn.ensemble import HistGradientBoostingClassifier
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,7 +51,7 @@ def test_invariant_1_web_never_classifies():
             )
 
 
-def test_invariant_2_no_handcoded_probability(model, dataset):
+def test_invariant_2_no_handcoded_probability(model: HistGradientBoostingClassifier, dataset: M.Dataset):
     """Invariant 2: Nothing hand-codes a probability in classify_deltas().
 
     Output strictly matches full_proba() on all active frames.
@@ -81,7 +86,7 @@ def _strip_comments(src: str) -> str:
     return re.sub(r"//.*$", "", no_block, flags=re.MULTILINE)
 
 
-def test_invariant_3_no_invented_patient_identity(client):
+def test_invariant_3_no_invented_patient_identity(client: TestClient):
     """Invariant 3: No invented patient identity anywhere.
 
     Bed slots return patient_id: None and cpri_percent: None until an operator types something.
@@ -123,7 +128,7 @@ def test_invariant_4_displayed_numbers_measured_or_absent():
     metric_matches = re.findall(r'<([a-zA-Z0-9]+)[^>]*data-metric="([^"]+)"[^>]*>(.*?)</\1>', html, re.DOTALL)
     assert len(metric_matches) >= 4, f"Expected at least 4 data-metric slots, found {len(metric_matches)}"
 
-    for tag, metric_name, inner in metric_matches:
+    for _tag, metric_name, inner in metric_matches:
         # Must contain no hardcoded digit in initial markup
         digits = re.findall(r"\d", inner)
         assert not digits, (
@@ -189,7 +194,7 @@ def test_invariant_8_iec_62304_disclaimer():
     assert phrase in app_content, "Invariant 8 VIOLATION: Disclaimer missing from app.js"
 
 
-def test_invariant_9_metrics_json_reproduces(dataset):
+def test_invariant_9_metrics_json_reproduces(dataset: M.Dataset):
     """Invariant 9: metrics.json must reproduce identically via verify_metrics()."""
     # The module pytest collected, not `tests.test_regressions`: importing it by
     # the package path loaded a SECOND copy with its own empty cache, and the
@@ -198,9 +203,8 @@ def test_invariant_9_metrics_json_reproduces(dataset):
     tr = sys.modules.get("test_regressions")
     if tr is None:
         from tests import test_regressions as tr
-    _, oof, _ = tr._oof()
-    _served_levels = tr._served_levels
-    rep = M.verify_metrics(dataset, oof=oof, served_levels=_served_levels())
+    _, oof, _ = tr.oof_pass()
+    rep = M.verify_metrics(dataset, oof=oof, served_levels=tr.served_pass())
     if rep["status"] == "absent":
         pytest.skip("Data/metrics.json absent in this sandbox")
     assert rep["status"] == "current", (

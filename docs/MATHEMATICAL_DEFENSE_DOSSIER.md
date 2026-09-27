@@ -1467,8 +1467,8 @@ Severity is clinical:
 ds = main.load_dataset(calibration="kalman", verbose=False)
 X, y = np.asarray(ds.X, float), np.asarray(ds.y)
 psi = np.sign(X) * np.log1p(np.abs(X))          # strictly increasing in every feature
-a = main._new_rf(42).fit(X, y).predict(X)
-b = main._new_rf(42).fit(psi, y).predict(psi)
+a = main.new_rf(42).fit(X, y).predict(X)
+b = main.new_rf(42).fit(psi, y).predict(psi)
 assert np.array_equal(a, b)                       # identical on all 3,349 frames
 ```
 

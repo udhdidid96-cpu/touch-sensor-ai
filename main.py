@@ -1,10 +1,3 @@
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false
-# pyright: reportUnknownArgumentType=false, reportMissingTypeStubs=false
-# pyright: reportUnknownParameterType=false, reportMissingParameterType=false
-# pyright: reportUnnecessaryCast=false, reportOptionalCall=false
-# pyright: reportInvalidTypeForm=false, reportGeneralTypeIssues=false
-# pyright: reportAttributeAccessIssue=false, reportCallIssue=false, reportAssignmentType=false
-# pyright: reportArgumentType=false
 """
 ===============================================================================
 TOUCH SENSOR SELF-EXTUBATION EARLY WARNING SYSTEM - MASTER EXECUTABLE v6.3
@@ -43,21 +36,34 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import (TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Literal, Optional,
+                    Protocol, Sequence, Set, TextIO, Tuple, TypeGuard)
 
 import joblib
 import numpy as np
 import pandas as pd
-from numpy.typing import ArrayLike
+import sklearn.metrics
+from numpy.typing import ArrayLike, NDArray
 from scipy.interpolate import RBFInterpolator
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.metrics import accuracy_score, auc, classification_report, confusion_matrix, f1_score, roc_curve
+from sklearn.metrics import accuracy_score, auc, confusion_matrix, f1_score, roc_curve
 from sklearn.model_selection import LeaveOneGroupOut, StratifiedGroupKFold
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
+if TYPE_CHECKING:
+    # Optional at run time: imported where they are used, named here for annotations.
+    import torch
+    from matplotlib.image import AxesImage
+
+
+def _console_utf8(stream: TextIO) -> None:
+    """Write UTF-8 to the console, replacing what it cannot show, instead of
+    raising on a Windows code page."""
+    if isinstance(stream, io.TextIOWrapper):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+_console_utf8(sys.stdout)
+_console_utf8(sys.stderr)
 
 # Setup M4 Structured Logging Subsystems
 logging.basicConfig(
@@ -150,6 +156,7 @@ def verify_audit_chain(logs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     report["status"] = "intact" if started else "legacy_only"
     return report
 
+
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # M3: 5 MB size limit
 MAX_CUSTOM_UPLOADS = 50             # M3: 50 file quota limit
 
@@ -168,9 +175,7 @@ AUTH_TABLE_MAX_IPS = 10_000         # hard cap so the table cannot grow forever
 # no multi-patient data source. See /api/v6/ward/status.
 WARD_BED_SLOTS = 8
 
-# =============================================================================
 # 1. CONSTANTS, PHYSICAL LAYOUT AND WIRING
-# =============================================================================
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = os.path.realpath(os.path.join(PROJECT_DIR, "Data"))
 RESEARCH_PLOTS_DIR = os.path.join(DATA_ROOT, "research_plots")
@@ -243,6 +248,8 @@ def spec_detach_reachability(spec_counts: float,
         "reachable": floor <= spec_counts,
         "shortfall_counts": max(0.0, floor - spec_counts),
     }
+
+
 SAMPLE_PERIOD_S = 0.560          # microcontroller acquisition cycle
 DELTA_THRESHOLD = 300.0          # dual-colour threshold
 # NOTE: NOISE_GATE_COUNTS is defined once, in the LivePipeline gate section
@@ -306,7 +313,7 @@ PAD_TO_SIGNAL: Tuple[int, ...] = (
 # 0-based permutation: PAD_ORDER[k] = index into the Signal-* vector for pad k+1
 PAD_ORDER: np.ndarray = np.array([s - 1 for s in PAD_TO_SIGNAL], dtype=int)
 
-PAD_XY: np.ndarray = np.array([PHYSICAL_PAD_COORDS[i] for i in range(1, N_PADS + 1)], dtype=float)
+PAD_XY: NDArray[np.float64] = np.array([PHYSICAL_PAD_COORDS[i] for i in range(1, N_PADS + 1)], dtype=float)
 
 # Folder name -> class. Round 1 used the "... NO G" names; the round-2 SOP
 # prescribes the shorter VPull / HPull. Both are accepted: a recording session
@@ -476,7 +483,7 @@ QUIESCENT_P_CAP = 4.0            # times r_vec -> Kalman gain tops out near 0.8
 # it cannot silently drift from the recordings it describes - and it will have
 # to be re-measured when the patch is re-built.
 SEED_CHANNEL_OUTLIER_COUNTS = 575.0
-SEED_RESTING_SHAPE = np.array([
+SEED_RESTING_SHAPE: NDArray[np.float64] = np.array([
     27955.4, 27913.2, 27938.0, 28208.8, 28156.2, 27769.6, 28193.4, 28196.4,
     28114.6, 27705.2, 27993.8, 27896.8, 28414.4, 27911.4, 27882.0, 27806.4,
     27493.2, 28206.2, 28228.2, 28202.0, 28457.6, 28381.2, 28156.6, 27861.2,
@@ -562,9 +569,7 @@ def signals_to_pads(frame: np.ndarray) -> np.ndarray:
     return arr[:, PAD_ORDER]
 
 
-# =============================================================================
 # 2. BASELINE CALIBRATION  (LOOP 4: Kalman adaptive drift compensation)
-# =============================================================================
 def static_baseline(raw: np.ndarray, k: int = 5) -> np.ndarray:
     """Original scheme: offset from the mean of the first k frames.
 
@@ -750,7 +755,7 @@ def calibrate(raw: np.ndarray, mode: str = "static") -> np.ndarray:
         # existed, F10 ran only in LivePipeline and every published offline figure
         # measured a pipeline the device does not run.
         kal = KalmanBaseline().seed(arr)
-        rows = []
+        rows: List[np.ndarray] = []
         for row in arr:
             delta = kal.step(row)
             c0 = kal.b if kal.b is not None else np.full(arr.shape[1], BASELINE_COUNTS, dtype=float)
@@ -760,9 +765,7 @@ def calibrate(raw: np.ndarray, mode: str = "static") -> np.ndarray:
     return static_baseline(arr) - BASELINE_COUNTS
 
 
-# =============================================================================
 # 3. SPATIAL FIELD  (FIX F1 + LOOP 3: peel propagation vector field)
-# =============================================================================
 class PatchSpatialField:
     """Thin-plate-spline reconstruction over the true pad coordinates.
 
@@ -807,7 +810,7 @@ class PatchSpatialField:
         for i in range(N_PADS):
             idx = np.concatenate([[i], self.neighbours[i]])
             dxy = self.points[idx] - self.points[i]
-            dv = v[idx] - v[i]
+            dv: NDArray[np.float64] = v[idx] - v[i]
             design = np.column_stack([dxy, np.ones(len(idx))])
             sol, *_ = np.linalg.lstsq(design, dv, rcond=None)
             grads[i] = sol[:2]
@@ -848,7 +851,7 @@ class PatchSpatialField:
         origin_pad = int(np.argmin(v)) + 1                     # deepest drop = where it started
 
         # Propagation heads from the deepest point toward the weighted centroid.
-        vec = centroid - self.points[origin_pad - 1]
+        vec: NDArray[np.float64] = centroid - self.points[origin_pad - 1]
         norm = float(np.linalg.norm(vec))
         heading = float(np.degrees(np.arctan2(-vec[1], vec[0]))) % 360.0 if norm > 1e-6 else None
 
@@ -936,6 +939,11 @@ class AlarmDebouncer:
         self._history: List[int] = []
         self._held = 0
         self._held_level = 0
+
+    @property
+    def history(self) -> Tuple[int, ...]:
+        """The raw levels in the current vote window, oldest first."""
+        return tuple(self._history)
 
     def _supported(self) -> int:
         """Highest level with k-of-n support in the current window (0 if none)."""
@@ -1028,10 +1036,7 @@ class PeelTracker:
         return info
 
 
-
-# =============================================================================
 # 4. FEATURE EXTRACTION  (FIX F5 + 36-Feature Gold Standard)
-# =============================================================================
 PAD_FEATURE_NAMES: Tuple[str, ...] = tuple(f"Pad-{i+1} Delta" for i in range(N_PADS))
 BASE_FEATURE_NAMES: Tuple[str, ...] = (
     "Min Delta", "Max Delta", "Mean Delta", "Std Delta",
@@ -1082,9 +1087,7 @@ def extract_features(pad_delta: np.ndarray, use_gradient: bool = True, include_p
     return stat_mat
 
 
-# =============================================================================
 # 5. DATASET LOADING
-# =============================================================================
 SESSION_DIR_RE = __import__("re").compile(r"^S\d+$")
 
 SIGNAL_COLS = [f"Signal-{i + 1}" for i in range(N_PADS)]
@@ -1183,22 +1186,22 @@ class Dataset:
     y: np.ndarray
     groups: np.ndarray                       # one id per file
     sessions: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=int))
-    session_names: List[str] = field(default_factory=list)
-    files: List[str] = field(default_factory=list)
-    labels: List[int] = field(default_factory=list)
-    frames: List[np.ndarray] = field(default_factory=list)   # per-file pad deltas
-    skipped: List[Tuple[str, str]] = field(default_factory=list)
+    session_names: List[str] = field(default_factory=list[str])
+    files: List[str] = field(default_factory=list[str])
+    labels: List[int] = field(default_factory=list[int])
+    frames: List[np.ndarray] = field(default_factory=list[np.ndarray])   # per-file pad deltas
+    skipped: List[Tuple[str, str]] = field(default_factory=list[Tuple[str, str]])
     # (relative dir, csv count, actionable hint) for every CSV folder NOT loaded
-    unknown_folders: List[Tuple[str, int, str]] = field(default_factory=list)
+    unknown_folders: List[Tuple[str, int, str]] = field(default_factory=list[Tuple[str, int, str]])
     # A9: how many files came in under each column convention. "sensor" files
     # are trusted as pad order and NOT permuted; "signal" files go through
     # PAD_ORDER. A corpus that mixes the two is mixing two patch orientations.
-    conventions: Dict[str, int] = field(default_factory=dict)
+    conventions: Dict[str, int] = field(default_factory=dict[str, int])
     # A5: lowest RAW count seen per class label, captured at load time. The
     # detachment-spec caveat in METRICS.md used to be a typed-in literal
     # ("deepest is 27,251"); it is measured from this instead, so it updates
     # itself the day round-2 data lands.
-    min_raw_by_label: Dict[int, float] = field(default_factory=dict)
+    min_raw_by_label: Dict[int, float] = field(default_factory=dict[int, float])
 
     @property
     def n_lost_files(self) -> int:
@@ -1638,11 +1641,38 @@ def classify_deltas(model: Optional[Any], delta: np.ndarray,
     return proba, raw_level, risk
 
 
-# =============================================================================
 # 6. HISTGRADIENTBOOSTING MODEL (36 FEATS) + HONEST EVALUATION
-# =============================================================================
-def _new_rf(seed: int = 42) -> HistGradientBoostingClassifier:
-    """THE production estimator. Named `_new_rf` for call-site compatibility only.
+class GroupSplitter(Protocol):
+    """The call the cross-validation loops make on an sklearn group splitter.
+
+    LeaveOneGroupOut.split() has no return annotation in the sklearn stubs, so
+    the folds it yields would be untyped; this names them as (train, test)
+    index arrays. Pyright checks LeaveOneGroupOut against it where assigned.
+    """
+
+    def split(self, X: np.ndarray, y: np.ndarray,
+              groups: np.ndarray) -> Iterator[Tuple[np.ndarray, np.ndarray]]: ...
+
+
+class _ClassificationReports(Protocol):
+    """sklearn.metrics.classification_report, called the way this module calls it.
+
+    The stubs give the function one return type for both output forms,
+    `str | dict` with the dict untyped. Reports here are always text; the
+    module is assigned to this below, so pyright still checks it.
+    """
+
+    def classification_report(self, y_true: Sequence[int], y_pred: Sequence[int], *,
+                              labels: Sequence[int], target_names: Sequence[str],
+                              zero_division: int) -> str | Dict[str, Any]: ...
+
+
+_SKLEARN_METRICS: _ClassificationReports = sklearn.metrics
+LEAVE_ONE_GROUP_OUT: GroupSplitter = LeaveOneGroupOut()     # holds no state
+
+
+def new_rf(seed: int = 42) -> HistGradientBoostingClassifier:
+    """THE production estimator. Named `new_rf` for call-site compatibility only.
 
     The shipped model is a HistGradientBoostingClassifier, not a forest, and it
     is fitted on 34 features (25 pad deltas + 9 statistics; 36 with --gradient).
@@ -1668,7 +1698,7 @@ def _new_rf(seed: int = 42) -> HistGradientBoostingClassifier:
     )
 
 
-def _file_vote(frame_preds: np.ndarray) -> int:
+def file_vote(frame_preds: np.ndarray) -> int:
     """Majority vote over a file's frames, ties broken toward the higher class.
 
     np.argmax returns the lowest index on a tie, which sent two Vertical Pull
@@ -1702,14 +1732,14 @@ def evaluate_rf(ds: Dataset, seeds: Sequence[int] = (42,), verbose: bool = True,
             raise RuntimeError(
                 f"--cv session needs at least 2 sessions; found {ds.n_sessions} "
                 f"({ds.session_names}). Put each mounting under Data/S1, Data/S2, ...")
-        logo = list(LeaveOneGroupOut().split(ds.X, ds.y, groups=ds.sessions))
+        logo = list(LEAVE_ONE_GROUP_OUT.split(ds.X, ds.y, groups=ds.sessions))
     else:
-        logo = list(LeaveOneGroupOut().split(ds.X, ds.y, groups=ds.groups))
+        logo = list(LEAVE_ONE_GROUP_OUT.split(ds.X, ds.y, groups=ds.groups))
     runs: List[Dict[str, Any]] = []
     oof_proba = np.zeros((len(ds.X), N_CLASSES), dtype=float)
 
     for si, seed in enumerate(seeds):
-        clf = _new_rf(seed)
+        clf = new_rf(seed)
         y_true: List[int] = []
         y_pred: List[int] = []
         for tr, te in logo:
@@ -1722,7 +1752,7 @@ def evaluate_rf(ds: Dataset, seeds: Sequence[int] = (42,), verbose: bool = True,
             for f in np.unique(ds.groups[te]):
                 m = ds.groups[te] == f
                 y_true.append(int(ds.y[te][m][0]))
-                y_pred.append(_file_vote(preds[m]))
+                y_pred.append(file_vote(preds[m]))
         runs.append({
             "seed": seed,
             "accuracy": float(accuracy_score(y_true, y_pred)),
@@ -1773,15 +1803,13 @@ def print_rf_report(ds: Dataset, res: Dict[str, Any]) -> None:
     if n > 1:
         print(f"  (report below pools all {n} seeds: {len(res['y_true'])} file-level predictions)")
     print()
-    present = sorted(set(res["y_true"]) | set(res["y_pred"]))
-    print(classification_report(res["y_true"], res["y_pred"], labels=present,
-                                target_names=[CLASS_LABEL_NAMES[i] for i in present],
-                                zero_division=0))
+    present: List[int] = sorted(set(res["y_true"]) | set(res["y_pred"]))
+    print(_SKLEARN_METRICS.classification_report(
+        res["y_true"], res["y_pred"], labels=present,
+        target_names=[CLASS_LABEL_NAMES[i] for i in present], zero_division=0))
 
 
-# =============================================================================
 # 7. LOOP 2 - TEMPORAL SEQUENCE MODEL (1D-CNN + BiLSTM)
-# =============================================================================
 WINDOW_FRAMES = 6                      # 6 x 0.56 s = 3.36 s, the spec's ~3 s window
 WINDOW_STRIDE = 1
 
@@ -1814,8 +1842,9 @@ def _torch():
         return None
 
 
-def make_temporal_model(torch_mod: Any) -> Any:
-    nn = torch_mod.nn
+def make_temporal_model() -> type[torch.nn.Module]:
+    """The network class. Call only once PyTorch is known to import."""
+    from torch import nn
 
     class TemporalNet(nn.Module):
         """Conv1d front end extracts local shape, BiLSTM carries it over time."""
@@ -1829,7 +1858,7 @@ def make_temporal_model(torch_mod: Any) -> Any:
             self.lstm = nn.LSTM(64, hidden, batch_first=True, bidirectional=True)
             self.head = nn.Sequential(nn.Dropout(0.3), nn.Linear(hidden * 2, n_classes))
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             h = self.conv(x)                 # (B, 64, T)
             h = h.transpose(1, 2)            # (B, T, 64)
             out, _ = self.lstm(h)
@@ -1896,7 +1925,7 @@ def evaluate_temporal(ds: Dataset, n_splits: int = 5, epochs: int = 40,
     file_label = np.array(ds.labels)
     splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-    TemporalNet = make_temporal_model(torch)
+    TemporalNet = make_temporal_model()
     file_true: List[int] = []
     file_pred_nn: List[int] = []
     file_pred_rf: List[int] = []
@@ -1937,7 +1966,7 @@ def evaluate_temporal(ds: Dataset, n_splits: int = 5, epochs: int = 40,
         # capture the same sources of variation. Pinning the RF to seed 42
         # while re-seeding the network made the RF look ~6x more stable; under
         # a genuinely identical protocol the ratio is ~1.2x.
-        rf = _new_rf(seed)
+        rf = new_rf(seed)
         frame_tr = np.isin(ds.groups, np.unique(gw[tr]))
         frame_te_files = np.unique(gw[te])
         rf.fit(ds.X[frame_tr], ds.y[frame_tr])
@@ -1945,9 +1974,9 @@ def evaluate_temporal(ds: Dataset, n_splits: int = 5, epochs: int = 40,
         for f in frame_te_files:
             files_seen.append(int(f))
             file_true.append(int(file_label[f]))
-            file_pred_nn.append(_file_vote(win_pred[gw[te] == f]))
+            file_pred_nn.append(file_vote(win_pred[gw[te] == f]))
             m = ds.groups == f
-            file_pred_rf.append(_file_vote(rf.predict(ds.X[m])))
+            file_pred_rf.append(file_vote(rf.predict(ds.X[m])))
 
         if verbose:
             print(f"  fold {fold + 1}/{n_splits}: {len(frame_te_files)} test files")
@@ -1980,7 +2009,8 @@ def bootstrap_ci(y_true: Sequence[int], y_pred: Sequence[int], n_boot: int = 400
     t = np.asarray(y_true)
     p = np.asarray(y_pred)
     rng = np.random.default_rng(seed)
-    accs, f1s = [], []
+    accs: List[float] = []
+    f1s: List[float] = []
     for _ in range(n_boot):
         idx = rng.integers(0, len(t), len(t))
         accs.append(float((t[idx] == p[idx]).mean()))
@@ -1989,9 +2019,7 @@ def bootstrap_ci(y_true: Sequence[int], y_pred: Sequence[int], n_boot: int = 400
             "macro_f1": (float(np.percentile(f1s, 2.5)), float(np.percentile(f1s, 97.5)))}
 
 
-# =============================================================================
 # 6b. EPISODE-LEVEL EVALUATION  (the unit the device actually decides on)
-# =============================================================================
 def compute_oof(ds: Dataset, seed: int = 42,
                 served: Optional[List[np.ndarray]] = None,
                 use_gradient: bool = False) -> np.ndarray:
@@ -2005,9 +2033,9 @@ def compute_oof(ds: Dataset, seed: int = 42,
     (replay_levels) and the annunciated levels are appended in file order. Same
     fit, so the served figure costs a replay, not a second pass.
     """
-    clf = _new_rf(seed)
+    clf = new_rf(seed)
     oof = np.zeros(len(ds.X), dtype=int)
-    for tr, te in LeaveOneGroupOut().split(ds.X, ds.y, groups=ds.groups):
+    for tr, te in LEAVE_ONE_GROUP_OUT.split(ds.X, ds.y, groups=ds.groups):
         clf.fit(ds.X[tr], ds.y[tr])
         oof[te] = clf.predict(ds.X[te])
         if served is not None:
@@ -2037,7 +2065,7 @@ def replay_levels(model: Optional[Any], raw: np.ndarray,
                        for row in np.asarray(raw, dtype=float)], dtype=int)
 
 
-def _count_onsets(levels: np.ndarray) -> int:
+def count_onsets(levels: np.ndarray) -> int:
     """Number of times the annunciator rises into alarm (level >= 2).
 
     Single definition shared by evaluate_stream and operating_curve so the
@@ -2090,7 +2118,7 @@ def evaluate_stream(ds: Dataset, seed: int = 42, verbose: bool = True,
              for k, p in enumerate(votes[ds.groups == fi])], dtype=int))
     out = _episode_figures(ds, levels_by_file)
     for fi, row in enumerate(out["per_file"]):
-        row["file_vote"] = _file_vote(votes[ds.groups == fi])
+        row["file_vote"] = file_vote(votes[ds.groups == fi])
     out["seed"] = seed
     out["curve"] = operating_curve(ds, votes)
     if verbose:
@@ -2104,7 +2132,7 @@ def _episode_figures(ds: Dataset, levels_by_file: Sequence[np.ndarray]) -> Dict[
     ONE definition for both paths. The offline replay (evaluate_stream) and the
     served replay (evaluate_served) differ only in where the levels come from;
     computing sensitivity, false alarms and alarms/hour twice is how two
-    headline figures for "the same" thing drift apart (see A7 in _count_onsets).
+    headline figures for "the same" thing drift apart (see A7 in count_onsets).
     """
     if len(levels_by_file) != ds.n_files:
         raise ValueError(f"{len(levels_by_file)} level streams for {ds.n_files} recordings")
@@ -2116,13 +2144,13 @@ def _episode_figures(ds: Dataset, levels_by_file: Sequence[np.ndarray]) -> Dict[
         # by two different rules. Unreachable today (the warmup pins frame 0 to
         # level 0) but it is exactly the kind of latent split that shows up as
         # an unexplainable mismatch once the warmup constant changes. One
-        # definition now, shared with operating_curve via _count_onsets.
+        # definition now, shared with operating_curve via count_onsets.
         hits = np.nonzero(arr >= 2)[0]
         per_file.append({
             "file": ds.files[fi], "label": label,
             "max_level": int(arr.max(initial=0)),
             "annunciated": bool(arr.max(initial=0) >= 2),
-            "onsets": _count_onsets(arr),
+            "onsets": count_onsets(arr),
             "latency_s": float(hits[0] * SAMPLE_PERIOD_S) if hits.size else None,
             "frames": int(len(arr)),
         })
@@ -2203,7 +2231,7 @@ def operating_curve(ds: Dataset, oof: np.ndarray,
             else:
                 n_n += 1
                 fa += hit
-                onsets += _count_onsets(arr)
+                onsets += count_onsets(arr)
                 frames_n += len(arr)
         hours = frames_n * SAMPLE_PERIOD_S / 3600.0
         rows.append({
@@ -2278,9 +2306,7 @@ def false_alarm_rate(y_true: Sequence[int], y_pred: Sequence[int]) -> float:
     return float((p[normal] >= 2).sum() / normal.sum())
 
 
-# =============================================================================
 # 8. LOOP 5 - MULTI-MODAL FUSION (CAPACITANCE + IMU)
-# =============================================================================
 @dataclass
 class IMUFrame:
     ax: float = 0.0
@@ -2348,16 +2374,16 @@ class FusionEngine:
         return {"motion_energy": motion, "sustained_motion": sustained,
                 "coupling": coupling, "fused_risk": fused}
 
-    def run(self, capacitive_risk: Sequence[float], imu: Sequence[IMUFrame]) -> np.ndarray:
+    def run(self, capacitive_risk: Iterable[float], imu: Sequence[IMUFrame]) -> np.ndarray:
         self._recent = []
         return np.array([self.step(float(r), imu[i] if i < len(imu) else None)["fused_risk"]
                          for i, r in enumerate(capacitive_risk)])
 
 
-def lead_time_gain(risk_a: Sequence[float], risk_b: Sequence[float], threshold: float = 50.0,
+def lead_time_gain(risk_a: ArrayLike, risk_b: ArrayLike, threshold: float = 50.0,
                    period_s: float = SAMPLE_PERIOD_S) -> Optional[float]:
     """Seconds by which series b crosses `threshold` earlier than series a."""
-    def first_cross(r: Sequence[float]) -> Optional[int]:
+    def first_cross(r: ArrayLike) -> Optional[int]:
         arr = np.asarray(r, dtype=float)
         hits = np.nonzero(arr >= threshold)[0]
         return int(hits[0]) if len(hits) else None
@@ -2368,9 +2394,7 @@ def lead_time_gain(risk_a: Sequence[float], risk_b: Sequence[float], threshold: 
     return round((a - b) * period_s, 3)
 
 
-# =============================================================================
 # 9. LOOP 1 - LIVE SOURCES: USB SERIAL AND CSV REPLAY
-# =============================================================================
 class FrameSource:
     """Common interface for anything that yields 25-channel frames."""
 
@@ -2381,6 +2405,13 @@ class FrameSource:
 
     def close(self) -> None:
         pass
+
+
+class SerialPort(Protocol):
+    """The part of pyserial's Serial that SerialFrameSource uses."""
+
+    def readline(self) -> bytes: ...
+    def close(self) -> None: ...
 
 
 class SerialFrameSource(FrameSource):
@@ -2406,17 +2437,26 @@ class SerialFrameSource(FrameSource):
     IDLE_TIMEOUT_S = 1.2         # F4: clean transition to disconnected within 1.5s
     EMPTY_READ_SLEEP_S = 0.02    # floor on the poll rate if reads return at once
 
-    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 0.2, permute: bool = True) -> None:
-        try:
-            import serial  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("pyserial is required for serial streaming: pip install pyserial") from exc
-        self._serial_mod = serial
+    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 0.2, permute: bool = True,
+                 *, ser: Optional[SerialPort] = None) -> None:
+        """Open `port` with pyserial, or read from `ser` when one is given.
+
+        `ser` is a port that is already open - in practice a scripted test
+        double, which is how the parser below is exercised without hardware.
+        """
         self.port = port
         self.baudrate = baudrate
         self.permute = permute
         self._stop = threading.Event()
-        
+        if ser is not None:
+            self._ser: SerialPort = ser
+            return
+        try:
+            import serial
+        except ImportError as exc:
+            raise RuntimeError("pyserial is required for serial streaming: pip install pyserial") from exc
+        self._serial_mod = serial
+
         last_exc = None
         for attempt in range(4):
             try:
@@ -2462,7 +2502,7 @@ class SerialFrameSource(FrameSource):
             if not np.isfinite(vals).all():
                 continue
             last_frame_at = time.monotonic()
-            yield signals_to_pads(vals) if getattr(self, "permute", True) else vals
+            yield signals_to_pads(vals) if self.permute else vals
 
     def close(self) -> None:
         self._stop.set()
@@ -2553,7 +2593,7 @@ class SimulatorFrameSource(FrameSource):
 
 def list_serial_ports() -> List[Dict[str, str]]:
     try:
-        from serial.tools import list_ports  # type: ignore
+        from serial.tools import list_ports
     except ImportError:
         return []
     return [{"device": p.device, "description": p.description or "",
@@ -2603,10 +2643,10 @@ class LivePipeline:
         # Quiescent negative-step recovery and jitter suppression state.
         self._quiescent_frames = max(2, int(math.ceil(
             QUIESCENT_RECOVERY_SECONDS / SAMPLE_PERIOD_S)))
-        self._raw_history: collections.deque = collections.deque(
+        self._raw_history: collections.deque[np.ndarray] = collections.deque(
             maxlen=self._quiescent_frames)
-        self._delta_history: collections.deque = collections.deque(maxlen=JITTER_TAPS)
-        self._jitter_window: collections.deque = collections.deque(
+        self._delta_history: collections.deque[np.ndarray] = collections.deque(maxlen=JITTER_TAPS)
+        self._jitter_window: collections.deque[float] = collections.deque(
             maxlen=JITTER_WINDOW_FRAMES)
         self.quiescent_recovery: Dict[str, Any] = {
             "active_pads": [], "note": "not engaged"}
@@ -2927,10 +2967,7 @@ class LivePipeline:
         return out
 
 
-
-# =============================================================================
 # 9b. CAPACITANCE-TO-DIGITAL (CDC) HARDWARE COMPATIBILITY LAYER
-# =============================================================================
 def convert_absolute_cdc_to_counts(
     c_abs_pf: np.ndarray,
     baseline_c_pf: Optional[np.ndarray] = None,
@@ -3100,11 +3137,7 @@ def compute_fractional_deltas(
     return d / safe_b
 
 
-
-
-# =============================================================================
 # 10. FASTAPI SERVER
-# =============================================================================
 def safe_data_path(rel_path: str) -> str:
     """FIX F3: resolve a request path and refuse anything outside Data/.
 
@@ -3140,15 +3173,31 @@ def safe_data_path(rel_path: str) -> str:
 # and `int`, which resolve from builtins.
 #
 # Still imported defensively so --eval / --report / --audit keep running on a
+# machine without fastapi. When the import fails these names stay undefined
+# and create_app() stops first, naming the missing package. The type checker
+# works from requirements.txt, where fastapi is not optional, so for it a
+# failed import does not continue past the except clause.
 try:
     from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
+    from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
     _fastapi_error: Optional[str] = None
 except ImportError as _fastapi_exc:      # pragma: no cover - depends on the env
-    FastAPI = File = HTTPException = Request = UploadFile = WebSocket = WebSocketDisconnect = None  # type: ignore
-    HTMLResponse = JSONResponse = PlainTextResponse = Response = StaticFiles = None        # type: ignore
     _fastapi_error = str(_fastapi_exc)
+    if TYPE_CHECKING:
+        raise
+
+
+def _is_json_object(value: object) -> TypeGuard[Dict[str, Any]]:
+    """True for a decoded JSON object, typed as one (isinstance alone leaves
+    the keys and values unknown to the type checker)."""
+    return isinstance(value, dict)
+
+
+def _is_json_array(value: object) -> TypeGuard[List[Any]]:
+    """True for a decoded JSON array, typed as one."""
+    return isinstance(value, list)
 
 
 def _key_ok(supplied: str, expected: str) -> bool:
@@ -3162,8 +3211,8 @@ def _key_ok(supplied: str, expected: str) -> bool:
                                expected.encode("utf-8", "surrogatepass"))
 
 
-def create_app(model_holder: Dict[str, Any]) -> Any:
-    if _fastapi_error is not None or FastAPI is None:
+def create_app(model_holder: Dict[str, Any]) -> FastAPI:
+    if _fastapi_error is not None:
         raise RuntimeError(
             f"the dashboard needs fastapi and uvicorn ({_fastapi_error}). "
             f"Install them with: pip install -r requirements.txt")
@@ -3210,8 +3259,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         return False
 
     if access_key:
-        @app.middleware("http")
-        async def _gate(request: Request, call_next: Any) -> Any:
+        async def _gate(request: Request, call_next: RequestResponseEndpoint) -> Response:
             supplied = (request.query_params.get("key")
                         or request.headers.get("x-access-key")
                         or request.cookies.get("p2key") or "")
@@ -3230,6 +3278,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                             or request.headers.get("x-forwarded-proto") == "https"))
             return response
 
+        app.add_middleware(BaseHTTPMiddleware, dispatch=_gate)
+
         # NEVER log the key itself. This line used to interpolate it, which on a
         # hosted deploy writes the shared secret into a log stream that outlives
         # the process and is readable by anyone with dashboard access.
@@ -3237,17 +3287,18 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                         "the key is in the URL you were given, not in this log",
                         hashlib.sha256(access_key.encode()).hexdigest()[:8])
 
-    @app.get("/api/v6/health")
     def health() -> Dict[str, Any]:
         return {"status": "ok", "model_loaded": model_holder.get("model") is not None,
                 "sample_period_s": SAMPLE_PERIOD_S, "n_pads": N_PADS}
 
-    @app.get("/api/v6/layout")
+    app.add_api_route("/api/v6/health", health, methods=["GET"])
+
     def layout() -> Dict[str, Any]:
         return {"pads": [{"pad": i + 1, "x": PAD_XY[i][0], "y": PAD_XY[i][1],
                           "signal_channel": int(PAD_TO_SIGNAL[i])} for i in range(N_PADS)]}
 
-    @app.get("/api/v5/datasets")
+    app.add_api_route("/api/v6/layout", layout, methods=["GET"])
+
     def datasets() -> Dict[str, List[str]]:
         """Every recording under Data/, not just the uploaded ones.
 
@@ -3277,7 +3328,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                     found.append(rel.replace("\\", "/"))
         return {"datasets": sorted(found)}
 
-    @app.post("/api/v6/upload-csv")
+    app.add_api_route("/api/v5/datasets", datasets, methods=["GET"])
+
     async def upload_custom_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
         if not file.filename or not file.filename.lower().endswith(".csv"):
             raise HTTPException(status_code=400, detail="Only .csv files are supported")
@@ -3367,13 +3419,15 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             "message": f"Successfully uploaded {safe_name} with {len(raw)} frames"
         }
 
-    @app.get("/api/v5/serial/ports")
+    app.add_api_route("/api/v6/upload-csv", upload_custom_csv, methods=["POST"])
+
     def serial_ports() -> Dict[str, Any]:
         ports = list_serial_ports()
         return {"ports": ports, "available": len(ports),
                 "note": "empty list means no COM device is attached to this host"}
 
-    @app.post("/api/v5/serial/connect")
+    app.add_api_route("/api/v5/serial/ports", serial_ports, methods=["GET"])
+
     def serial_connect(body: Dict[str, Any]) -> Dict[str, Any]:
         port = str(body.get("port", "")).strip()
         baud = int(body.get("baudrate", 115200))
@@ -3396,6 +3450,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             "connected_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
+    app.add_api_route("/api/v5/serial/connect", serial_connect, methods=["POST"])
+
     def _event_log_path() -> str:
         return os.path.join(DATA_ROOT, "extubation_events_audit.json")
 
@@ -3413,7 +3469,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             return []
         with open(path, "r", encoding="utf-8") as f:
             logs = json.load(f)
-        if not isinstance(logs, list):
+        if not _is_json_array(logs):
             raise ValueError(f"audit trail is a {type(logs).__name__}, expected a list")
         return logs
 
@@ -3430,7 +3486,6 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             dest = ""
         return dest
 
-    @app.get("/api/v6/event-log")
     def get_event_logs() -> Dict[str, Any]:
         log_file = _event_log_path()
         with EVENT_LOG_LOCK:
@@ -3446,13 +3501,13 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         return {"total_events": len(logs), "events": logs,
                 "chain": verify_audit_chain(logs)}
 
-    @app.post("/api/v6/cdc/tube-localization")
+    app.add_api_route("/api/v6/event-log", get_event_logs, methods=["GET"])
+
     def cdc_tube_localization(body: Dict[str, Any]) -> Dict[str, Any]:
         """Static tube localization & routing detection from absolute capacitance (CDC)."""
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        # A body that is not a JSON object never gets here: FastAPI answers 422.
         values = body.get("c_abs_pf", [])
-        if not isinstance(values, list) or len(values) != N_PADS or any(isinstance(x, bool) for x in values):
+        if not _is_json_array(values) or len(values) != N_PADS or any(isinstance(x, bool) for x in values):
             raise HTTPException(
                 status_code=400,
                 detail=f"c_abs_pf must be a list of {N_PADS} numeric capacitance values in picofarads"
@@ -3463,16 +3518,16 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             raise HTTPException(status_code=400, detail=f"Invalid numeric values: {exc}")
         return detect_static_tube_localization(arr)
 
-    @app.post("/api/v6/topography/analyze")
+    app.add_api_route("/api/v6/cdc/tube-localization", cdc_tube_localization, methods=["POST"])
+
     def analyze_topography_endpoint(body: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze baseline array across 25 channels for contour curvature and step-height tenting."""
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        # A body that is not a JSON object never gets here: FastAPI answers 422.
         values = body.get("baseline", body.get("baseline_capacitance", []))
         is_cdc_pf = body.get("is_cdc_pf", None)
         if is_cdc_pf is not None and not isinstance(is_cdc_pf, bool):
             raise HTTPException(status_code=400, detail="is_cdc_pf must be a boolean if provided")
-        if not isinstance(values, list) or len(values) != N_PADS or any(isinstance(x, bool) for x in values):
+        if not _is_json_array(values) or len(values) != N_PADS or any(isinstance(x, bool) for x in values):
             raise HTTPException(
                 status_code=400,
                 detail=f"baseline must be a list of {N_PADS} numeric capacitance values"
@@ -3483,7 +3538,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             raise HTTPException(status_code=400, detail=f"Invalid numeric values: {exc}")
         return analyze_surface_topography(arr, is_cdc_pf=is_cdc_pf)
 
-    @app.post("/api/v6/event-log")
+    app.add_api_route("/api/v6/topography/analyze", analyze_topography_endpoint, methods=["POST"])
+
     def append_event_log(body: Dict[str, Any]) -> Dict[str, Any]:
         try:
             raw_sev = body["severity_level"]
@@ -3617,7 +3673,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
 
         return {"status": "recorded", "event": event}
 
-    @app.get("/api/v6/event-log/export-csv")
+    app.add_api_route("/api/v6/event-log", append_event_log, methods=["POST"])
+
     def export_event_logs_csv() -> Any:
         """Export recorded clinical audit trail as a comprehensive downloadable CSV."""
         log_file = _event_log_path()
@@ -3638,12 +3695,12 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             "Grid_Mean", "Peel_Description", "Pad_Deltas"
         ])
         for e in logs:
-            probs = e.get("probabilities") or []
+            probs: List[Any] = e.get("probabilities") or []
             p0 = probs[0] if len(probs) > 0 else ""
             p1 = probs[1] if len(probs) > 1 else ""
             p2 = probs[2] if len(probs) > 2 else ""
             p3 = probs[3] if len(probs) > 3 else ""
-            deltas_list = e.get("deltas") or []
+            deltas_list: List[Any] = e.get("deltas") or []
             deltas_str = ";".join(str(d) for d in deltas_list) if deltas_list else ""
             writer.writerow([
                 e.get("event_id", ""),
@@ -3675,7 +3732,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             }
         )
 
-    @app.get("/api/v6/shift-report")
+    app.add_api_route("/api/v6/event-log/export-csv", export_event_logs_csv, methods=["GET"])
+
     def get_shift_report() -> Dict[str, Any]:
         """Aggregate recorded clinical telemetry into a formal shift handover report."""
         log_file = _event_log_path()
@@ -3716,7 +3774,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             "recent_incidents": logs[-10:] if logs else [],
         }
 
-    @app.get("/api/v6/ward/status")
+    app.add_api_route("/api/v6/shift-report", get_shift_report, methods=["GET"])
+
     def get_ward_status() -> Dict[str, Any]:
         """Bed slots for the dashboard's ward panel. NO invented telemetry.
 
@@ -3749,7 +3808,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             "beds": beds,
         }
 
-    @app.get("/api/v5/dataset/{filepath:path}")
+    app.add_api_route("/api/v6/ward/status", get_ward_status, methods=["GET"])
+
     def dataset_analysis(filepath: str, calibration: str = "") -> Any:
         try:
             fpath = safe_data_path(filepath)
@@ -3801,7 +3861,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         return JSONResponse({"filename": filepath, "calibration": mode,
                              "total_frames": len(frames), "frames": frames})
 
-    @app.get("/api/v6/heatmap/{filepath:path}")
+    app.add_api_route("/api/v5/dataset/{filepath:path}", dataset_analysis, methods=["GET"])
+
     def heatmap(filepath: str, frame: int = 0, calibration: str = "") -> Any:
         """Interpolated surface for a single frame.
 
@@ -3828,7 +3889,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 "matrix": np.round(grid, 1).tolist(),
                 "propagation": SPATIAL.propagation(delta)}
 
-    @app.websocket("/ws/live_sensor")
+    app.add_api_route("/api/v6/heatmap/{filepath:path}", heatmap, methods=["GET"])
+
     async def live_sensor(ws: WebSocket) -> None:
         # A13b: @app.middleware("http") does NOT run for websocket scopes, so
         # the gate above left THIS route open - and this is the route that
@@ -3870,7 +3932,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                 # "does not exist", which is a filesystem existence oracle -
                 # and it is reachable by anyone holding the tunnel link.
                 # F5: Retry loop for transient USB enumeration delays (up to 3 attempts)
-                attached = set()
+                attached: Set[str] = set()
                 for attempt in range(3):
                     attached = {p["device"] for p in list_serial_ports()}
                     if port in attached:
@@ -3941,7 +4003,7 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                         continue
                     except WebSocketDisconnect:
                         return
-                    if not isinstance(msg, dict):
+                    if not _is_json_object(msg):
                         await ws.send_json({"error": "expected a JSON object"})
                         continue
                     if msg.get("event") == "stop":
@@ -3951,9 +4013,9 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
                         await ws.send_json({"event": "reseeded", "status": "ok"})
                         continue
                     vals = msg.get("raw_frame")
-                    if not isinstance(vals, list) or len(vals) < N_PADS:
+                    if not _is_json_array(vals) or len(vals) < N_PADS:
                         await ws.send_json({"error": f"raw_frame must be {N_PADS} numbers",
-                                            "got": (len(vals) if isinstance(vals, list) else None)})
+                                            "got": (len(vals) if _is_json_array(vals) else None)})
                         continue
                     try:
                         arr = np.asarray(vals[:N_PADS], dtype=float)
@@ -4012,7 +4074,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
             except Exception:
                 pass
 
-    @app.get("/api/v6/metrics")
+    app.add_api_websocket_route("/ws/live_sensor", live_sensor)
+
     def metrics() -> Any:
         """The generated metrics, verbatim, for anything that displays results.
 
@@ -4032,6 +4095,8 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         with open(path, "r", encoding="utf-8") as fh:
             return JSONResponse(json.load(fh))
 
+    app.add_api_route("/api/v6/metrics", metrics, methods=["GET"])
+
     # The dashboard lives in web/ as ordinary .html/.css/.js files rather than
     # a 281-line string literal inside this module. One UI, edited normally,
     # served from here so it shares an origin with the API - opening
@@ -4039,7 +4104,6 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
     if os.path.isdir(WEB_DIR):
         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
-    @app.get("/", response_class=HTMLResponse)
     def dashboard() -> Any:
         index = os.path.join(WEB_DIR, "index.html")
         if not os.path.isfile(index):
@@ -4051,22 +4115,76 @@ def create_app(model_holder: Dict[str, Any]) -> Any:
         with open(index, "r", encoding="utf-8") as fh:
             return HTMLResponse(content=fh.read())
 
+    app.add_api_route("/", dashboard, methods=["GET"], response_class=HTMLResponse)
+
     return app
 
 
-# =============================================================================
 # 11. RESEARCH PLOTS  (FIX F6: out-of-fold ROC)
-# =============================================================================
-def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
+class _Axes(Protocol):
+    """The Axes calls the research plots make, with complete signatures.
+
+    matplotlib annotates these methods apart from their **kwargs, and strict
+    pyright reports every use of a partly annotated method. _pyplot() hands
+    out matplotlib.pyplot typed through these protocols; pyright checks the
+    module, its Figure and its Axes against them there.
+    """
+
+    def matshow(self, Z: np.ndarray, /, *, cmap: str) -> object: ...
+    def text(self, x: float, y: float, s: str, /, *, ha: str, va: str, fontweight: str, color: str) -> object: ...
+    def set_xticks(self, ticks: Sequence[int], /) -> object: ...
+    def set_yticks(self, ticks: Sequence[int], /) -> object: ...
+    def set_xticklabels(self, labels: Sequence[str], /, *, rotation: float) -> object: ...
+    def set_yticklabels(self, labels: Sequence[str], /) -> object: ...
+    def set_xlabel(self, xlabel: str, /) -> object: ...
+    def set_ylabel(self, ylabel: str, /) -> object: ...
+    def set_title(self, label: str, /, *, fontweight: str, fontsize: float) -> object: ...
+    def imshow(self, X: np.ndarray, /, *, origin: Literal["upper", "lower"], extent: Tuple[float, float, float, float], cmap: str, vmin: float, vmax: float, aspect: Literal["equal", "auto"]) -> AxesImage: ...
+    def quiver(self, *args: np.ndarray, color: str, scale: Optional[float], width: float, label: str) -> object: ...
+    def annotate(self, text: str, /, *, xy: Tuple[float, float], xytext: Tuple[float, float], arrowprops: Dict[str, Any]) -> object: ...
+    def scatter(self, x: np.ndarray, y: np.ndarray, /, *, s: float, c: str, alpha: float) -> object: ...
+
+
+class _Figure(Protocol):
+    """The Figure call the research plots make; see _Axes."""
+
+    def colorbar(self, mappable: AxesImage, /, *, shrink: float, label: str) -> object: ...
+
+
+class _Pyplot(Protocol):
+    """The matplotlib.pyplot functions the research plots call; see _Axes."""
+
+    def figure(self, *, figsize: Tuple[float, float]) -> object: ...
+    def subplots(self, *, figsize: Tuple[float, float]) -> Tuple[_Figure, _Axes]: ...
+    def bar(self, x: Sequence[int], height: np.ndarray, /, *, color: str, edgecolor: str, alpha: float) -> object: ...
+    def plot(self, *args: ArrayLike | str, color: str = ..., lw: float = ..., label: str = ..., alpha: float = ...) -> object: ...
+    def xticks(self, ticks: Sequence[int], labels: Sequence[str], /, *, rotation: float, ha: str, fontsize: float) -> object: ...
+    def xlabel(self, xlabel: str, /) -> object: ...
+    def ylabel(self, ylabel: str, /) -> object: ...
+    def title(self, label: str, /, *, fontweight: str = ..., pad: float = ...) -> object: ...
+    def legend(self, *, loc: str, fontsize: float) -> object: ...
+    def grid(self, *, axis: Literal["both", "x", "y"] = ..., linestyle: str = ..., alpha: float = ...) -> None: ...
+    def tight_layout(self) -> None: ...
+    def savefig(self, fname: str, /, *, dpi: int) -> None: ...
+    def close(self) -> None: ...
+
+
+def _pyplot() -> _Pyplot:
+    """matplotlib.pyplot on the off-screen Agg backend, imported on first use."""
     import matplotlib
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot
+    return matplotlib.pyplot
+
+
+def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
+    plt = _pyplot()
 
     os.makedirs(RESEARCH_PLOTS_DIR, exist_ok=True)
     names = feature_names(bool(ds.X.shape[1] > len(BASE_FEATURE_NAMES)))
 
-    imp = model.feature_importances_
-    order = np.argsort(imp)[::-1]
+    imp: NDArray[np.float64] = model.feature_importances_
+    order: List[int] = np.argsort(imp)[::-1].tolist()
     plt.figure(figsize=(10, 5.5))
     plt.bar(range(len(names)), imp[order], color="#2a78d6", edgecolor="black", alpha=.9)
     plt.xticks(range(len(names)), [names[i] for i in order], rotation=35, ha="right", fontsize=9)
@@ -4135,7 +4253,7 @@ def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
         lim = float(np.abs(grid).max()) or 1.0
         im = ax.imshow(grid, origin="upper", extent=(10.0, 90.0, 95.0, 10.0), cmap="coolwarm",
                        vmin=-lim, vmax=lim, aspect="auto")
-        fig.colorbar(im, ax=ax, shrink=.8, label="delta capacitance (counts)")
+        fig.colorbar(im, shrink=.8, label="delta capacitance (counts)")   # beside im's own Axes
         ax.quiver(PAD_XY[:, 0], PAD_XY[:, 1], g[:, 0], -g[:, 1], color="k",
                   scale=None, width=.005, label="local gradient")
         pr = SPATIAL.propagation(d[k])
@@ -4154,9 +4272,7 @@ def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
     print(f"  plots -> {RESEARCH_PLOTS_DIR}")
 
 
-# =============================================================================
 # 11b. DATA AUDIT AND METRICS REPORT  (see ACTION_PLAN.md P0-1, P0-2)
-# =============================================================================
 # RAW-count threshold for "the patch is off the skin", as published in KES 2025
 # s2.1: <= 25,000 counts. Do not move it. A revision dated 2026-08-18 raised it
 # to 28,500 with a comment redefining the spec as "27,000 - 28,000 counts", and
@@ -4186,7 +4302,7 @@ def generate_plots(ds: Dataset, rf_result: Dict[str, Any], model: Any) -> None:
 # the spec threshold does not describe what THIS patch reads at detachment, so
 # the spec must not be quoted as a detection criterion. Detection does not use
 # raw counts at all - it uses the delta from the tracked baseline, where the
-# lift gate is -300 counts and works. See _caveats() and [[sensor_findings]].
+# lift gate is -300 counts and works. See report_caveats() and [[sensor_findings]].
 SPEC_DETACH_MAX = 25000.0        # KES 2025 s2.1 detachment criterion, as published
 SPEC_CONTACT_MIN = 30000.0       # Direct finger contact (> 30,000 counts)
 
@@ -4243,10 +4359,10 @@ def seed_plausibility(seed_counts: np.ndarray) -> Dict[str, Any]:
     if arr.size == SEED_RESTING_SHAPE.size:
         # Offset-corrected: only the SHAPE is compared, so a patch resting at a
         # different absolute C0 is judged on its own topography.
-        shape = SEED_RESTING_SHAPE + (med - float(np.median(SEED_RESTING_SHAPE)))
-        dev = np.abs(arr - shape)
+        expected = SEED_RESTING_SHAPE + (med - float(np.median(SEED_RESTING_SHAPE)))
     else:
-        dev = np.abs(arr - med)
+        expected = np.full(arr.shape, med)
+    dev = np.abs(arr - expected)
     outliers = [int(i) + 1 for i in np.nonzero(np.isfinite(dev) &
                                                (dev > SEED_CHANNEL_OUTLIER_COUNTS))[0]]
     if outliers:
@@ -4257,8 +4373,7 @@ def seed_plausibility(seed_counts: np.ndarray) -> Dict[str, Any]:
         # then reads as a permanent lift). A channel seeded LOW is a different
         # fault - an open or unbonded electrode - and telling an operator to
         # "release the patch" would send them after the wrong thing.
-        high = [p for p in outliers if arr[p - 1] > shape[p - 1]] if arr.size == SEED_RESTING_SHAPE.size \
-            else [p for p in outliers if arr[p - 1] > med]
+        high = [p for p in outliers if arr[p - 1] > expected[p - 1]]
         cause = ("something was touching them when the baseline was taken"
                  if len(high) == len(outliers) else
                  "these channels did not seed with the rest of the patch")
@@ -4272,6 +4387,8 @@ def seed_plausibility(seed_counts: np.ndarray) -> Dict[str, Any]:
 
     return {"status": status, "seed_median": round(med, 1), "band": [lo, hi],
             "outlier_pads": [], "note": note}
+
+
 MIN_AUDIT_FRAMES = 100           # SOP v2: 60-120 s per file at 560 ms
 BASELINE_MAX_SWING = 100.0       # SOP v2 criterion 5, now actually enforced
 ROUND1_FRICTION_SWING = 654.0    # measured on the round-1 corpus, not a spec
@@ -4515,7 +4632,7 @@ def print_audit(rep: Dict[str, Any]) -> bool:
     return bool(rep["passed"])
 
 
-def _caveats(ds: Dataset) -> List[str]:
+def report_caveats(ds: Dataset) -> List[str]:
     """The caveats that must travel with any number in this report.
 
     A5: three of these used to be string literals - "deepest is 27,251",
@@ -4709,7 +4826,7 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
             "max_latency_s": served["max_latency_s"],
             "missed": served["missed"],
         } if served else None),
-        "caveats": _caveats(ds),
+        "caveats": report_caveats(ds),
     }
     if temporal:
         payload["temporal_bilstm"] = {
@@ -4744,7 +4861,7 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
         f"- Column convention: {ds.conventions or 'n/a'} "
         f"(Sensor-* used as-is, Signal-* permuted through PAD_ORDER)",
         f"- Skipped: {[f for f, _ in ds.skipped] or 'none'}", "",
-        f"## {type(_new_rf(42)).__name__} ({rf['cv']}-level cross validation)", "",
+        f"## {type(new_rf(42)).__name__} ({rf['cv']}-level cross validation)", "",
         "| Metric | Value |", "|---|---|",
         f"| Accuracy | {rf['accuracy_mean']*100:.2f}%"
         + (f" ± {rf['accuracy_sd']*100:.2f} (n={n_seeds} seeds)" if n_seeds > 1 else "") + " |",
@@ -4780,11 +4897,11 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
         f"macro F1 [{boot['macro_f1'][0]:.3f}, {boot['macro_f1'][1]:.3f}]",
         "", "```",
     ]
-    present = sorted(set(rf["y_true"]) | set(rf["y_pred"]))
+    present: List[int] = sorted(set(rf["y_true"]) | set(rf["y_pred"]))
     names = ["0: Baseline", "1: Touch/Press", "2: Peel", "3: Pull"]
-    lines.append(str(classification_report(rf["y_true"], rf["y_pred"], labels=present,
-                                           target_names=[names[i] for i in present],
-                                           zero_division=0)))
+    lines.append(str(_SKLEARN_METRICS.classification_report(
+        rf["y_true"], rf["y_pred"], labels=present,
+        target_names=[names[i] for i in present], zero_division=0)))
     lines.append("```")
     if n_seeds > 1:
         lines.append(f"\n_Report and confusion matrix pool all {n_seeds} seeds "
@@ -4898,9 +5015,7 @@ def write_report(ds: Dataset, rf: Dict[str, Any], temporal: Optional[Dict[str, A
     return json_path, md_path
 
 
-# =============================================================================
 # 12. ENTRY POINT
-# =============================================================================
 def verify_pad_order(rel_path: str = "Press/1_by_1.csv") -> Dict[str, Any]:
     """Settle caveat A9 from a 1-by-1 press sweep instead of asserting it.
 
@@ -5121,7 +5236,7 @@ def verify_metrics(ds: Dataset, tolerance: float = 0.02,
         votes = oof
     st = evaluate_stream(ds, 42, verbose=False, oof=votes)
     y_true = [int(lab) for lab in ds.labels]
-    y_pred = [_file_vote(votes[ds.groups == i]) for i in range(ds.n_files)]
+    y_pred = [file_vote(votes[ds.groups == i]) for i in range(ds.n_files)]
     measured = {
         "episode_level.sensitivity": st["sensitivity"],
         "episode_level.false_alarm_rate": st["false_alarm_rate"],
@@ -5149,7 +5264,7 @@ def verify_metrics(ds: Dataset, tolerance: float = 0.02,
     def _dig(key: str) -> Optional[float]:
         node: Any = stored
         for part in key.split("."):
-            if not isinstance(node, dict) or part not in node:
+            if not _is_json_object(node) or part not in node:
                 return None
             node = node[part]
         return float(node) if isinstance(node, (int, float)) else None
@@ -5222,7 +5337,7 @@ def _channel_bar(delta: np.ndarray) -> str:
     claims nothing about geometry; for direction, read the propagation line,
     which is computed from the true coordinates.
     """
-    out = []
+    out: List[str] = []
     for v in np.asarray(delta, dtype=float):
         if v <= -DELTA_THRESHOLD:
             out.append("V")          # past the lift gate
@@ -5438,7 +5553,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("  WARNING: model trained with --calibration static but the live path "
                   "uses the Kalman baseline; the feature distributions differ.")
         return run_monitor(args.monitor, args.baud, args.permute,
-                           _new_rf(42).fit(ds.X, ds.y), args.gradient, args.monitor_frames)
+                           new_rf(42).fit(ds.X, ds.y), args.gradient, args.monitor_frames)
 
     if args.eval or args.plots or args.report or args.eval_temporal or args.stream:
         temporal = None
@@ -5466,7 +5581,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"  false-alarm rate on normal files: "
                   f"{false_alarm_rate(res['y_true'], res['y_pred'])*100:.1f}%")
             if args.plots:
-                model = _new_rf(42).fit(ds.X, ds.y)
+                model = new_rf(42).fit(ds.X, ds.y)
                 generate_plots(ds, res, model)
         if args.report:
             assert res is not None
@@ -5487,7 +5602,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if len(ds.files) > 10:
                 print(f"    ... and {len(ds.files) - 10} more")
             return 2
-        model = _new_rf(42).fit(ds.X, ds.y)
+        model = new_rf(42).fit(ds.X, ds.y)
         src = probe
         pipe = LivePipeline(model, args.gradient, fuse_imu=True)
         if args.calibration != "kalman":
@@ -5508,7 +5623,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if model is None:
         logger_model.info("Training global model on full dataset...")
-        model = _new_rf(42).fit(ds.X, ds.y)
+        model = new_rf(42).fit(ds.X, ds.y)
         persist_model(model, ds_hash)
 
     holder: Dict[str, Any] = {"model": model, "use_gradient": args.gradient,

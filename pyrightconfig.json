@@ -1,0 +1,15 @@
+{
+  "typeCheckingMode": "strict",
+  "extraPaths": [
+    "scripts"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "scratch",
+    "Claude outputs",
+    "Data",
+    "docs"
+  ]
+}

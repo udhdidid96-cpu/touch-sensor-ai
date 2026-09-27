@@ -7,9 +7,9 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from typing import Dict, Any
+from numpy.typing import ArrayLike
+from typing import Any, Callable, Dict, List, Protocol, Self, Tuple
 import warnings
-warnings.filterwarnings("ignore")
 
 from sklearn.ensemble import (
     RandomForestClassifier,
@@ -21,25 +21,31 @@ from sklearn.ensemble import (
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, recall_score
-from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 import main as M
 
+warnings.filterwarnings("ignore")
 
-# _file_vote is NOT redefined here. It used to be a verbatim copy of
-# main._file_vote, and that function carries a load-bearing rule - ties break
+
+# file_vote is NOT redefined here. It used to be a verbatim copy of
+# main.file_vote, and that function carries a load-bearing rule - ties break
 # toward the MORE SEVERE class, which is what stopped two real class-3 files
 # being voted class 1. A private copy of a rule like that drifts silently, and
 # then the benchmark measures a different voting scheme from the product it is
 # supposed to be choosing an estimator for.
-_file_vote = M._file_vote
+file_vote = M.file_vote
 
 
-# -----------------------------------------------------------------------------
+class Classifier(Protocol):
+    """The estimator interface this benchmark drives: sklearn's fit, then predict."""
+
+    def fit(self, X: np.ndarray, y: np.ndarray, /) -> Self: ...
+    def predict(self, X: np.ndarray, /) -> ArrayLike: ...
+
+
 # Deep ResNet-1D Architecture (PyTorch implementation wrapped in Scikit-Learn)
-# -----------------------------------------------------------------------------
 
 try:
     import torch
@@ -48,7 +54,7 @@ try:
     from torch.utils.data import TensorDataset, DataLoader
 
     class ResNet1DBlock(nn.Module):
-        def __init__(self, in_features, hidden_features):
+        def __init__(self, in_features: int, hidden_features: int) -> None:
             super().__init__()
             self.fc1 = nn.Linear(in_features, hidden_features)
             self.bn1 = nn.BatchNorm1d(hidden_features)
@@ -57,7 +63,7 @@ try:
             self.bn2 = nn.BatchNorm1d(in_features)
             self.dropout = nn.Dropout(0.15)
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             residual = x
             out = self.fc1(x)
             out = self.bn1(out)
@@ -69,7 +75,7 @@ try:
             return out
 
     class ResNet1DModel(nn.Module):
-        def __init__(self, input_dim=36, hidden_dim=64, num_classes=4):
+        def __init__(self, input_dim: int = 36, hidden_dim: int = 64, num_classes: int = 4) -> None:
             super().__init__()
             self.input_layer = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim),
@@ -84,22 +90,34 @@ try:
                 nn.Linear(32, num_classes)
             )
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             x = self.input_layer(x)
             x = self.block1(x)
             x = self.block2(x)
             return self.classifier(x)
 
+    def train_epochs(model: nn.Module, loader: DataLoader[Tuple[torch.Tensor, ...]],
+                     criterion: nn.Module, optimizer: optim.Optimizer, epochs: int) -> None:
+        """Minibatch training: `epochs` passes over `loader`."""
+        model.train()
+        for _ in range(epochs):
+            for batch_x, batch_y in loader:
+                optimizer.zero_grad()
+                outputs = model(batch_x)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+
     class PyTorchResNetClassifier(BaseEstimator, ClassifierMixin):
-        def __init__(self, epochs=40, lr=0.003, batch_size=64):
+        def __init__(self, epochs: int = 40, lr: float = 0.003, batch_size: int = 64) -> None:
             self.epochs = epochs
             self.lr = lr
             self.batch_size = batch_size
-            self.model = None
+            self.model: Any = None
             self.scaler = StandardScaler()
 
-        def fit(self, X, y):
-            X_scaled = self.scaler.fit_transform(X)
+        def fit(self, X: np.ndarray, y: np.ndarray) -> Self:
+            X_scaled = self.scaler.fit(X).transform(X)
             input_dim = X.shape[1]
             self.model = ResNet1DModel(input_dim=input_dim, hidden_dim=64, num_classes=4)
 
@@ -114,21 +132,14 @@ try:
             dataset = TensorDataset(torch.tensor(X_scaled, dtype=torch.float32), torch.tensor(y, dtype=torch.long))
             loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
-            self.model.train()
-            for epoch in range(self.epochs):
-                for batch_x, batch_y in loader:
-                    optimizer.zero_grad()
-                    outputs = self.model(batch_x)
-                    loss = criterion(outputs, batch_y)
-                    loss.backward()
-                    optimizer.step()
+            train_epochs(self.model, loader, criterion, optimizer, self.epochs)
             return self
 
-        def predict(self, X):
+        def predict(self, X: np.ndarray) -> np.ndarray:
             proba = self.predict_proba(X)
             return np.argmax(proba, axis=1)
 
-        def predict_proba(self, X):
+        def predict_proba(self, X: np.ndarray) -> np.ndarray:
             self.model.eval()
             X_scaled = self.scaler.transform(X)
             with torch.no_grad():
@@ -137,9 +148,9 @@ try:
                 proba = torch.softmax(logits, dim=1).numpy()
             return proba
 
-    HAS_PYTORCH = True
+    has_pytorch = True
 except ImportError:
-    HAS_PYTORCH = False
+    has_pytorch = False
 
 
 def build_raw_and_feature_matrix(ds: M.Dataset) -> np.ndarray:
@@ -160,39 +171,32 @@ def build_raw_and_feature_matrix(ds: M.Dataset) -> np.ndarray:
     return M.extract_features(raw_deltas, use_gradient=True)
 
 
-def evaluate_model_lofo(model_factory, X: np.ndarray, y: np.ndarray, groups: np.ndarray, name: str) -> Dict[str, Any]:
-    logo = list(LeaveOneGroupOut().split(X, y, groups=groups))
-    y_true_file = []
-    y_pred_file = []
-    y_true_frame = []
-    y_pred_frame = []
-    latencies = []
+def evaluate_model_lofo(model_factory: Callable[[], Classifier], X: np.ndarray, y: np.ndarray, groups: np.ndarray, name: str) -> Dict[str, Any]:
+    logo = list(M.LEAVE_ONE_GROUP_OUT.split(X, y, groups=groups))
+    true_by_file: List[int] = []
+    pred_by_file: List[int] = []
+    latencies: List[float] = []
 
     for tr, te in logo:
         clf = model_factory()
         clf.fit(X[tr], y[tr])
 
         t0 = time.perf_counter()
-        preds = clf.predict(X[te])
+        preds = np.asarray(clf.predict(X[te]))
         t1 = time.perf_counter()
         latencies.append((t1 - t0) / max(1, len(te)) * 1000.0)
 
-        y_true_frame.extend(y[te])
-        y_pred_frame.extend(preds)
-
         for f in np.unique(groups[te]):
             m = groups[te] == f
-            y_true_file.append(int(y[te][m][0]))
-            y_pred_file.append(_file_vote(preds[m]))
+            true_by_file.append(int(y[te][m][0]))
+            pred_by_file.append(file_vote(preds[m]))
 
-    y_true_file = np.array(y_true_file)
-    y_pred_file = np.array(y_pred_file)
-    y_true_frame = np.array(y_true_frame)
-    y_pred_frame = np.array(y_pred_frame)
+    y_true_file = np.array(true_by_file)
+    y_pred_file = np.array(pred_by_file)
 
     file_acc = accuracy_score(y_true_file, y_pred_file)
     file_mf1 = f1_score(y_true_file, y_pred_file, average="macro")
-    class_f1 = f1_score(y_true_file, y_pred_file, average=None, labels=[0, 1, 2, 3])
+    class_f1 = np.asarray(f1_score(y_true_file, y_pred_file, average=None, labels=[0, 1, 2, 3]))
 
     pull_recall = recall_score(y_true_file == 3, y_pred_file == 3, zero_division=0)
 
@@ -214,9 +218,7 @@ def evaluate_model_lofo(model_factory, X: np.ndarray, y: np.ndarray, groups: np.
     }
 
 
-# =============================================================================
 # Repeated grouped k-fold - the mode that produces the estimator-choice figure
-# =============================================================================
 def repeated_cv(n_repeats: int = 100, n_splits: int = 5) -> Dict[str, Any]:
     """Run each candidate estimator `n_repeats` times and report a DISTRIBUTION.
 
@@ -240,11 +242,11 @@ def repeated_cv(n_repeats: int = 100, n_splits: int = 5) -> Dict[str, Any]:
     if ds is None:
         raise SystemExit("no dataset")
     X, y, g = ds.X, ds.y, ds.groups
-    file_label = np.array([int(l) for l in ds.labels])
+    file_label = np.array([int(lbl) for lbl in ds.labels])
     print(f"  {ds.n_files} files / {len(X)} frames / {X.shape[1]} features · "
           f"{n_repeats} repeats x grouped {n_splits}-fold")
 
-    candidates = [
+    candidates: List[Tuple[str, Callable[[int], Classifier]]] = [
         ("Random Forest", lambda s: RandomForestClassifier(
             n_estimators=200, max_depth=12, class_weight="balanced_subsample",
             random_state=s, n_jobs=-1)),
@@ -258,16 +260,16 @@ def repeated_cv(n_repeats: int = 100, n_splits: int = 5) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for name, factory in candidates:
         t0 = time.time()
-        runs = []
+        runs: List[Dict[str, float]] = []
         for r in range(n_repeats):
             cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=r)
             oof = np.zeros(len(X), dtype=int)
             for tr, te in cv.split(X, y, groups=g):
                 oof[te] = factory(r).fit(X[tr], y[tr]).predict(X[te])
-            y_pred = np.array([_file_vote(oof[g == i]) for i in range(ds.n_files)])
+            y_pred = np.array([file_vote(oof[g == i]) for i in range(ds.n_files)])
             st = M.evaluate_stream(ds, 42, verbose=False, oof=oof)
-            rec = recall_score(file_label, y_pred, labels=list(range(M.N_CLASSES)),
-                               average=None, zero_division=0)
+            rec = np.asarray(recall_score(file_label, y_pred, labels=list(range(M.N_CLASSES)),
+                                          average=None, zero_division=0))
             runs.append({
                 "file_accuracy": float(accuracy_score(file_label, y_pred)),
                 "frame_accuracy": float((oof == y).mean()),
@@ -315,7 +317,7 @@ def main():
     y = ds.y
     groups = ds.groups
 
-    models = [
+    models: List[Tuple[str, Callable[[], Classifier], np.ndarray]] = [
         # 1. Current Baseline: Random Forest (11 features)
         (f"1. Random Forest, production features ({n_std})", lambda: RandomForestClassifier(n_estimators=200, max_depth=12, class_weight="balanced_subsample", random_state=42, n_jobs=-1), X_std),
 
@@ -354,10 +356,10 @@ def main():
         ), X_comb)
     ]
 
-    if HAS_PYTORCH:
+    if has_pytorch:
         models.append(("8. PyTorch ResNet-1D with Skip Connections", lambda: PyTorchResNetClassifier(epochs=35, lr=0.003, batch_size=64), X_comb))
 
-    results = []
+    results: List[Dict[str, Any]] = []
     print("\nRunning Leave-One-File-Out (LOFO) Cross Validation across all architectures...\n")
 
     for name, factory, data_x in models:

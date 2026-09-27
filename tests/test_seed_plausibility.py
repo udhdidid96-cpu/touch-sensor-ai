@@ -12,21 +12,19 @@ fall inside it, and the classifier must sort obviously-wrong seeds correctly.
 """
 import glob
 import os
-import sys
+from typing import List, Optional, Tuple
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import main  # noqa: E402
+import main
 
 
 PRESS_FOLDERS = {"Press", "N_Press"}
 
 
-def _corpus_seed_means():
+def _corpus_seed_means() -> List[Tuple[str, float]]:
     """(folder, seed mean) for every usable recording."""
-    out = []
+    out: List[Tuple[str, float]] = []
     for folder in sorted(main.CLASS_MAPPING):
         for path in sorted(glob.glob(os.path.join(main.DATA_ROOT, folder, "*.csv"))):
             raw = main.read_raw_csv(path)
@@ -101,9 +99,7 @@ def test_live_pipeline_reports_where_it_seeded():
     assert res2["seed_plausibility"]["status"] == "below_band"
 
 
-# ---------------------------------------------------------------------------
 # Per-channel seed contamination (2026-09-18)
-# ---------------------------------------------------------------------------
 # Six of the ten Brief Touch recordings were started with a finger already on
 # one or two pads. Those channels seeded high and then read 470-810 counts BELOW
 # a baseline that was never valid, for the whole recording, in files labelled
@@ -111,15 +107,15 @@ def test_live_pipeline_reports_where_it_seeded():
 # one or two elevated channels do not move a 25-channel median.
 
 
-def _seed_frame(folder, name):
+def _seed_frame(folder: str, name: str) -> np.ndarray:
     raw = main.read_raw_csv(os.path.join(main.DATA_ROOT, folder, name))
     assert raw is not None and len(raw) >= main.KALMAN_WARMUP, f"{folder}/{name} unusable"
     return raw[: main.KALMAN_WARMUP].mean(axis=0)
 
 
-def _resting_shape():
+def _resting_shape() -> Optional[np.ndarray]:
     """Re-derive SEED_RESTING_SHAPE from the corpus, as the band tests do."""
-    seeds = []
+    seeds: List[np.ndarray] = []
     for path in sorted(glob.glob(os.path.join(main.DATA_ROOT, "N_base", "*.csv"))):
         raw = main.read_raw_csv(path)
         if raw is not None and len(raw) >= main.KALMAN_WARMUP:
@@ -191,10 +187,9 @@ def test_every_status_carries_the_outlier_key():
         assert "outlier_pads" in main.seed_plausibility(frame)
 
 
-# ---------------------------------------------------------------------------
 # Quiescent negative-step recovery
-# ---------------------------------------------------------------------------
-def _contaminated_stream(n=40, bad_pad=1, offset=800.0, seed=0):
+def _contaminated_stream(n: int = 40, bad_pad: int = 1, offset: float = 800.0,
+                         seed: int = 0) -> np.ndarray:
     """A patch at rest, with one pad held `offset` high for the seed frames only.
 
     That is the contamination: the finger is on pad `bad_pad` while the baseline
@@ -222,7 +217,7 @@ def test_quiescent_recovery_repairs_a_contaminated_channel():
 
 def test_quiescent_recovery_reports_which_pads_it_touched():
     pipe = main.LivePipeline(None)
-    engaged = []
+    engaged: List[Tuple[int, ...]] = []
     for row in _contaminated_stream():
         res = pipe.process(row)
         if res["quiescent_recovery"]["active_pads"]:

@@ -1,4 +1,3 @@
-# flake8: noqa
 """
 Test suite for main.py v6.0, driven by the Normal Mix recordings.
 
@@ -13,13 +12,14 @@ Run:  python test_normal_mix.py
 
 from __future__ import annotations
 
+import functools
 import glob
 import json
 import os
 import sys
 import traceback
 import warnings
-from typing import Callable, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 import pytest
@@ -27,8 +27,10 @@ import shutil
 import subprocess
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import main as M  # noqa: E402
+from sklearn.ensemble import HistGradientBoostingClassifier
+
+import main as M
+
 
 def _mix_dir() -> str:
     """Resolved on every call, NOT captured at import.
@@ -46,20 +48,29 @@ def _mix_dir() -> str:
 def _mix_files() -> List[str]:
     return sorted(glob.glob(os.path.join(_mix_dir(), "*.csv")))
 
+
+def _read(path: str) -> np.ndarray:
+    """read_raw_csv() for a recording a check depends on: unreadable fails it."""
+    raw = M.read_raw_csv(path)
+    assert raw is not None, f"{path}: not a readable 25-channel recording"
+    return raw
+
+
 _results: List[Tuple[str, bool, str]] = []
 
 
-def test(name: str) -> Callable:
+def check(name: str) -> Callable[[Callable[[], object]], Callable[[], None]]:
     """Register a check with this file's own runner. NOT a pytest test.
 
-    pytest collects any module-level callable whose name starts with `test`, so
-    it picked this decorator factory up, saw a parameter called `name`, and
-    failed the whole file with "fixture 'name' not found". That is why
-    `pytest test_normal_mix.py` errored while `python test_normal_mix.py`
-    passed 49/50 - the 50-check harness looked broken and got ignored. The
-    marker below tells pytest to leave the factory alone.
+    pytest collects any module-level callable whose name starts with `test`.
+    This factory used to be called `test`, so pytest picked it up, saw a
+    parameter called `name`, and failed the whole file with "fixture 'name'
+    not found". That is why `pytest test_normal_mix.py` errored while
+    `python test_normal_mix.py` passed 49/50 - the 50-check harness looked
+    broken and got ignored. The name is why pytest now leaves it alone.
     """
-    def deco(fn: Callable) -> Callable:
+    def deco(fn: Callable[[], object]) -> Callable[[], None]:
+        @functools.wraps(fn)
         def run() -> None:
             try:
                 msg = fn() or ""
@@ -68,18 +79,12 @@ def test(name: str) -> Callable:
                 _results.append((name, False, str(exc)))
             except Exception:
                 _results.append((name, False, traceback.format_exc(limit=2).strip().splitlines()[-1]))
-        run.__name__ = fn.__name__
         return run
     return deco
 
 
-test.__test__ = False       # pytest: this is a decorator factory, not a test
-
-
-# ---------------------------------------------------------------------------
 # Geometry and wiring (regressions for FIX F1 / F2)
-# ---------------------------------------------------------------------------
-@test("F1 centre pad renders at the centre of the heatmap")
+@check("F1 centre pad renders at the centre of the heatmap")
 def t_centre_pad() -> str:
     # Pad 13 sits at (50, 50), dead centre. Spiking it must light up the middle.
     v = np.zeros(M.N_PADS)
@@ -92,19 +97,19 @@ def t_centre_pad() -> str:
     return f"hotspot at x={fx:.3f} y={fy:.3f}"
 
 
-@test("F1 left-edge pad does not render on the right")
+@check("F1 left-edge pad does not render on the right")
 def t_edge_pad() -> str:
     # This is the exact v5.0 failure: pad 20 at x=20% appeared at x=83%.
     v = np.zeros(M.N_PADS)
     v[19] = 3000.0                      # pad 20 -> (20, 50)
     grid = M.SPATIAL.interpolate(v)
-    r, c = np.unravel_index(np.argmax(grid), grid.shape)
+    _, c = np.unravel_index(np.argmax(grid), grid.shape)
     fx = c / (grid.shape[1] - 1)
     assert fx < 0.35, f"left-edge pad rendered at x={fx:.3f} (v5.0 bug gave 0.835)"
     return f"x={fx:.3f}, correctly on the left half"
 
 
-@test("F1 grid shape is (rows=y, cols=x) and matches the patch aspect")
+@check("F1 grid shape is (rows=y, cols=x) and matches the patch aspect")
 def t_grid_shape() -> str:
     g = M.SPATIAL.interpolate(np.zeros(M.N_PADS))
     assert g.shape == (M.SPATIAL.n_rows, M.SPATIAL.n_cols), f"got {g.shape}"
@@ -112,7 +117,7 @@ def t_grid_shape() -> str:
     return f"shape {g.shape}"
 
 
-@test("F2 signal-to-pad permutation is a bijection matching the wiring table")
+@check("F2 signal-to-pad permutation is a bijection matching the wiring table")
 def t_permutation() -> str:
     assert sorted(M.PAD_TO_SIGNAL) == list(range(1, 26)), "not a permutation of 1..25"
     assert len(set(M.PAD_ORDER.tolist())) == 25, "duplicate indices"
@@ -123,7 +128,7 @@ def t_permutation() -> str:
     return "pad1<-Signal-20, pad25<-Signal-1"
 
 
-@test("F2 reordering is applied to Signal-* files")
+@check("F2 reordering is applied to Signal-* files")
 def t_reorder_applied() -> str:
     """This assertion used to be made against the real corpus and FAILED.
 
@@ -149,7 +154,7 @@ def t_reorder_applied() -> str:
     return "Signal-* files are permuted through PAD_ORDER on load"
 
 
-@test("A9 the corpus uses ONE column convention, and it is recorded")
+@check("A9 the corpus uses ONE column convention, and it is recorded")
 def t_single_convention() -> str:
     """The loader has two branches for the same 25 numbers and they disagree
     about orientation. A corpus that mixes them pools two patch layouts into
@@ -168,10 +173,8 @@ def t_single_convention() -> str:
     return f"{n} files, all Signal-* (permuted through PAD_ORDER)"
 
 
-# ---------------------------------------------------------------------------
 # Security (regression for FIX F3)
-# ---------------------------------------------------------------------------
-@test("F3 path traversal is rejected")
+@check("F3 path traversal is rejected")
 def t_traversal() -> str:
     blocked = 0
     for evil in ["../main.py", "../../secrets.csv", "..\\..\\Windows\\win.ini",
@@ -187,10 +190,8 @@ def t_traversal() -> str:
     return f"{blocked}/5 traversal attempts blocked, normal path still works"
 
 
-# ---------------------------------------------------------------------------
 # Numerical safety (regressions for FIX F5 / F7 and CPRI clamp)
-# ---------------------------------------------------------------------------
-@test("F5 gradient features use real coordinates, not a 5x5 reshape")
+@check("F5 gradient features use real coordinates, not a 5x5 reshape")
 def t_gradient_geometry() -> str:
     # A perfectly linear ramp in x must give a constant dC/dx and ~zero dC/dy.
     ramp = (M.PAD_XY[:, 0] - 50.0) * 10.0
@@ -201,7 +202,7 @@ def t_gradient_geometry() -> str:
     return f"dC/dx={gx.mean():.2f} dC/dy={abs(gy).mean():.3f}"
 
 
-@test("F7 full_proba returns 4 columns even when a class is missing")
+@check("F7 full_proba returns 4 columns even when a class is missing")
 def t_full_proba() -> str:
     from sklearn.ensemble import RandomForestClassifier
     X = np.random.RandomState(0).rand(60, 9)
@@ -215,7 +216,7 @@ def t_full_proba() -> str:
     return "4 columns, absent class zeroed, CPRI computes"
 
 
-@test("CPRI stays within 0..100")
+@check("CPRI stays within 0..100")
 def t_cpri_bounds() -> str:
     rng = np.random.RandomState(1)
     p = rng.dirichlet(np.ones(4), size=500)
@@ -226,12 +227,11 @@ def t_cpri_bounds() -> str:
     return f"range {v.min():.1f}..{v.max():.1f}"
 
 
-# ---------------------------------------------------------------------------
 # LOOP 4 - Kalman baseline, exercised on Normal Mix
-# ---------------------------------------------------------------------------
-@test("L4 Kalman tracks slow drift without absorbing a touch spike")
+@check("L4 Kalman tracks slow drift without absorbing a touch spike")
 def t_kalman_gate() -> str:
     raw = M.read_raw_csv(_mix_files()[0])
+    assert raw is not None
     # inject 40 counts of linear drift across the file (sweat-like)
     drift = np.linspace(0, 40, len(raw))[:, None]
     drifted = raw + drift
@@ -252,9 +252,10 @@ def t_kalman_gate() -> str:
     return f"quiescent bias {stat_bias:.1f} -> {kal_bias:.1f} counts, peak preserved {kal.max():.0f}"
 
 
-@test("L4 Kalman baseline does not chase a sustained press")
+@check("L4 Kalman baseline does not chase a sustained press")
 def t_kalman_sustained() -> str:
     raw = M.read_raw_csv(_mix_files()[0])
+    assert raw is not None
     base = raw[:5].mean(axis=0)
     synth = np.tile(base, (40, 1))
     synth[10:35, 6] += 2500.0                 # 14 s press on one pad
@@ -263,10 +264,8 @@ def t_kalman_sustained() -> str:
     return f"press held at {d[34, 6]:.0f} counts after 14 s"
 
 
-# ---------------------------------------------------------------------------
 # LOOP 3 - propagation, on Normal Mix (must stay idle) and Peel (must fire)
-# ---------------------------------------------------------------------------
-@test("L3 peel gate: 0 false alarms on all normal classes, 10/10 on Peel")
+@check("L3 peel gate: 0 false alarms on all normal classes, 10/10 on Peel")
 def t_propagation() -> str:
     normal = ["N_base", "Brief Touch", "Press", "Friction", "Normal Mix"]
     false_files = 0
@@ -286,7 +285,7 @@ def t_propagation() -> str:
     fired = 0
     for f in peel:
         tk = M.PeelTracker()
-        if any(tk.update(d)["confirmed"] for d in M.calibrate(M.read_raw_csv(f), "static")):
+        if any(tk.update(d)["confirmed"] for d in M.calibrate(_read(f), "static")):
             fired += 1
 
     assert false_files == 0, f"{false_files}/{normal_files} normal files raised a peel alarm"
@@ -294,24 +293,24 @@ def t_propagation() -> str:
     return f"Peel {fired}/{len(peel)} confirmed, {false_files}/{normal_files} normal false alarms"
 
 
-@test("L3 persistence removes the press-release transient")
+@check("L3 persistence removes the press-release transient")
 def t_persistence() -> str:
     # Without persistence the per-frame gate fires on 8/10 Press files.
     press = sorted(glob.glob(os.path.join(M.DATA_ROOT, "Press", "*.csv")))
     inst = sum(1 for f in press
                if any(M.SPATIAL.propagation(d)["active"]
-                      for d in M.calibrate(M.read_raw_csv(f), "static")))
+                      for d in M.calibrate(_read(f), "static")))
     conf = 0
     for f in press:
         tk = M.PeelTracker()
-        if any(tk.update(d)["confirmed"] for d in M.calibrate(M.read_raw_csv(f), "static")):
+        if any(tk.update(d)["confirmed"] for d in M.calibrate(_read(f), "static")):
             conf += 1
     assert conf < inst, f"persistence changed nothing ({inst} -> {conf})"
     assert conf == 0, f"{conf}/10 Press files still confirm as peel"
     return f"Press files firing: {inst}/10 instantaneous -> {conf}/10 confirmed"
 
 
-@test("L3 propagation direction is physically sensible")
+@check("L3 propagation direction is physically sensible")
 def t_propagation_direction() -> str:
     # Synthetic peel rooted at the top-right, deepening toward that corner.
     # Amplitude is set so the whole-grid mean lands near the -371 counts
@@ -328,7 +327,7 @@ def t_propagation_direction() -> str:
     return f"{pr['description']}, grid mean {pr['grid_mean']:.0f}"
 
 
-@test("L3 an inactive gate still reports diagnostics")
+@check("L3 an inactive gate still reports diagnostics")
 def t_propagation_inactive() -> str:
     v = np.zeros(M.N_PADS)
     v[3] = -900.0                                   # one deep pad, nothing else
@@ -339,25 +338,24 @@ def t_propagation_inactive() -> str:
     return f"1 pad, grid mean {pr['grid_mean']}, correctly inactive"
 
 
-# ---------------------------------------------------------------------------
 # LOOP 1 - live pipeline replay of Normal Mix
-# ---------------------------------------------------------------------------
-@test("L1 replay source yields pad-ordered frames at the right length")
+@check("L1 replay source yields pad-ordered frames at the right length")
 def t_replay_source() -> str:
     src = M.ReplayFrameSource("Normal Mix/N_Mix_01.csv", realtime=False)
     frames = list(src.frames())
     raw = M.read_raw_csv(_mix_files()[0])
+    assert raw is not None
     assert len(frames) == len(raw), f"{len(frames)} != {len(raw)}"
     assert frames[0].shape == (25,), f"frame shape {frames[0].shape}"
     assert np.allclose(frames[0], raw[0]), "replay frame is not in pad order"
     return f"{len(frames)} frames replayed"
 
 
-@test("L1 live pipeline processes Normal Mix end to end")
+@check("L1 live pipeline processes Normal Mix end to end")
 def t_live_pipeline() -> str:
     ds = M.load_dataset("static", False, verbose=False)
     assert ds is not None
-    model = M._new_rf(42).fit(ds.X, ds.y)
+    model = M.new_rf(42).fit(ds.X, ds.y)
     pipe = M.LivePipeline(model, False, fuse_imu=True)
     src = M.ReplayFrameSource("Normal Mix/N_Mix_02.csv", realtime=False)
     out = [pipe.process(f) for f in src.frames()]
@@ -372,7 +370,7 @@ def t_live_pipeline() -> str:
     return f"{len(out)} frames, JSON-serialisable"
 
 
-@test("L1 warmup window is silent")
+@check("L1 warmup window is silent")
 def t_warmup_guard() -> str:
     """Two regressions in one pass.
 
@@ -385,7 +383,7 @@ def t_warmup_guard() -> str:
     """
     ds = M.load_dataset("kalman", False, verbose=False)
     assert ds is not None
-    model = M._new_rf(42).fit(ds.X, ds.y)
+    model = M.new_rf(42).fit(ds.X, ds.y)
     worst_raw = 0
     worst_out = 0
     for f in _mix_files():
@@ -409,11 +407,11 @@ def t_warmup_guard() -> str:
             f"annunciated max L{worst_out}")
 
 
-@test("L1 debouncer keeps sensitivity while cutting false alarms")
+@check("L1 debouncer keeps sensitivity while cutting false alarms")
 def t_debouncer() -> str:
     ds = M.load_dataset("kalman", False, verbose=False)
     assert ds is not None
-    model = M._new_rf(42).fit(ds.X, ds.y)
+    model = M.new_rf(42).fit(ds.X, ds.y)
     groups = {"normal": ("N_base/", "Brief Touch/", "Press/", "Friction/", "Normal Mix/"),
               "peel": ("Peel/",),
               "pull": ("Vertical Pull", "Horizontal Pull", "PowerP/")}
@@ -428,7 +426,8 @@ def t_debouncer() -> str:
             continue
         totals[key] += 1
         pipe = M.LivePipeline(model, False, fuse_imu=False)
-        raws, outs = [], []
+        raws: List[int] = []
+        outs: List[int] = []
         for frame in M.ReplayFrameSource(f, realtime=False).frames():
             o = pipe.process(frame)
             raws.append(o["raw_level"])
@@ -482,7 +481,7 @@ def t_debouncer() -> str:
             + (f"; clip too short to vote: {short}" if unvotable else ""))
 
 
-@test("R8b classify_deltas returns the model's own probabilities, unmodified")
+@check("R8b classify_deltas returns the model's own probabilities, unmodified")
 def t_no_handcoded_proba() -> str:
     """The one classifier must not post-process what the model said.
 
@@ -499,8 +498,8 @@ def t_no_handcoded_proba() -> str:
     any future branch that edits `proba` fails here rather than silently
     de-coupling the served level from the measured one.
     """
-    ds, _, clf = _oof()
-    model = M._new_rf(42).fit(ds.X, ds.y)
+    ds, _, _ = oof_pass()
+    model = M.new_rf(42).fit(ds.X, ds.y)
     checked = active_n = 0
     for fi in range(0, ds.n_files, 7):                  # a spread of every class
         delta = ds.frames[fi]
@@ -522,7 +521,7 @@ def t_no_handcoded_proba() -> str:
     return f"{checked} frames over {len(range(0, ds.n_files, 7))} files, {active_n} above the gate, all unmodified"
 
 
-@test("R9 Data/metrics.json still describes the code that is running")
+@check("R9 Data/metrics.json still describes the code that is running")
 def t_metrics_not_stale() -> str:
     """The dashboard serves metrics.json verbatim, and only --report writes it.
 
@@ -533,8 +532,8 @@ def t_metrics_not_stale() -> str:
     re-measures the headline figures and diffs them; this runs it on the pass
     the suite has already computed, so it costs nothing extra.
     """
-    ds, oof, _ = _oof()
-    rep = M.verify_metrics(ds, oof=oof, served_levels=_served_levels())
+    ds, oof, _ = oof_pass()
+    rep = M.verify_metrics(ds, oof=oof, served_levels=served_pass())
     if rep["status"] == "absent":
         return "skipped (no Data/metrics.json in this sandbox)"
     assert rep["served_checked"], "the served-path figures were not re-measured"
@@ -546,14 +545,14 @@ def t_metrics_not_stale() -> str:
     return f"all headline figures reproduce (fingerprint {rep['dataset_fingerprint'][:8]})"
 
 
-@test("R9b a served-path figure that moves makes metrics.json stale")
+@check("R9b a served-path figure that moves makes metrics.json stale")
 def t_served_figures_verified() -> str:
     """The served block is only worth publishing if --verify-metrics guards it.
 
     Tampers with a copy of metrics.json, never the sandbox's own, so no other
     check sees the edit.
     """
-    ds, oof, _ = _oof()
+    ds, oof, _ = oof_pass()
     src = os.path.join(M.DATA_ROOT, "metrics.json")
     if not os.path.isfile(src):
         return "skipped (no Data/metrics.json in this sandbox)"
@@ -567,7 +566,7 @@ def t_served_figures_verified() -> str:
         with open(os.path.join(tmp, "metrics.json"), "w", encoding="utf-8") as fh:
             json.dump(stored, fh)
         M.DATA_ROOT = tmp
-        rep = M.verify_metrics(ds, oof=oof, served_levels=_served_levels())
+        rep = M.verify_metrics(ds, oof=oof, served_levels=served_pass())
     finally:
         M.DATA_ROOT = previous
         shutil.rmtree(tmp, ignore_errors=True)
@@ -576,7 +575,7 @@ def t_served_figures_verified() -> str:
     return f"tampered served sensitivity caught ({len(keys)} drifted key)"
 
 
-@test("E5 the served replay is LivePipeline, noise gate included")
+@check("E5 the served replay is LivePipeline, noise gate included")
 def t_served_replay_is_live() -> str:
     """replay_levels() must be the served detector, not the offline vote.
 
@@ -606,13 +605,14 @@ def t_served_replay_is_live() -> str:
     return f"quiet: max level 0 over {len(quiet)} frames; lift at frame 15 -> siren at frame {first}"
 
 
-@test("R9c a cached model from another scikit-learn is retrained, not unpickled")
+@check("R9c a cached model from another scikit-learn is retrained, not unpickled")
 def t_model_cache_version_guard() -> str:
     """The deploy path shipped Data/trained_model.joblib, pickled by the
     workstation's scikit-learn, into an image that installs a different one.
     load_persisted_model() must refuse it on the recorded version alone."""
     rng = np.random.default_rng(0)
-    model = M._new_rf(42).set_params(max_iter=2).fit(
+    # Any fitted classifier will do; two boosting rounds keep it quick.
+    model = HistGradientBoostingClassifier(max_iter=2, random_state=42).fit(
         rng.normal(size=(40, 34)), np.arange(40) % M.N_CLASSES)
     prev = (M.MODEL_PERSISTENCE_PATH, M.MODEL_DIGEST_PATH)
     tmp = tempfile.mkdtemp(prefix="p2-cache-")
@@ -638,7 +638,7 @@ def t_model_cache_version_guard() -> str:
     return "same version loads; a different recorded version retrains"
 
 
-@test("R8c the detachment-spec audit label is derived from SPEC_DETACH_MAX")
+@check("R8c the detachment-spec audit label is derived from SPEC_DETACH_MAX")
 def t_spec_label_matches_constant() -> str:
     """A revision raised SPEC_DETACH_MAX from 25,000 to 28,500 - which flipped the
     corpus from failing the detachment spec to passing it - while the printed
@@ -656,19 +656,17 @@ def t_spec_label_matches_constant() -> str:
     return f"{len(labels)} spec check(s) label {want} counts"
 
 
-@test("L1 serial port scan degrades gracefully with no hardware")
+@check("L1 serial port scan degrades gracefully with no hardware")
 def t_serial_scan() -> str:
     ports = M.list_serial_ports()
     assert isinstance(ports, list), "must return a list even with no COM device"
     return f"{len(ports)} port(s) visible on this host"
 
 
-# ---------------------------------------------------------------------------
 # LOOP 5 - fusion
-# ---------------------------------------------------------------------------
-@test("L5 fusion never lowers risk and stays bounded")
+@check("L5 fusion never lowers risk and stays bounded")
 def t_fusion_bounds() -> str:
-    d = M.calibrate(M.read_raw_csv(_mix_files()[0]), "static")
+    d = M.calibrate(_read(_mix_files()[0]), "static")
     imu = M.synthesise_imu(d)
     base = np.linspace(0, 90, len(d))
     fused = M.FusionEngine().run(base, imu)
@@ -677,7 +675,7 @@ def t_fusion_bounds() -> str:
     return f"max fused {fused.max():.1f}%, never below capacitive input"
 
 
-@test("L5 lead-time helper reports a positive gain when fusion crosses first")
+@check("L5 lead-time helper reports a positive gain when fusion crosses first")
 def t_lead_time() -> str:
     a = np.array([0, 10, 20, 30, 45, 55, 70])
     b = np.array([0, 20, 40, 60, 75, 85, 95])
@@ -687,24 +685,22 @@ def t_lead_time() -> str:
     return f"lead {g:.2f} s"
 
 
-# ---------------------------------------------------------------------------
 # Dataset hygiene and the headline metric
-# ---------------------------------------------------------------------------
-@test("short files are excluded from training")
+@check("short files are excluded from training")
 def t_short_files() -> str:
     ds = M.load_dataset("static", False, verbose=False)
     assert ds is not None
     bad = [f for f, r in ds.skipped if "frames" in r]
     for f in ds.files:
-        n = len(M.read_raw_csv(os.path.join(M.DATA_ROOT, f)))
+        n = len(_read(os.path.join(M.DATA_ROOT, f)))
         assert n >= M.MIN_FRAMES_PER_FILE, f"{f} has {n} frames but was kept"
     return f"{ds.n_files} files kept, {len(bad)} short file(s) skipped: {bad or 'none'}"
 
 
-@test("Normal Mix false-alarm rate under leave-one-file-out")
+@check("Normal Mix false-alarm rate under leave-one-file-out")
 def t_mix_false_alarm() -> str:
-    ds, oof, _ = _oof()
-    y_pred = [M._file_vote(oof[ds.groups == i]) for i in range(ds.n_files)]
+    ds, oof, _ = oof_pass()
+    y_pred = [M.file_vote(oof[ds.groups == i]) for i in range(ds.n_files)]
     mix_idx = [i for i, f in enumerate(ds.files) if f.startswith("Normal Mix/")]
     assert mix_idx, "no Normal Mix files loaded"
     preds = [y_pred[i] for i in mix_idx]
@@ -713,7 +709,7 @@ def t_mix_false_alarm() -> str:
     return f"0/{len(mix_idx)} Normal Mix files escalated (preds={preds})"
 
 
-@test("Normal Mix frame-level escalation (single-frame RF weakness)")
+@check("Normal Mix frame-level escalation (single-frame RF weakness)")
 def t_mix_frame_level() -> str:
     """Documents the residual weakness the temporal model exists to fix.
 
@@ -723,10 +719,10 @@ def t_mix_frame_level() -> str:
     LOOP 2 addresses it directly - run with --temporal to measure that.
     """
     # Was a third independent leave-one-file-out pass (evaluate_rf with one
-    # seed) purely to get frame-level out-of-fold predictions that _oof() has
+    # seed) purely to get frame-level out-of-fold predictions that oof_pass() has
     # already computed. argmax of the out-of-fold proba is the out-of-fold
     # prediction, so the shared array answers the same question for free.
-    ds, oof, _ = _oof()
+    ds, oof, _ = oof_pass()
     mix_files = [i for i, f in enumerate(ds.files) if f.startswith("Normal Mix/")]
     mask = np.isin(ds.groups, mix_files)
     frame_pred = oof[mask]
@@ -735,7 +731,7 @@ def t_mix_frame_level() -> str:
     return f"{rate:.1f}% of {int(mask.sum())} frames (file-level vote absorbs all of it)"
 
 
-@test("L2 temporal vs RF, reported honestly [slow, --temporal]")
+@check("L2 temporal vs RF, reported honestly [slow, --temporal]")
 def t_temporal() -> str:
     """The claim this test used to make was false.
 
@@ -762,7 +758,7 @@ def t_temporal() -> str:
             f"Normal Mix never escalated")
 
 
-@test("R2 SOP folder names (VPull/HPull) are recognised")
+@check("R2 SOP folder names (VPull/HPull) are recognised")
 def t_sop_folder_names() -> str:
     for name in ("VPull", "HPull", "PowerPull", "Baseline", "Touch"):
         assert name in M.CLASS_MAPPING, f"SOP folder '{name}' would load as zero files"
@@ -772,7 +768,7 @@ def t_sop_folder_names() -> str:
     return "VPull/HPull/PowerPull/Baseline/Touch all map to the right class"
 
 
-@test("R9 incomplete class coverage is flagged, not silently scored")
+@check("R9 incomplete class coverage is flagged, not silently scored")
 def t_class_coverage() -> str:
     ds = M.load_dataset("kalman", False, verbose=False)
     assert ds is not None and ds.complete, "full corpus should report complete"
@@ -780,16 +776,16 @@ def t_class_coverage() -> str:
     return f"classes present {ds.classes_present}, complete={ds.complete}"
 
 
-@test("R5 file vote breaks ties toward the more severe class")
+@check("R5 file vote breaks ties toward the more severe class")
 def t_tie_break() -> str:
-    assert M._file_vote(np.repeat([0, 1, 2, 3], [2, 6, 1, 6])) == 3, "tie went to the benign class"
-    assert M._file_vote(np.repeat([0, 1, 2, 3], [3, 4, 1, 4])) == 3
-    assert M._file_vote(np.repeat([0, 1, 2, 3], [9, 1, 0, 0])) == 0, "clear majority must still win"
-    assert M._file_vote(np.array([2, 2, 2])) == 2
+    assert M.file_vote(np.repeat([0, 1, 2, 3], [2, 6, 1, 6])) == 3, "tie went to the benign class"
+    assert M.file_vote(np.repeat([0, 1, 2, 3], [3, 4, 1, 4])) == 3
+    assert M.file_vote(np.repeat([0, 1, 2, 3], [9, 1, 0, 0])) == 0, "clear majority must still win"
+    assert M.file_vote(np.array([2, 2, 2])) == 2
     return "ties -> higher class, clear majorities unchanged"
 
 
-@test("R8 k-of-n debouncer: escalates on support, holds, then releases")
+@check("R8 k-of-n debouncer: escalates on support, holds, then releases")
 def t_debouncer_semantics() -> str:
     d = M.AlarmDebouncer(window=5, min_votes=3, hold=2)
     out = [d.update(x) for x in [3, 3, 3, 3, 0, 0, 0, 0, 0]]
@@ -801,11 +797,11 @@ def t_debouncer_semantics() -> str:
     return f"out={out}"
 
 
-@test("R8 an intermittent classifier still annunciates (1/3 and 2/3 patterns)")
+@check("R8 an intermittent classifier still annunciates (1/3 and 2/3 patterns)")
 def t_debouncer_oscillation() -> str:
     # v6.0 annunciated nothing on 2/3; v6.1 annunciated nothing on 1/3. Both are
     # exactly what a real pull produces at the edge of the decision boundary.
-    for pattern, name in ([[2, 3] * 8, "2/3"], [[1, 3] * 8, "1/3"]):
+    for pattern, name in (([2, 3] * 8, "2/3"), ([1, 3] * 8, "1/3")):
         d = M.AlarmDebouncer(window=5, min_votes=3, hold=2)
         out = [d.update(x) for x in pattern]
         assert max(out) >= 2, f"{name} oscillation annunciated nothing: {out}"
@@ -815,7 +811,7 @@ def t_debouncer_oscillation() -> str:
     return "1/3 and 2/3 both annunciate; no permanent latch"
 
 
-@test("R8 a single spurious frame never annunciates")
+@check("R8 a single spurious frame never annunciates")
 def t_debouncer_spike() -> str:
     d = M.AlarmDebouncer(window=5, min_votes=3, hold=2)
     out = [d.update(x) for x in [0, 0, 3, 0, 0, 0, 0, 0]]
@@ -823,14 +819,14 @@ def t_debouncer_spike() -> str:
     return f"out={out}"
 
 
-@test("R8 _file_vote is safe on empty and out-of-range input")
+@check("R8 file_vote is safe on empty and out-of-range input")
 def t_file_vote_guards() -> str:
-    assert M._file_vote(np.array([], dtype=int)) == 0, "empty input must not alarm"
-    assert M._file_vote(np.array([7, 7, 1])) == 1, "out-of-range labels must be ignored"
+    assert M.file_vote(np.array([], dtype=int)) == 0, "empty input must not alarm"
+    assert M.file_vote(np.array([7, 7, 1])) == 1, "out-of-range labels must be ignored"
     return "empty -> 0, out-of-range ignored"
 
 
-@test("R6 empty / corrupt CSV is skipped by name, never crashes")
+@check("R6 empty / corrupt CSV is skipped by name, never crashes")
 def t_bad_csv() -> str:
     tmp = tempfile.mkdtemp()
     try:
@@ -857,7 +853,7 @@ def t_bad_csv() -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-@test("R3 audit recurses into session folders and demands all four classes")
+@check("R3 audit recurses into session folders and demands all four classes")
 def t_audit_sessions() -> str:
     rep = M.audit_folder(M.DATA_ROOT)
     names = {c["check"] for c in rep["checks"]}
@@ -870,7 +866,7 @@ def t_audit_sessions() -> str:
     return f"{len(rep['checks'])} checks, {len(fails)} failing as expected"
 
 
-@test("R3 audit refuses a folder that is missing classes")
+@check("R3 audit refuses a folder that is missing classes")
 def t_audit_incomplete() -> str:
     tmp = tempfile.mkdtemp()
     try:
@@ -886,7 +882,7 @@ def t_audit_incomplete() -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-@test("R7 pooled confusion matrix agrees with the headline mean")
+@check("R7 pooled confusion matrix agrees with the headline mean")
 def t_report_consistency() -> str:
     from sklearn.metrics import confusion_matrix
     ds = M.load_dataset("kalman", False, verbose=False)
@@ -905,7 +901,7 @@ def t_report_consistency() -> str:
     return f"{from_cm*100:.2f}% both ways over {len(res['y_true'])} predictions"
 
 
-@test("R4 the REST dataset endpoint applies the same guards as the live path")
+@check("R4 the REST dataset endpoint applies the same guards as the live path")
 def t_rest_guards() -> str:
     try:
         from fastapi.testclient import TestClient
@@ -913,10 +909,12 @@ def t_rest_guards() -> str:
         return "skipped (fastapi TestClient unavailable)"
     ds = M.load_dataset("kalman", False, verbose=False)
     assert ds is not None
-    model = M._new_rf(42).fit(ds.X, ds.y)
+    model = M.new_rf(42).fit(ds.X, ds.y)
     client = TestClient(M.create_app({"model": model, "use_gradient": False,
                                       "calibration": "kalman"}))
-    alarms, arrows, checked = [], [], 0
+    alarms: List[str] = []
+    arrows: List[str] = []
+    checked = 0
     for f in ds.files:
         if not any(f.startswith(p) for p in
                    ("N_base/", "Brief Touch/", "Press/", "Friction/", "Normal Mix/")):
@@ -935,7 +933,7 @@ def t_rest_guards() -> str:
     return f"{len(alarms)}/{checked} siren, {len(arrows)}/{checked} peel arrow"
 
 
-@test("R1 the BiLSTM comparison is reported with a spread [slow, --temporal]")
+@check("R1 the BiLSTM comparison is reported with a spread [slow, --temporal]")
 def t_temporal_spread() -> str:
     if "--temporal" not in sys.argv:
         return "skipped (pass --temporal to run, ~6 min)"
@@ -951,7 +949,7 @@ def t_temporal_spread() -> str:
             f"RF {tr['rf_macro_f1_mean']:.4f} ± {tr['rf_macro_f1_sd']:.4f} -> {tr['verdict']}")
 
 
-@test("R10-R14 CLI flags behave")
+@check("R10-R14 CLI flags behave")
 def t_cli() -> str:
     # Project root = the PARENT of tests/. This file used to sit at the top
     # level, where dirname(__file__) was the root; after the move it pointed at
@@ -959,7 +957,7 @@ def t_cli() -> str:
     # wrong reason.
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    def run(*a):
+    def run(*a: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, "main.py", *a], cwd=here,
                               capture_output=True, text=True, timeout=180)
     r = run("--seeds", "0", "--eval")
@@ -973,20 +971,16 @@ def t_cli() -> str:
     return "--seeds 0 rejected, bad --replay handled, --cv session guarded"
 
 
-# ---------------------------------------------------------------------------
 # Runner - collected at call time so tests appended below still register
-# ---------------------------------------------------------------------------
 
 
-# ===========================================================================
 # v6.2 - episode-level evaluation and out-of-fold honesty
-# ===========================================================================
-_STREAM_CACHE: List[Any] = []
-_OOF_CACHE: List[Any] = []
-_SERVED_CACHE: List[Any] = []
+_STREAM_CACHE: List[Tuple[M.Dataset, Dict[str, Any]]] = []
+_OOF_CACHE: List[Tuple[M.Dataset, np.ndarray, HistGradientBoostingClassifier]] = []
+_SERVED_CACHE: List[List[np.ndarray]] = []
 
 
-def _oof() -> Any:
+def oof_pass() -> Tuple[M.Dataset, np.ndarray, HistGradientBoostingClassifier]:
     """Leave-one-file-out predictions, computed once for the whole suite.
 
     The same pass also streams every held-out recording through LivePipeline
@@ -999,24 +993,24 @@ def _oof() -> Any:
         served: List[np.ndarray] = []
         oof = M.compute_oof(ds, 42, served=served)
         last = ds.groups != ds.n_files - 1
-        clf = M._new_rf(42).fit(ds.X[last], ds.y[last])
+        clf = M.new_rf(42).fit(ds.X[last], ds.y[last])
         _OOF_CACHE.append((ds, oof, clf))
         _SERVED_CACHE.append(served)
     return _OOF_CACHE[0]
 
 
-def _served_levels() -> Any:
-    """LivePipeline's annunciated levels per recording, from _oof()'s pass."""
-    _oof()
+def served_pass() -> List[np.ndarray]:
+    """LivePipeline's annunciated levels per recording, from oof_pass()'s pass."""
+    oof_pass()
     return _SERVED_CACHE[0]
 
 
-def _stream() -> Any:
-    """Episode metrics over the SAME out-of-fold pass _oof() already paid for.
+def _stream() -> Tuple[M.Dataset, Dict[str, Any]]:
+    """Episode metrics over the SAME out-of-fold pass oof_pass() already paid for.
 
     This used to call evaluate_stream() with no `oof`, which made it run its own
     leave-one-file-out - a second full 81-fold pass over the corpus, identical
-    to the one _oof() had already cached. With the RandomForest that was merely
+    to the one oof_pass() had already cached. With the RandomForest that was merely
     wasteful; with the HistGradientBoosting the project now ships it is minutes.
     Sharing the pass also removes a real hazard: two independently computed
     "out-of-fold" arrays in one suite can disagree after any change to the
@@ -1024,19 +1018,19 @@ def _stream() -> Any:
     mismatch between two tests rather than as the change that caused it.
     """
     if not _STREAM_CACHE:
-        ds, oof, _ = _oof()
+        ds, oof, _ = oof_pass()
         _STREAM_CACHE.append((ds, M.evaluate_stream(ds, verbose=False, oof=oof)))
     return _STREAM_CACHE[0]
 
 
-@test("E1 streaming metrics are out-of-fold, not in-sample")
+@check("E1 streaming metrics are out-of-fold, not in-sample")
 def t_stream_out_of_fold() -> str:
     """The v6.1 suite fit the forest on the whole corpus and then replayed files
     from it, so every alarm number in the README was in-sample. In-sample the
     corpus shows 0/40 normal recordings alarming; out of fold it is materially
     worse, and that is the number a new patient would see."""
     ds, st = _stream()
-    in_model = M._new_rf(42).fit(ds.X, ds.y)
+    in_model = M.new_rf(42).fit(ds.X, ds.y)
     in_fa = 0
     for fi, lab in enumerate(ds.labels):
         if lab > 1:
@@ -1050,7 +1044,7 @@ def t_stream_out_of_fold() -> str:
     return f"in-sample {in_fa}/{st['n_normal']} vs out-of-fold {st['false_alarm_files']}/{st['n_normal']}"
 
 
-@test("E2 episode metrics are within clinical bounds and fully reported")
+@check("E2 episode metrics are within clinical bounds and fully reported")
 def t_episode_metrics() -> str:
     _, st = _stream()
     for key in ("sensitivity", "sensitivity_ci", "false_alarm_rate", "false_alarm_ci",
@@ -1075,17 +1069,18 @@ def t_episode_metrics() -> str:
             f"latency {st['median_latency_s']:.2f}s, {st['onsets_per_anomaly']:.2f} onsets/event")
 
 
-@test("E3 episode detection is invariant to recording length; file vote is not")
+@check("E3 episode detection is invariant to recording length; file vote is not")
 def t_length_invariance() -> str:
     """The round-2 SOP prescribes 60-120 s recordings. Re-voting the same events
     padded to that length takes file-vote pull recall to zero while episode
     detection is unchanged. This is why the reported unit had to change."""
-    ds, oof, clf = _oof()
+    ds, oof, clf = oof_pass()
     quiet = np.concatenate([ds.frames[i] for i, l in enumerate(ds.labels) if l == 0])
     rng = np.random.default_rng(0)
-    res = {}
+    res: Dict[int, Tuple[float, float]] = {}
     for target in (22, 161):
-        votes, eps = [], []
+        votes: List[bool] = []
+        eps: List[bool] = []
         for fi, lab in enumerate(ds.labels):
             if lab != 3:
                 continue
@@ -1094,7 +1089,7 @@ def t_length_invariance() -> str:
             if pad > 0:
                 q = list(clf.predict(M.extract_features(quiet[rng.integers(0, len(quiet), pad)], False)))
                 p = q[:pad // 2] + p + q[pad // 2:]
-            votes.append(M._file_vote(np.array(p)) == 3)
+            votes.append(M.file_vote(np.array(p)) == 3)
             eps.append(max(p) >= 2)
         res[target] = (float(np.mean(votes)), float(np.mean(eps)))
     short_v, short_e = res[22]
@@ -1105,7 +1100,7 @@ def t_length_invariance() -> str:
             f"90 s: vote {long_v:.3f} / episode {long_e:.3f}")
 
 
-@test("E4 Wilson and bootstrap intervals are sane")
+@check("E4 Wilson and bootstrap intervals are sane")
 def t_intervals() -> str:
     lo, hi = M.wilson(0, 40)
     assert lo == 0.0 and 0.05 < hi < 0.15, f"0/40 Wilson [{lo}, {hi}]"
@@ -1115,10 +1110,10 @@ def t_intervals() -> str:
     assert lo < 0.5 < hi
     b = M.bootstrap_ci([0, 1, 2, 3] * 10, [0, 1, 2, 3] * 10, n_boot=200)
     assert b["accuracy"][0] == 1.0, "perfect predictions should bootstrap to 1.0"
-    return f"0/40 -> [0.0, {M.wilson(0,40)[1]*100:.1f}%], perfect -> 1.0"
+    return f"0/40 -> [0.0, {M.wilson(0, 40)[1]*100:.1f}%], perfect -> 1.0"
 
 
-@test("E5 a non-numeric token is rejected, not raised")
+@check("E5 a non-numeric token is rejected, not raised")
 def t_bad_token() -> str:
     tmp = tempfile.mkdtemp()
     try:
@@ -1145,7 +1140,7 @@ def _plant(root: str, rel: str, n: int = 3) -> None:
         shutil.copy(f, d)
 
 
-@test("D3 a mis-named session folder is reported, never silently dropped")
+@check("D3 a mis-named session folder is reported, never silently dropped")
 def t_stray_session_typo() -> str:
     tmp = tempfile.mkdtemp()
     real = M.DATA_ROOT
@@ -1169,7 +1164,7 @@ def t_stray_session_typo() -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-@test("D3 --audit fails when any CSV sits where the loader cannot see it")
+@check("D3 --audit fails when any CSV sits where the loader cannot see it")
 def t_audit_rejects_strays() -> str:
     tmp = tempfile.mkdtemp()
     try:
@@ -1185,12 +1180,12 @@ def t_audit_rejects_strays() -> str:
         assert c1 and not c1[0]["pass"], "audit passed a folder with 3 lost CSVs"
         assert dirty["lost_files"] == 3, f"lost_files={dirty['lost_files']}"
         assert not dirty["passed"], "overall audit still reported ready"
-        return f"clean folder passes, 3 stray CSVs fail the audit"
+        return "clean folder passes, 3 stray CSVs fail the audit"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-@test("D3 every CSV on disk is loaded, skipped, or reported - none vanish")
+@check("D3 every CSV on disk is loaded, skipped, or reported - none vanish")
 def t_no_csv_unaccounted() -> str:
     ds = M.load_dataset(verbose=False)
     assert ds is not None
@@ -1202,7 +1197,7 @@ def t_no_csv_unaccounted() -> str:
     return f"{on_disk} on disk = {ds.n_files} loaded + {len(ds.skipped)} skipped + {ds.n_lost_files} stray"
 
 
-@test("D3 a correctly-named session folder still loads and is not called stray")
+@check("D3 a correctly-named session folder still loads and is not called stray")
 def t_valid_session_loads() -> str:
     tmp = tempfile.mkdtemp()
     real = M.DATA_ROOT
@@ -1223,7 +1218,7 @@ def t_valid_session_loads() -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-@test("D4 a weak Friction class cannot hide inside a pooled contact check")
+@check("D4 a weak Friction class cannot hide inside a pooled contact check")
 def t_contact_check_not_pooled() -> str:
     tmp = tempfile.mkdtemp()
     try:
@@ -1247,8 +1242,8 @@ def t_contact_check_not_pooled() -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _registered_checks():
-    """Every @test-decorated check in this module, in a stable order."""
+def _registered_checks() -> List[Tuple[str, Callable[..., object]]]:
+    """Every @check-decorated check in this module, in a stable order."""
     return [(k, v) for k, v in sorted(globals().items())
             if k.startswith("t_") and callable(v)]
 
@@ -1257,7 +1252,7 @@ def _registered_checks():
 def test_regression_check(check_name: str) -> None:
     """One pytest case per registered check.
 
-    The checks in this file are written with its own @test decorator so that
+    The checks in this file are written with its own @check decorator so that
     `python tests/test_regressions.py` still prints a single readable PASS/FAIL
     table. They used to reach pytest through one wrapper that ran all 51 and
     asserted on the collected failures - so CI reported "1 failed" for five

@@ -32,17 +32,20 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 import tempfile
+from typing import TYPE_CHECKING, Iterator
 
 import pytest
+from sklearn.ensemble import HistGradientBoostingClassifier
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import main as M
 
-import main as M  # noqa: E402
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     """Put pytest's scratch root in the OS temp directory, not in the repo.
 
     This was `addopts = --basetemp=.pytest_temp` in pytest.ini, which put the
@@ -67,11 +70,12 @@ def pytest_configure(config):
     if getattr(config.option, "basetemp", None) is None:
         config.option.basetemp = os.path.join(tempfile.gettempdir(), "project2-pytest")
 
+
 REAL_DATA_ROOT = M.DATA_ROOT
 
 
 @pytest.fixture(scope="session", autouse=True)
-def isolated_data_root(tmp_path_factory):
+def isolated_data_root(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Point DATA_ROOT at a disposable mirror of the corpus for the whole run."""
     sandbox = tmp_path_factory.mktemp("data_root")
 
@@ -112,7 +116,7 @@ def isolated_data_root(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
-def dataset(isolated_data_root):
+def dataset(isolated_data_root: str) -> M.Dataset:
     ds = M.load_dataset("kalman", verbose=False)
     if ds is None:
         pytest.skip(f"no recordings under {M.DATA_ROOT}")
@@ -120,27 +124,27 @@ def dataset(isolated_data_root):
 
 
 @pytest.fixture(scope="session")
-def model(dataset):
+def model(dataset: M.Dataset) -> HistGradientBoostingClassifier:
     """One forest for the whole run. Fitting it per test was the reason the old
     suite was slow enough that people skipped it."""
-    return M._new_rf(42).fit(dataset.X, dataset.y)
+    return M.new_rf(42).fit(dataset.X, dataset.y)
 
 
 @pytest.fixture(scope="session")
-def app(dataset, model):
+def app(dataset: M.Dataset, model: HistGradientBoostingClassifier) -> FastAPI:
     return M.create_app({"model": model, "use_gradient": False,
                          "calibration": "kalman"})
 
 
 @pytest.fixture(scope="session")
-def client(app):
+def client(app: FastAPI) -> Iterator[TestClient]:
     from fastapi.testclient import TestClient
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
-def clean_event_log(isolated_data_root):
+def clean_event_log(isolated_data_root: str) -> Iterator[str]:
     """Start from a known-empty audit trail, and leave one behind."""
     path = os.path.join(M.DATA_ROOT, "extubation_events_audit.json")
     if os.path.exists(path):
@@ -151,7 +155,7 @@ def clean_event_log(isolated_data_root):
 
 
 @pytest.fixture(scope="session")
-def sample_csv(dataset):
+def sample_csv(dataset: M.Dataset) -> str:
     """A recording that exists, URL-encoded the way the dashboard encodes it."""
     if dataset.files:
         return dataset.files[0]

@@ -9,12 +9,9 @@ Tests:
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import numpy as np
-import pytest
 
-import main as M
 from main import (
     LivePipeline,
     N_PADS,
@@ -102,8 +99,9 @@ def test_live_pipeline_memory_stability_10000_frames():
         pipe.process(np.full(N_PADS, val))
 
     # Assert internal debouncer history is strictly capped by its window
-    assert len(pipe.alarm._history) <= pipe.alarm.window
+    assert len(pipe.alarm.history) <= pipe.alarm.window
     # Assert kalman filter state is fixed shape
+    assert pipe.kalman.b is not None
     assert pipe.kalman.b.shape == (N_PADS,)
     # Assert peel tracker state does not accumulate unbounded memory
     assert isinstance(pipe.peel.streak, int)

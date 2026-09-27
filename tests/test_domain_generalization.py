@@ -10,12 +10,9 @@ Tests:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-import main as M
 from main import (
     N_PADS,
-    BASELINE_COUNTS,
     DELTA_THRESHOLD,
     compute_fractional_deltas,
     analyze_surface_topography,

@@ -17,15 +17,12 @@ Two defects are pinned:
 """
 import os
 import re
-import sys
 
 import pytest
 
+import main as M
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-
-import main as M  # noqa: E402
-
 WEB_SERIAL = os.path.join(ROOT, "web", "web_serial.js")
 BRIDGE = os.path.join(ROOT, "stream_to_cloud.py")
 
@@ -116,6 +113,7 @@ def test_the_bridge_read_timeout_is_shorter_than_its_watchdog():
     m = re.search(r"serial\.Serial\([^)]*timeout=([\d.]+)", src)
     assert m, "no serial read timeout found"
     w = re.search(r"SERIAL_WATCHDOG_S\s*=\s*([\d.]+)", src)
+    assert w, "no SERIAL_WATCHDOG_S found"
     assert float(m.group(1)) < float(w.group(1))
 
 

@@ -23,11 +23,14 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, TypedDict
 import numpy as np
 
-# Add project root to sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if __name__ == "__main__":
+    # Run as a script, only scripts/ is on sys.path; main.py lives in the
+    # repository root.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import main as M
 
 
@@ -43,6 +46,12 @@ def wilson_score_interval(k: int, n: int, confidence: float = 0.95) -> Tuple[flo
     return max(0.0, float(centre - margin)), min(1.0, float(centre + margin))
 
 
+class ScenarioDef(TypedDict):
+    folders: List[str]
+    description: str
+    is_anomaly: bool
+
+
 def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
     print("=" * 78)
     print("5-SCENARIO BIOMEDICAL SIGNAL & ALGORITHM BENCHMARK")
@@ -56,7 +65,7 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         return {}
 
     # Define scenario mapping based on file folder names
-    scenario_defs = {
+    scenario_defs: Dict[str, ScenarioDef] = {
         "1. Baseline (อยู่นิ่ง)": {
             "folders": ["N_base"],
             "description": "Resting attached dressing, quiescent state, ambient drift only",
@@ -120,11 +129,11 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         oof_preds = M.compute_oof(ds, 42)
     else:
         print("Fitting model in-sample on entire corpus ...")
-        clf = M._new_rf(42).fit(ds.X, ds.y)
+        clf = M.new_rf(42).fit(ds.X, ds.y)
         oof_preds = clf.predict(ds.X)
 
-    scenario_results = {}
-    all_summary = []
+    scenario_results: Dict[str, Dict[str, Any]] = {}
+    all_summary: List[Dict[str, Any]] = []
 
     for name, sdef in scenario_defs.items():
         folders = sdef["folders"]
@@ -136,14 +145,14 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         file_count = len(indices)
         total_frames = sum(len(ds.frames[i]) for i in indices)
 
-        deepest_deltas = []
-        max_deltas = []
+        deepest_deltas: List[float] = []
+        max_deltas: List[float] = []
         lift_gate_crossings = 0
         noise_gate_crossings = 0
 
         alarms_triggered = 0
-        file_votes = []
-        mismatched_files = []
+        file_votes: List[int] = []
+        mismatched_files: List[Tuple[str, int, int]] = []
 
         for fi in indices:
             raw_frames = ds.frames[fi]  # (n_frames, 25)
@@ -163,7 +172,7 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
             preds = oof_preds[file_mask]
 
             # File-level majority vote
-            vote = M._file_vote(preds)
+            vote = M.file_vote(preds)
             file_votes.append(vote)
             true_label = ds.labels[fi]
             if vote != true_label:
@@ -186,7 +195,7 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         alarm_ci_low, alarm_ci_high = wilson_score_interval(alarms_triggered, file_count)
         lift_ci_low, lift_ci_high = wilson_score_interval(lift_gate_crossings, file_count)
 
-        scenario_stat = {
+        scenario_stat: Dict[str, Any] = {
             "scenario": name,
             "description": sdef["description"],
             "files": file_count,

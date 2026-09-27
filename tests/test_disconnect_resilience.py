@@ -10,14 +10,11 @@ from __future__ import annotations
 
 import time
 import numpy as np
-import pytest
 
-import main as M
 from main import (
     LivePipeline,
     N_PADS,
     BASELINE_COUNTS,
-    SAMPLE_PERIOD_S,
     SerialFrameSource,
 )
 
@@ -61,17 +58,15 @@ def test_50_cycle_disconnect_reconnect_bursts():
 def test_sub_1_5s_serial_disconnect_transition():
     """F4/F14: A quiet or severed serial connection transitions within 1.5 seconds."""
     class QuietPort:
-        def readline(self):
+        def readline(self) -> bytes:
             # Simulates an unplugged/silent COM port
             time.sleep(0.02)
             return b""
 
-        def close(self):
+        def close(self) -> None:
             pass
 
-    src = SerialFrameSource.__new__(SerialFrameSource)
-    src._ser = QuietPort()
-    src._stop = __import__("threading").Event()
+    src = SerialFrameSource("quiet", ser=QuietPort())
     # SerialFrameSource.IDLE_TIMEOUT_S is 1.2s, guaranteed < 1.5s
     src.IDLE_TIMEOUT_S = 1.2
     src.EMPTY_READ_SLEEP_S = 0.01

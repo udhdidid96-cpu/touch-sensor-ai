@@ -62,7 +62,7 @@ the `noise_sd120` variant detects 24 of 40 events.
   scored on its `severity_level`. `C0_offline` is the one exception: it is scored
   the published way (`calibrate(raw, "kalman")`, `clf.predict`, `AlarmDebouncer`
   with the same warmup), so the gap between it and `C0_served` is H0.
-- **Fixed, not tuned.** Estimator `_new_rf(42)` (HistGradientBoosting, 150
+- **Fixed, not tuned.** Estimator `new_rf(42)` (HistGradientBoosting, 150
   iterations, depth 8, balanced classes), the 34 features, the operating point
   (6 votes in a 7-frame window, hold 9), the 60-count noise gate, the -300 lift gate
   and the peel gate are all unchanged. None of them is re-tuned on these results.

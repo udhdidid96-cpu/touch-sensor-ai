@@ -40,9 +40,8 @@ from typing import Any, Dict, List
 import numpy as np
 from scipy import stats
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-import main as m  # noqa: E402  (path set above on purpose)
+from _root import ROOT
+import main as m
 
 # --- published rates used in section 6 --------------------------------------
 # Li, Sun, Xu. Intensive Crit Care Nurs 2022 (38 studies): pooled unplanned
@@ -128,7 +127,7 @@ def kalman_ramp() -> Dict[str, Any]:
         sds.extend((np.std(np.diff(raw, axis=0), axis=0) / math.sqrt(2.0)).tolist())
     noise_sd = float(np.median(sds)) if sds else float("nan")
     peel_counts = abs(_deepest_peel_delta())
-    rows = []
+    rows: List[Dict[str, Any]] = []
     cases = (("device path: seeded from frame 0, r fixed", kb.r, "live"),
              ("offline path: r floor (20)", 20.0, "offline"),
              ("offline path: measured N_base noise", noise_sd ** 2, "offline"),
@@ -169,17 +168,17 @@ def cdc_seed() -> Dict[str, Any]:
     out: Dict[str, Any] = {"cdc_power_on_pf": {}, "counts_power_on": {}}
     for pf in (3.0, 5.0, 12.0, 30.0, 45.0):
         lp = m.LivePipeline(model=None, cdc_mode=True)
-        res = None
-        for _ in range(m.KALMAN_WARMUP + 1):
-            res = lp.process(np.full(m.N_PADS, pf))
+        for _ in range(m.KALMAN_WARMUP):
+            lp.process(np.full(m.N_PADS, pf))
+        res = lp.process(np.full(m.N_PADS, pf))
         out["cdc_power_on_pf"][f"{pf:g} pF"] = res["seed_plausibility"]["status"]
     floor = m.spec_detach_reachability(m.SPEC_DETACH_MAX)["floor_counts_at_zero_capacitance"]
     for pf in (5.0, 30.0, 45.0):
         counts = floor + pf * m.COUNTS_PER_PF
         lp = m.LivePipeline(model=None)
-        res = None
-        for _ in range(m.KALMAN_WARMUP + 1):
-            res = lp.process(np.full(m.N_PADS, counts))
+        for _ in range(m.KALMAN_WARMUP):
+            lp.process(np.full(m.N_PADS, counts))
+        res = lp.process(np.full(m.N_PADS, counts))
         out["counts_power_on"][f"{pf:g} pF ({counts:,.0f} counts)"] = res["seed_plausibility"]["status"]
     # what a patch that is applied AFTER a CDC power-on in air looks like
     lp = m.LivePipeline(model=None, cdc_mode=True)
@@ -217,7 +216,8 @@ def hpull_depth() -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     files = sorted(glob.glob(os.path.join(ROOT, "Data", "Horizontal Pull NO G", "*.csv")))
     for name in ("static", "kalman", "served"):
-        mins, maxs = [], []
+        mins: List[float] = []
+        maxs: List[float] = []
         for path in files:
             raw = _csv_frames(path)
             if name == "static":
@@ -408,7 +408,8 @@ def pad_fault() -> Dict[str, Any]:
 
 
 def main_cli() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    doc = __doc__ or ""
+    ap = argparse.ArgumentParser(description=doc.splitlines()[0] if doc else "")
     ap.add_argument("--json", action="store_true", help="print JSON instead of text")
     args = ap.parse_args()
     report = {"timing": timing(), "kalman_ramp": kalman_ramp(), "cdc_seed": cdc_seed(),

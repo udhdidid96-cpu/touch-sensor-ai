@@ -1,10 +1,16 @@
 """Tests for Next-Generation ICU Features & Edge-Case Resilience (R1-R4)."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 from main import LivePipeline, N_PADS
 
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
-def test_shift_report_endpoint(client):
+
+def test_shift_report_endpoint(client: TestClient):
     """Verify /api/v6/shift-report returns structured shift handover metrics."""
     res = client.get("/api/v6/shift-report")
     assert res.status_code == 200
@@ -22,7 +28,7 @@ def test_shift_report_endpoint(client):
         "frames over streamed frames first")
 
 
-def test_ward_status_endpoint(client):
+def test_ward_status_endpoint(client: TestClient):
     """/api/v6/ward/status hands out EMPTY slots and no invented telemetry.
 
     This test used to assert only that eight beds came back and that they were
@@ -95,7 +101,7 @@ def test_usb_reconnection_reseeds_only_after_a_real_disconnect():
         f"progress: {min(before):.0f} -> {min(after):.0f} counts")
 
 
-def test_cdc_tube_localization_endpoint(client):
+def test_cdc_tube_localization_endpoint(client: TestClient):
     """Test /api/v6/cdc/tube-localization detects tube shadow from absolute capacitance."""
     c_abs = [30.0] * N_PADS
     for p in [0, 2, 6, 8, 10]:
@@ -143,7 +149,7 @@ def test_live_pipeline_cdc_mode_and_disconnect():
     assert out_disc["mode"] == "cdc"
 
 
-def test_static_tube_localization_edge_cases(client):
+def test_static_tube_localization_edge_cases(client: TestClient):
     """Test NaN, Inf, and diagonal tube orientation validation."""
     from main import detect_static_tube_localization
     # NaN input
@@ -170,7 +176,7 @@ def test_static_tube_localization_edge_cases(client):
     assert res_diag["axis_orientation"] in ("diagonal", "vertical", "horizontal")
 
 
-def test_analyze_surface_topography_planar_and_stepped(client):
+def test_analyze_surface_topography_planar_and_stepped(client: TestClient):
     """Verify surface topography profiling for planar, contoured, and stepped ridge profiles."""
     from main import analyze_surface_topography, compute_fractional_deltas
 
@@ -227,7 +233,7 @@ def test_dockerfile_security_guard():
                 )
 
 
-def test_simulator_websocket_source(client):
+def test_simulator_websocket_source(client: TestClient):
     """TEST-02: Test websocket telemetry stream from simulator source."""
     with client.websocket_connect("/ws/live_sensor?source=simulator") as ws:
         started = ws.receive_json()
@@ -241,7 +247,7 @@ def test_simulator_websocket_source(client):
         assert frame["severity_level"] in (0, 1, 2, 3)
 
 
-def test_event_log_nan_inf_and_bounds_rejection(client):
+def test_event_log_nan_inf_and_bounds_rejection(client: TestClient):
     """TEST-03: /api/v6/event-log rejects NaN, Inf, negative indices, and invalid severities."""
     # 1. NaN cpri_percent passed via raw non-finite payload
     res = client.post(
@@ -296,7 +302,7 @@ def test_fractional_deltas_edge_guards():
     assert np.allclose(res, d)
 
 
-def test_cdc_tube_payload_validation(client):
+def test_cdc_tube_payload_validation(client: TestClient):
     """TEST-06: /api/v6/cdc/tube-localization validates payload structure strictly."""
     # List of booleans instead of numbers
     res = client.post("/api/v6/cdc/tube-localization", json={"c_abs_pf": [True] * N_PADS})
@@ -309,6 +315,3 @@ def test_cdc_tube_payload_validation(client):
     # Non-dict body
     res = client.post("/api/v6/cdc/tube-localization", json="not a dict")
     assert res.status_code in (400, 422)
-
-
-

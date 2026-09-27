@@ -30,15 +30,15 @@ import json
 import math
 import os
 import sys
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy import sparse, stats
 from scipy.sparse.linalg import spsolve
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-import main as m  # noqa: E402  (path set above on purpose)
+from _root import ROOT
+import main as m
 
 EPS0 = 8.854187817e-12
 RNG = np.random.default_rng(20260925)
@@ -50,9 +50,7 @@ T_PI, EPS_PI = 25e-6, 3.4      # polyimide flex
 EPS_AIR = 1.0
 
 
-# ============================================================================
 # Finite-volume field solver: cell-based permittivity, node-based potential
-# ============================================================================
 def _graded(a: float, b: float, h_min: float, growth: float, h_max: float) -> np.ndarray:
     pts, h = [a], h_min
     while pts[-1] + h < b:
@@ -75,7 +73,10 @@ def _solve(gx: np.ndarray, gz: np.ndarray, eps_cell: np.ndarray, fixed: np.ndarr
     idx = np.arange(nx * nz).reshape(nx, nz)
     xh = np.concatenate([[gx[0]], 0.5 * (gx[1:] + gx[:-1]), [gx[-1]]])
     zh = np.concatenate([[gz[0]], 0.5 * (gz[1:] + gz[:-1]), [gz[-1]]])
-    rows, cols, vals, cond = [], [], [], {}
+    rows: List[int] = []
+    cols: List[int] = []
+    vals: List[float] = []
+    cond: Dict[Tuple[int, int, int, int], float] = {}
 
     def eps(i: int, j: int) -> float:
         return float(eps_cell[i, j]) if (0 <= i < nx - 1 and 0 <= j < nz - 1) else 0.0
@@ -114,7 +115,7 @@ def _solve(gx: np.ndarray, gz: np.ndarray, eps_cell: np.ndarray, fixed: np.ndarr
     return phi.reshape(nx, nz), cond
 
 
-def _charge(phi: np.ndarray, cond: Dict, mask: np.ndarray) -> float:
+def _charge(phi: np.ndarray, cond: Dict[Tuple[int, int, int, int], float], mask: np.ndarray) -> float:
     """Net flux (per eps0) leaving a set of Dirichlet nodes."""
     q = 0.0
     for (i, j, k, l), g in cond.items():
@@ -220,7 +221,7 @@ def shear_cell(offsets_mm: Sequence[float] = (0.0, 0.1, 0.25, 0.5), w: float = 5
                h: float = 0.5e-3, eps_soft: float = 3.0, length: float = 5e-3) -> Dict[str, Any]:
     """Top electrode (width w) over two bottom electrodes; mutual capacitance to each
     receiver as the top slides by x. Differential = C_left - C_right."""
-    out = []
+    out: List[Dict[str, float]] = []
     xl, xr = (-gap_b / 2 - w, -gap_b / 2), (gap_b / 2, gap_b / 2 + w)
     for dx in offsets_mm:
         xt = (-w / 2 - dx * 1e-3, w / 2 - dx * 1e-3)
@@ -251,9 +252,7 @@ def shear_cell(offsets_mm: Sequence[float] = (0.0, 0.1, 0.25, 0.5), w: float = 5
             "signal_10N_counts": round(slope * shift * 1e3 * 1e-3 * m.COUNTS_PER_PF, 3)}
 
 
-# ============================================================================
 # Tissue: conductor or dielectric at the sensing frequency?
-# ============================================================================
 # Four-Cole-Cole fits of Gabriel, Lau and Gabriel, Phys Med Biol 41:2271 (1996),
 # Table 1 - the same table scripts/translation_plan_checks.py tissue() uses.
 # (eps_inf, [(delta_eps, tau_s, alpha), ...], sigma_ionic S/m)
@@ -277,7 +276,7 @@ def _eps_tissue(name: str, f: float) -> complex:
     return eps + sig / (1j * w * EPS0)
 
 
-def _stack(f: float) -> Tuple[list, float, float]:
+def _stack(f: float) -> Tuple[List[Dict[str, Any]], float, float]:
     """Series impedance of each layer under one pad; tissue share of |Z| and the
     change in apparent (parallel-equivalent) capacitance that the tissue causes."""
     area, w = math.pi * PAD_RADIUS ** 2, 2 * math.pi * f
@@ -311,9 +310,7 @@ def tissue_regime() -> Dict[str, Any]:
             "tissue_as_conductor_pf": round(EPS0 * area / (T_ADH / EPS_ADH) * 1e12, 3)}
 
 
-# ============================================================================
 # Data: distributions, distances, overlap
-# ============================================================================
 SCEN = {"N_base": "Baseline", "Brief Touch": "Touching", "Press": "Touching", "Friction": "Friction",
         "Vertical Pull NO G": "Pulling", "Horizontal Pull NO G": "Pulling", "PowerP": "Pulling",
         "Peel": "Peeling", "Normal Mix": "Normal Mix (ref)"}
@@ -325,7 +322,8 @@ def _lw(Z: np.ndarray) -> np.ndarray:
     return LedoitWolf().fit(Z).covariance_
 
 
-def _gauss_kl(mu0, s0, mu1, s1) -> float:
+def _gauss_kl(mu0: NDArray[np.float64], s0: NDArray[np.float64],
+              mu1: NDArray[np.float64], s1: NDArray[np.float64]) -> float:
     s1i = np.linalg.inv(s1)
     d = mu1 - mu0
     return 0.5 * (np.trace(s1i @ s0) + d @ s1i @ d - len(mu0)
@@ -336,25 +334,28 @@ def _knn_kl(P: np.ndarray, Q: np.ndarray, k: int = 5) -> float:
     """Wang, Kulkarni, Verdu (2009) k-NN estimator of D(P||Q)."""
     from scipy.spatial import cKDTree
     n, d = P.shape
-    rho = np.maximum(cKDTree(P).query(P, k=k + 1)[0][:, -1], 1e-9)
-    nu = np.maximum(cKDTree(Q).query(P, k=k)[0][:, -1], 1e-9)
+    # query() is typed to return a float for one point, arrays for several; P has several.
+    rho = np.maximum(np.asarray(cKDTree(P).query(P, k=k + 1)[0])[:, -1], 1e-9)
+    nu = np.maximum(np.asarray(cKDTree(Q).query(P, k=k)[0])[:, -1], 1e-9)
     return float(d * np.mean(np.log(nu / rho)) + math.log(len(Q) / (n - 1)))
 
 
-def data_geometry(ds: Any) -> Dict[str, Any]:
+def data_geometry(ds: m.Dataset) -> Dict[str, Any]:
     from scipy.spatial import cKDTree
     X = np.asarray(ds.X, dtype=float)
-    scen, fidx, active = [], [], []
+    frame_scen: List[str] = []
+    frame_file: List[int] = []
+    frame_active: List[bool] = []
     for fi, (fname, d) in enumerate(zip(ds.files, ds.frames)):
         folder = fname.replace("\\", "/").split("/")[0]
-        scen += [SCEN.get(folder, folder)] * len(d)
-        fidx += [fi] * len(d)
-        active += list(np.max(np.abs(d), axis=1) >= m.NOISE_GATE_COUNTS)
-    scen, fidx, active = np.array(scen), np.array(fidx), np.array(active)
+        frame_scen += [SCEN.get(folder, folder)] * len(d)
+        frame_file += [fi] * len(d)
+        frame_active += list(np.max(np.abs(d), axis=1) >= m.NOISE_GATE_COUNTS)
+    scen, fidx, active = np.array(frame_scen), np.array(frame_file), np.array(frame_active)
     assert len(scen) == len(X)
     summary = {}
     for s in NAMES5 + ["Normal Mix (ref)"]:
-        sel = scen == s
+        sel: NDArray[np.bool_] = scen == s
         summary[s] = {"files": int(len(set(fidx[sel]))), "frames": int(sel.sum()),
                       "active": int((sel & active).sum()),
                       "median_min": round(float(np.median(X[sel, 25])), 1),
@@ -367,7 +368,10 @@ def data_geometry(ds: Any) -> Dict[str, Any]:
     inv34 = np.linalg.inv(_lw(pooled))
     st = list(range(25, 34))
     inv9 = np.linalg.inv(_lw(pooled[:, st]))
-    maha34, maha9, kl, knn = {}, {}, {}, {}
+    maha34: Dict[str, float] = {}
+    maha9: Dict[str, float] = {}
+    kl: Dict[str, List[float]] = {}
+    knn: Dict[str, List[float]] = {}
     for i, a in enumerate(NAMES5):
         for b in NAMES5[i + 1:]:
             da = Z[use[a]].mean(0) - Z[use[b]].mean(0)
@@ -386,16 +390,17 @@ def data_geometry(ds: Any) -> Dict[str, Any]:
     tree = cKDTree(Z[act])
     overlap = {}
     for s in ["Pulling", "Peeling", "Touching", "Friction"]:
-        sel = np.where((scen == s) & active)[0]
+        active_frames = np.where((scen == s) & active)[0]
         hits = 0
-        for q in sel:
-            dd, ii = tree.query(Z[q], k=60)
+        for q in active_frames:
+            _, ii = tree.query(Z[q], k=60)
             for j in act[ii]:
                 if fidx[j] != fidx[q]:
                     hits += int((s in ("Pulling", "Peeling") and normal[j])
                                 or (s in ("Touching", "Friction") and anomaly[j]))
                     break
-        overlap[s] = {"active": int(len(sel)), "nn_opposite": hits, "rate": round(hits / max(len(sel), 1), 3)}
+        overlap[s] = {"active": int(len(active_frames)), "nn_opposite": hits,
+                      "rate": round(hits / max(len(active_frames), 1), 3)}
     ctx = {}
     for folder in ("Vertical Pull NO G", "Peel", "Horizontal Pull NO G"):
         lens = [len(d) for fn, d in zip(ds.files, ds.frames) if fn.replace("\\", "/").startswith(folder)]
@@ -406,7 +411,7 @@ def data_geometry(ds: Any) -> Dict[str, Any]:
     # Sign regimes: which frames carry a deep negative pad, a strong positive pad, both, neither.
     folders = np.array([fn.replace("\\", "/").split("/")[0] for fn, d in zip(ds.files, ds.frames) for _ in range(len(d))])
 
-    def regimes(sel: np.ndarray) -> Dict[str, Any]:
+    def regimes(sel: NDArray[np.bool_]) -> Dict[str, Any]:
         neg, pos = X[sel, 29] > 0, X[sel, 32] > 0
         return {"frames": int(sel.sum()), "neg_only": round(float(np.mean(neg & ~pos)), 3),
                 "pos_only": round(float(np.mean(pos & ~neg)), 3), "mixed": round(float(np.mean(neg & pos)), 3),
@@ -420,9 +425,7 @@ def data_geometry(ds: Any) -> Dict[str, Any]:
             "polarity": polarity, "polarity_by_folder": polarity_folder}
 
 
-# ============================================================================
 # Learning-theory arithmetic
-# ============================================================================
 def learning_bounds() -> Dict[str, Any]:
     leaves, iters = 31, 150
 
@@ -471,9 +474,7 @@ def annunciator_arithmetic() -> Dict[str, Any]:
             "seed_tests": seeds}
 
 
-# ============================================================================
 # Noise, gate, vote, causal median
-# ============================================================================
 def noise_analysis(model: Any) -> Dict[str, Any]:
     gate = m.NOISE_GATE_COUNTS
     leak = {str(s): round(1 - (1 - 2 * float(stats.norm.sf(gate / s))) ** m.N_PADS, 4)
@@ -514,48 +515,44 @@ def noise_analysis(model: Any) -> Dict[str, Any]:
     return res
 
 
-# ============================================================================
 # Power-on contamination and the software safety layers
-# ============================================================================
 def seed_checks() -> Dict[str, Any]:
     import pandas as pd
     seeds = np.array([pd.read_csv(p)[m.SENSOR_COLS].to_numpy(float)[:m.KALMAN_WARMUP].mean(0)
                       for p in sorted(glob.glob(os.path.join(ROOT, "Data", "N_base", "*.csv")))])
     press = {}
     for k in (1, 2, 5):
-        for P in (200, 400, 500, 600, 800, 1200):
+        for extra in (200, 400, 500, 600, 800, 1200):
             hits = 0
             for s in seeds:
                 for _ in range(40):
                     c = s.copy()
-                    c[RNG.choice(m.N_PADS, k, replace=False)] += P
+                    c[RNG.choice(m.N_PADS, k, replace=False)] += extra
                     hits += m.seed_plausibility(c)["status"] != "attached_band"
-            press[f"k={k},+{P}"] = round(hits / (40 * len(seeds)), 3)
+            press[f"k={k},+{extra}"] = round(hits / (40 * len(seeds)), 3)
     loose = {f"-{X}": f"{sum(m.seed_plausibility(s - X)['status'] != 'attached_band' for s in seeds)}/{len(seeds)}"
              for X in (200, 400, 500, 600, 800)}
     recov = {}
-    for P in (400, 800, 1500):
+    for extra in (400, 800, 1500):
         lp = m.LivePipeline(model=None)
         eng = back = None
         for i in range(80):
             fr = np.full(m.N_PADS, m.BASELINE_COUNTS) + RNG.normal(0, 8.4, m.N_PADS)
             if i < 12:
-                fr[3] += P
+                fr[3] += extra
             out = lp.process(fr)
             if i >= 12 and eng is None and 4 in out["quiescent_recovery"]["active_pads"]:
                 eng = i
             if i > 12 and back is None and abs(out["deltas"][3]) < m.NOISE_GATE_COUNTS:
                 back = i
-        recov[f"+{P}"] = {"engaged_s": round((eng - 12) * m.SAMPLE_PERIOD_S, 2) if eng else None,
-                          "inside_gate_s": round((back - 12) * m.SAMPLE_PERIOD_S, 2) if back else None}
+        recov[f"+{extra}"] = {"engaged_s": round((eng - 12) * m.SAMPLE_PERIOD_S, 2) if eng else None,
+                              "inside_gate_s": round((back - 12) * m.SAMPLE_PERIOD_S, 2) if back else None}
     sd = float(np.std(m.SEED_RESTING_SHAPE - np.median(m.SEED_RESTING_SHAPE)))
     return {"press_detect": press, "loose_detect": loose, "recovery": recov,
             "shape_sd_counts": round(sd, 1), "shape_sd_pf": round(sd / m.COUNTS_PER_PF, 2)}
 
 
-# ============================================================================
 # Static tube localisation
-# ============================================================================
 def _pads_mm() -> np.ndarray:
     return np.array([[m.PHYSICAL_PAD_COORDS[i][0] * 0.9, m.PHYSICAL_PAD_COORDS[i][1] * 1.2] for i in range(1, 26)])
 
@@ -565,8 +562,9 @@ def _band(theta: float, rho: float, xy: np.ndarray, half: float, depth: float) -
     return depth * np.clip((half - np.abs(xy @ n - rho) + 3.5) / 7.0, 0, 1)
 
 
-def _templates(xy: np.ndarray, half: float = 6.0) -> Tuple[np.ndarray, list]:
-    rows, params = [], []
+def _templates(xy: np.ndarray, half: float = 6.0) -> Tuple[np.ndarray, List[Tuple[float, float]]]:
+    rows: List[np.ndarray] = []
+    params: List[Tuple[float, float]] = []
     for th in np.arange(0, 180, 5.0):
         proj = xy @ np.array([math.cos(math.radians(th)), math.sin(math.radians(th))])
         for rho in np.arange(proj.min() - 3, proj.max() + 3, 2.0):
@@ -577,13 +575,13 @@ def _templates(xy: np.ndarray, half: float = 6.0) -> Tuple[np.ndarray, list]:
     return np.array(rows), params
 
 
-def _mf(values: np.ndarray, T: np.ndarray, params: list, n_perm: int = 300) -> Tuple[float, float]:
+def _mf(values: np.ndarray, T: np.ndarray, params: List[Tuple[float, float]], n_perm: int = 300) -> Tuple[float, float]:
     v = np.median(values) - values
     z = (v - v.mean()) / (v.std() * math.sqrt(len(v)) + 1e-12)
     sc = T @ z
     b = int(np.argmax(sc))
     perm = np.max(T @ np.array([RNG.permutation(z) for _ in range(n_perm)]).T, axis=0)
-    return params[b][0], float((1 + np.sum(perm >= sc[b])) / (1 + n_perm))
+    return params[b][0], float((1 + np.count_nonzero(perm >= sc[b])) / (1 + n_perm))
 
 
 def tube_checks(trials: int) -> Dict[str, Any]:
@@ -596,7 +594,8 @@ def tube_checks(trials: int) -> Dict[str, Any]:
     sim = {}
     for sp in (0.2, 1.0, 3.0):
         for cname, cfg in cases.items():
-            ds_, dm, axok, errs = 0, 0, 0, []
+            ds_, dm, axok = 0, 0, 0
+            errs: List[float] = []
             for _ in range(trials):
                 vals = 30.0 + RNG.normal(0, sp, 25) + RNG.normal(0, 0.05, 25)
                 if cfg:
@@ -621,9 +620,7 @@ def tube_checks(trials: int) -> Dict[str, Any]:
             "true_45deg_in_percent_space_deg": round(math.degrees(math.atan(0.9 / 1.2)), 1)}
 
 
-# ============================================================================
 # Spec and calibration-target hypothesis
-# ============================================================================
 def spec_checks() -> Dict[str, Any]:
     t15 = 0.85 * (2 ** 15 - 1)
     return {"reach": m.spec_detach_reachability(m.SPEC_DETACH_MAX),
@@ -634,9 +631,7 @@ def spec_checks() -> Dict[str, Any]:
             "deepest_peel_relative_pct": round(100 * 902.4 / m.BASELINE_COUNTS, 2)}
 
 
-# ============================================================================
 # Mechanics: bending, adhesion and the tent
-# ============================================================================
 def mech_checks() -> Dict[str, Any]:
     def D(E: float, t: float, nu: float) -> float:
         return E * t ** 3 / (12 * (1 - nu ** 2))
@@ -654,7 +649,7 @@ def mech_checks() -> Dict[str, Any]:
     xy = _pads_mm()
     c_flush = EPS0 * math.pi * PAD_RADIUS ** 2 / (T_ADH / EPS_ADH) * 1e12
     c_raised = EPS0 * math.pi * PAD_RADIUS ** 2 / (T_ADH / EPS_ADH + a) * 1e12
-    pads = []
+    pads: List[Dict[str, float]] = []
     for i, (x, y) in enumerate(xy, start=1):
         frac = float(np.clip((a * 1e3 + 0.5 - abs(x - 45.0) + 3.5) / 7.0, 0, 1))
         if frac > 0:
@@ -667,26 +662,25 @@ def mech_checks() -> Dict[str, Any]:
             "stack_d_over_eps_um": round((T_ADH / EPS_ADH + T_PI / EPS_PI) * 1e6, 1)}
 
 
-# ============================================================================
 # Normalisation: gate units, affine invariance, per-pad signal budget
-# ============================================================================
 def normalisation_checks(sweep: Sequence[Dict[str, float]]) -> Dict[str, Any]:
     k = m.COUNTS_PER_PF
     offset = m.BASELINE_COUNTS - m.NOMINAL_BASELINE_PF * k       # the repo's transfer: N = offset + k * C
     sigma = 8.6                                                   # bench per-pad noise sd, counts (PHYSICS_TO_FEATURE_MAP)
     gates = {}
     for c in (15.0, 30.0, 35.0):
-        gc = m.analyze_surface_topography(np.full(m.N_PADS, offset + k * c), is_cdc_pf=False)["adaptive_lift_gates"][0]
-        gp = m.analyze_surface_topography(np.full(m.N_PADS, c), is_cdc_pf=True)["adaptive_lift_gates"][0]
+        gc: float = m.analyze_surface_topography(np.full(m.N_PADS, offset + k * c), is_cdc_pf=False)["adaptive_lift_gates"][0]
+        gp: float = m.analyze_surface_topography(np.full(m.N_PADS, c), is_cdc_pf=True)["adaptive_lift_gates"][0]
         p1 = float(stats.norm.cdf(gp * k / sigma))
         gates[f"{c:g} pF"] = {"counts_mode_gate": gc, "counts_mode_gate_pf": round(gc / k, 2),
                               "pf_mode_gate_pf": gp, "pf_mode_gate_counts": round(gp * k, 1),
                               "pf_mode_false_lift_per_pad_frame": round(p1, 4),
                               "pf_mode_any_of_25_pads": round(1 - (1 - p1) ** m.N_PADS, 3)}
     target = 0.85 * (2 ** 15 - 1)
-    transfers = {"affine, repo constants": lambda c, c0: offset + k * c,
-                 "per-channel 85% target": lambda c, c0: target + k * (c - c0),
-                 "85% target, gain x1.3": lambda c, c0: target + 1.3 * k * (c - c0)}
+    transfers: Dict[str, Callable[[float, float], float]] = {
+        "affine, repo constants": lambda c, c0: offset + k * c,
+        "per-channel 85% target": lambda c, c0: target + k * (c - c0),
+        "85% target, gain x1.3": lambda c, c0: target + 1.3 * k * (c - c0)}
     pads = {"C_par 26 + C_body 4": (26.0, 4.0), "C_par 10 + C_body 25": (10.0, 25.0), "C_par 26 + C_body 0.53": (26.0, 0.53)}
     invariance = {}
     for pname, (cp, cb) in pads.items():
@@ -715,11 +709,14 @@ def normalisation_checks(sweep: Sequence[Dict[str, float]]) -> Dict[str, Any]:
 
 
 def main_cli() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    doc = __doc__ or ""
+    ap = argparse.ArgumentParser(description=doc.splitlines()[0] if doc else "")
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     ds = m.load_dataset(calibration="kalman", verbose=False)
-    model = m._new_rf(42).fit(ds.X, ds.y)
+    if ds is None:
+        raise SystemExit("no dataset under Data/")
+    model = m.new_rf(42).fit(ds.X, ds.y)
     field = field_axisym(args.quick)
     report = {"field_axisym": field, "field_plane_edge": field_ground_plane(args.quick),
               "field_shear_cell": shear_cell(), "tissue": tissue_regime(), "data": data_geometry(ds),

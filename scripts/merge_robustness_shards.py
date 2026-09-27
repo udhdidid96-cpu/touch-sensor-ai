@@ -27,20 +27,22 @@ import glob
 import json
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, REPO_ROOT)
+if __name__ == "__main__":
+    # Run as a script, only scripts/ is on sys.path; main.py lives in the
+    # repository root.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import main  # noqa: E402
-from evaluate_robustness import VARIANTS  # noqa: E402
+import main
+from evaluate_robustness import VARIANTS
 
 COMPARE_KEYS = ("sensitivity", "false_alarm_rate", "alarms_per_hour", "detected", "fa_files")
 
 
 def _merge(paths: List[str]) -> Dict[str, Any]:
     by_variant: Dict[str, Dict[str, Any]] = {}
-    calibrations = set()
+    calibrations: Set[str] = set()
     sources: List[str] = []
 
     for path in paths:

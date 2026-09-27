@@ -36,14 +36,16 @@ import glob
 import json
 import os
 import sys
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, REPO_ROOT)
+if __name__ == "__main__":
+    # Run as a script, only scripts/ is on sys.path; main.py lives in the
+    # repository root.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import main  # noqa: E402
+import main
 
 # Folder groups, identical to scripts/evaluate_5_scenarios.py so the two
 # documents cannot describe different partitions of the same corpus.
@@ -60,7 +62,7 @@ SCENARIOS: Dict[str, List[str]] = {
 }
 
 
-def _stats_for(folders: List[str]) -> Dict[str, object]:
+def _stats_for(folders: List[str]) -> Dict[str, Any]:
     frames: List[np.ndarray] = []
     n_files = 0
     for folder in folders:
@@ -94,7 +96,7 @@ def main_cli() -> int:
         if not r["frames"]:
             print(f"{name:22s} {'-':>5s} {'-':>7s}  (no recordings)")
             continue
-        cells = []
+        cells: List[str] = []
         for s in shown:
             v = r["stats"][s]
             cells.append(f"{v['median']:>9.1f} [{v['q25']:.0f},{v['q75']:.0f}]".rjust(21))

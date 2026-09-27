@@ -39,6 +39,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+from typing import Optional, Sequence
 
 DEFAULT_PORT = 8081
 URL_RE = re.compile(r"https://[-\w.]+\.(?:trycloudflare\.com|loca\.lt)\S*")
@@ -55,7 +56,7 @@ def server_is_up(port: int, key: str = "") -> bool:
         return False
 
 
-def launch_server(port: int, key: str) -> subprocess.Popen:
+def launch_server(port: int, key: str) -> subprocess.Popen[bytes]:
     env = dict(os.environ)
     if key:
         env["PROJECT2_ACCESS_KEY"] = key
@@ -126,7 +127,7 @@ def tunnel(port: int, key: str) -> int:
         return 0
 
 
-def main(argv=None) -> int:
+def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").strip().split("\n")[0])
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-token", action="store_true",

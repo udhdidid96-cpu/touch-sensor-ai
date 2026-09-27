@@ -15,16 +15,14 @@ every pre-existing record "tampered" is a check everyone learns to ignore.
 import inspect
 import json
 import os
-import sys
+from typing import Any, Dict, List
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import main  # noqa: E402
+import main
 
 
-def _chain(events):
+def _chain(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Link a list of bare events the way append_event_log does."""
-    out = []
+    out: List[Dict[str, Any]] = []
     prev = main.AUDIT_GENESIS_HASH
     for ev in events:
         ev = dict(ev)
@@ -35,7 +33,7 @@ def _chain(events):
     return out
 
 
-def _events(n):
+def _events(n: int) -> List[Dict[str, Any]]:
     return [{"event_id": f"EVT-{i:04d}", "sequence": i + 1, "event_type": "alarm",
              "severity_level": 3, "cpri_percent": 90.0 + i} for i in range(n)]
 

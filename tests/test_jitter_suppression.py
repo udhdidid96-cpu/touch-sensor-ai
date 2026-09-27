@@ -15,14 +15,12 @@ Two properties carry the whole design and both are pinned here:
 """
 import glob
 import os
-import sys
+from typing import List
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import main as M  # noqa: E402
+import main as M
 
 
 def _corpus_files():
@@ -54,7 +52,7 @@ def test_the_activation_gate_sits_above_the_corpus_and_below_sd_60():
     files = _corpus_files()
     if not files:
         pytest.skip("no recordings")
-    per_file = []
+    per_file: List[float] = []
     for path in files:
         raw = M.read_raw_csv(path)
         if raw is None or len(raw) < 6:
@@ -72,6 +70,7 @@ def test_filter_engages_under_the_noise_that_causes_the_cliff():
     if not files:
         pytest.skip("no Peel recordings")
     raw = M.read_raw_csv(files[0])
+    assert raw is not None
     rng = np.random.default_rng(7)
     for sd, expect in ((60.0, True), (120.0, True)):
         noisy = raw + rng.normal(0.0, sd, size=raw.shape)
@@ -93,7 +92,7 @@ def test_a_step_edge_survives_the_filter():
     # between is smeared to an intermediate value - it is one value or the other
     assert set(np.unique(out[M.JITTER_TAPS - 1:])) <= {0.0, -900.0}
     assert out[-1, 0] == -900.0
-    assert out[JITTER_START := M.JITTER_TAPS - 1, 0] == 0.0
+    assert out[M.JITTER_TAPS - 1, 0] == 0.0
 
 
 def test_an_isolated_bad_frame_is_removed():
