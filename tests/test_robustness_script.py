@@ -3,8 +3,13 @@
 The full run takes ~20 minutes and is not part of the suite. These tests check
 the parts that would silently invalidate a result: shape preservation, the
 frame-drop floor, determinism per file, and that the read_raw_csv patch is
-always removed even when evaluation fails.
+always removed even when evaluation fails. The shard merge is checked for its
+ordering, its recomputed deltas, and its refusal to join shards that disagree.
 """
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+
 import numpy as np
 import pytest
 
@@ -68,3 +73,31 @@ def test_read_raw_csv_is_restored_after_failure(monkeypatch: pytest.MonkeyPatch)
     except RuntimeError:
         pass
     assert main.read_raw_csv is original
+
+
+def _shard(tmp_path: Path, name: str, rows: List[Dict[str, Any]]) -> str:
+    path = tmp_path / name
+    path.write_text(json.dumps({"calibration": "kalman_norm", "results": rows}), encoding="utf-8")
+    return str(path)
+
+
+def _row(variant: str, sensitivity: float, per_hour: float) -> Dict[str, Any]:
+    return {"variant": variant, "sensitivity": sensitivity, "false_alarm_rate": 0.1,
+            "alarms_per_hour": per_hour, "detected": 30, "fa_files": 2, "missed": []}
+
+
+def test_merge_orders_by_variant_and_recomputes_deltas(tmp_path: Path):
+    a = _shard(tmp_path, "a.json", [_row("identity", 0.9, 1.0), _row("noise_sd60", 0.8, 2.5)])
+    b = _shard(tmp_path, "b.json", [_row("identity", 0.9, 1.0), _row("gain_global_p10", 0.85, 1.5)])
+    merged = er.merge_shards([b, a])
+    assert [r["variant"] for r in merged["results"]] == ["identity", "gain_global_p10", "noise_sd60"]
+    assert merged["results"][2]["delta_sensitivity"] == pytest.approx(-0.1)
+    assert merged["results"][2]["delta_alarms_per_hour"] == pytest.approx(1.5)
+    assert "noise_sd30" in merged["variants_missing"]
+
+
+def test_merge_refuses_shards_that_disagree(tmp_path: Path):
+    a = _shard(tmp_path, "a.json", [_row("identity", 0.9, 1.0)])
+    b = _shard(tmp_path, "b.json", [_row("identity", 0.8, 1.0)])
+    with pytest.raises(SystemExit, match="measured differently"):
+        er.merge_shards([a, b])

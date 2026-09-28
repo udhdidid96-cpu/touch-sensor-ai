@@ -50,16 +50,30 @@ Usage
 Writes Data/robustness_evaluation.json and prints a table. Nothing here
 changes a threshold, retrains anything into the model cache, or touches
 Data/metrics.json.
+
+Shards
+------
+The full sweep is 11 variants at roughly 200-535 s each. Where that is too
+long for one process, run a few variants at a time with --variants and --out,
+then join the shards:
+
+    python scripts/evaluate_robustness.py --merge Data/rob_kn_*.json --out Data/robustness_evaluation_kalman_norm.json
+
+A variant measured alone is bit-identical to the same variant in a batch:
+same run_variant, same corpus, same per-file seed. --merge checks that rather
+than assuming it. A variant found in two shards (identity usually is) must
+agree, or the merge stops.
 """
 from __future__ import annotations
 
 import argparse
+import glob
 import hashlib
 import json
 import os
 import sys
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import numpy as np
 
@@ -181,6 +195,99 @@ def run_variant(name: str, perturb: Perturb, seed: int = 42,
     }
 
 
+COMPARE_KEYS = ("sensitivity", "false_alarm_rate", "alarms_per_hour", "detected", "fa_files")
+
+
+def merge_shards(paths: List[str]) -> Dict[str, Any]:
+    """Join the shard files of --variants runs into one results payload.
+
+    A variant found in two shards must agree on COMPARE_KEYS or the merge stops,
+    which makes a shared identity row a determinism check on the whole pipeline.
+    Deltas against identity are recomputed here, because a shard without
+    identity omits them rather than measuring against the wrong row.
+    """
+    by_variant: Dict[str, Dict[str, Any]] = {}
+    calibrations: Set[str] = set()
+    sources: List[str] = []
+
+    for path in paths:
+        with open(path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+        calibrations.add(payload.get("calibration", "kalman"))
+        sources.append(os.path.basename(path))
+        for row in payload["results"]:
+            name = row["variant"]
+            row = {k: v for k, v in row.items()
+                   if k not in ("delta_sensitivity", "delta_alarms_per_hour")}
+            if name in by_variant:
+                old = by_variant[name]
+                disagree = [k for k in COMPARE_KEYS if old.get(k) != row.get(k)]
+                if disagree:
+                    raise SystemExit(
+                        f"'{name}' measured differently in two shards, on {', '.join(disagree)}:\n"
+                        f"  {old.get('_source')}: "
+                        + ", ".join(f"{k}={old.get(k)}" for k in disagree) + "\n"
+                        f"  {os.path.basename(path)}: "
+                        + ", ".join(f"{k}={row.get(k)}" for k in disagree) + "\n"
+                        "The sweep is supposed to be deterministic per file and variant. "
+                        "Do not merge past this; find out why it is not.")
+                continue
+            row["_source"] = os.path.basename(path)
+            by_variant[name] = row
+
+    if len(calibrations) > 1:
+        raise SystemExit(f"shards mix calibration modes: {sorted(calibrations)}")
+
+    ordered = [by_variant[n] for n in VARIANTS if n in by_variant]
+    ordered += [r for n, r in by_variant.items() if n not in VARIANTS]
+
+    if ordered and ordered[0]["variant"] == "identity":
+        base = ordered[0]
+        for r in ordered[1:]:
+            r["delta_sensitivity"] = round(r["sensitivity"] - base["sensitivity"], 4)
+            r["delta_alarms_per_hour"] = round(r["alarms_per_hour"] - base["alarms_per_hour"], 2)
+
+    missing = [n for n in VARIANTS if n not in by_variant]
+    return {
+        "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "calibration": calibrations.pop(),
+        "merged_from": sources,
+        "variants_missing": missing,
+        "protocol": ("leave-one-file-out, 7-of-6 hold 9, perturbation applied to raw counts "
+                     "before calibrate() and extract_features(); merged from per-variant shards, "
+                     "identity cross-checked between shards"),
+        "caveat": ("robustness to MODELLED sensor variation on one mounting; not cross-session "
+                   "generalisation, which needs Data/S1..S3 and --cv session"),
+        "operating_point": {"window": 7, "votes": 6, "hold": 9},
+        "results": ordered,
+    }
+
+
+def _merge_cli(patterns: List[str], out: str) -> int:
+    paths: List[str] = []
+    for pattern in patterns:
+        hits = sorted(glob.glob(pattern))
+        if not hits:
+            raise SystemExit(f"no file matches {pattern}")
+        paths += hits
+    # a shard cannot merge with itself, and --out may already exist as an input
+    payload = merge_shards(list(dict.fromkeys(paths)))
+    if not out:
+        suffix = "" if payload["calibration"] == "kalman" else f"_{payload['calibration']}"
+        out = os.path.join(main.DATA_ROOT, f"robustness_evaluation{suffix}.json")
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+
+    print(f"{'variant':18s} {'sens':>7s} {'FA/rec':>7s} {'alarm/h':>8s} {'missed':>6s}  source")
+    for r in payload["results"]:
+        print(f"{r['variant']:18s} {r['sensitivity']*100:6.1f}% {r['false_alarm_rate']*100:6.1f}% "
+              f"{r['alarms_per_hour']:8.1f} {len(r['missed']):6d}  {r['_source']}")
+    if payload["variants_missing"]:
+        print("\nNOT MEASURED: " + ", ".join(payload["variants_missing"]))
+    print(f"\nwrote {out}")
+    return 0
+
+
 def main_cli() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -191,7 +298,13 @@ def main_cli() -> int:
                          "that LivePipeline applies but the shipped offline path does not")
     ap.add_argument("--out", default="",
                     help="output JSON; defaults to Data/robustness_evaluation[_<calibration>].json")
+    ap.add_argument("--merge", nargs="+", metavar="SHARD", default=[],
+                    help="join shard files from --variants runs (globs are expanded) into --out; measures nothing")
     args = ap.parse_args()
+    if args.merge:
+        if args.variants or args.quick:
+            ap.error("--merge joins existing shards; it does not take --variants or --quick")
+        return _merge_cli(args.merge, args.out)
     if not args.out:
         suffix = "" if args.calibration == "kalman" else f"_{args.calibration}"
         args.out = os.path.join(main.DATA_ROOT, f"robustness_evaluation{suffix}.json")
