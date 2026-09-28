@@ -102,7 +102,6 @@ def test_invariant_3_no_invented_patient_identity(client: TestClient):
         assert b["cpri_percent"] is None, f"Invariant 3 VIOLATION: Invented CPRI {b['cpri_percent']!r}"
         assert b["severity_level"] == 0
 
-    # Check client source files for hardcoded patient patterns
     hn_pattern = re.compile(r"HN-\d{4,}", re.IGNORECASE)
     icu_pattern = re.compile(r"ICU-[A-D]-\d{3}", re.IGNORECASE)
     for js_file in ("app.js", "web_serial.js", "index.html"):
@@ -124,12 +123,10 @@ def test_invariant_4_displayed_numbers_measured_or_absent():
     with open(index_path, "r", encoding="utf-8") as fh:
         html = fh.read()
 
-    # Find all elements with data-metric
     metric_matches = re.findall(r'<([a-zA-Z0-9]+)[^>]*data-metric="([^"]+)"[^>]*>(.*?)</\1>', html, re.DOTALL)
     assert len(metric_matches) >= 4, f"Expected at least 4 data-metric slots, found {len(metric_matches)}"
 
     for _tag, metric_name, inner in metric_matches:
-        # Must contain no hardcoded digit in initial markup
         digits = re.findall(r"\d", inner)
         assert not digits, (
             f"Invariant 4 VIOLATION: data-metric '{metric_name}' contains hardcoded digits: {digits} in {inner!r}"
@@ -164,7 +161,6 @@ def test_invariant_7_zero_emoji():
     """Invariant 7: Zero emoji across index.html, app.js, web_serial.js, and server status strings."""
     emoji_pattern = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27bf\ufe0f]")
 
-    # Check web files
     for fname in ["index.html", "style.css", "app.js", "web_serial.js"]:
         fpath = os.path.join(WEB_DIR, fname)
         if os.path.isfile(fpath):
@@ -173,7 +169,6 @@ def test_invariant_7_zero_emoji():
             match = emoji_pattern.search(text)
             assert match is None, f"Invariant 7 VIOLATION: Emoji found in web/{fname}: {match.group()!r}"
 
-    # Check server status strings in main.py
     for status_str in M.STATUS_TEXT_MAP.values():
         match = emoji_pattern.search(status_str)
         assert match is None, f"Invariant 7 VIOLATION: Emoji in status map: {status_str!r}"
@@ -196,9 +191,6 @@ def test_invariant_8_iec_62304_disclaimer():
 
 def test_invariant_9_metrics_json_reproduces(dataset: M.Dataset):
     """Invariant 9: metrics.json must reproduce identically via verify_metrics()."""
-    # The module pytest collected, not `tests.test_regressions`: importing it by
-    # the package path loaded a SECOND copy with its own empty cache, and the
-    # suite paid for the 81-fold pass twice (220 s + 218 s on 2026-09-23).
     import sys
     tr = sys.modules.get("test_regressions")
     if tr is None:

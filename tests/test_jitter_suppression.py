@@ -84,12 +84,9 @@ def test_a_step_edge_survives_the_filter():
     a step, and a 3-tap median leaves a step exactly where it was."""
     n = 60
     d = np.zeros((n, M.N_PADS))
-    d[30:] = -900.0                       # a clean step: pull starts at frame 30
-    # force the filter on regardless of content
+    d[30:] = -900.0
     out = np.copy(d)
     out[M.JITTER_TAPS - 1:] = np.median(np.stack([d[:-2], d[1:-1], d[2:]]), axis=0)
-    # the step lands two frames later under a causal window, and nothing in
-    # between is smeared to an intermediate value - it is one value or the other
     assert set(np.unique(out[M.JITTER_TAPS - 1:])) <= {0.0, -900.0}
     assert out[-1, 0] == -900.0
     assert out[M.JITTER_TAPS - 1, 0] == 0.0
@@ -106,9 +103,7 @@ def test_an_isolated_bad_frame_is_removed():
     """
     n = 30
     d = np.zeros((n, M.N_PADS))
-    d[15] = -2000.0                       # one frame of nonsense in a quiet record
-    # activate=-1 forces the filter on: the point here is the median's behaviour,
-    # not the gate, and a single outlier does not move a median jitter estimate.
+    d[15] = -2000.0
     filt = M.adaptive_jitter_filter(d, activate=-1.0)
     assert filt[15 + 2].max() == 0.0 and filt[15 + 2].min() == 0.0, filt[14:19, 0]
     assert np.abs(filt[M.JITTER_TAPS - 1:]).max() == 0.0, (

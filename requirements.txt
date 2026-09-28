@@ -1,27 +1,10 @@
-# The numeric stack is PINNED to the versions Data/metrics.json was measured
-# with, because a range does not pin the numbers. Found 2026-09-23: the old
-# ranges (scikit-learn<1.9 on the image's Python 3.11) resolved to scikit-learn
-# 1.8.0 / numpy 2.4.6 / pandas 2.3.3, the workstation that produced every
-# published figure ran 1.9.0 / 2.5.0 / 3.0.3, and under the older stack the
-# served median time to alarm moved one frame (7.28 -> 6.72 s). scikit-learn also
-# changes tree internals and pickle format across minors.
-#
-# To move a pin: change it here, then run, in order,
-#   python main.py --report --stream --stamp <date>
-#   python scripts/sync_metrics_blocks.py
-#   python run.py verify && python run.py test
-# and commit the regenerated Data/metrics.json and Data/METRICS.md with it.
-# numpy 2.5 needs Python >= 3.12: the Dockerfile and CI use 3.13.
 scikit-learn==1.9.0
 numpy==2.5.0
 scipy==1.18.0
 pandas==3.0.3
 
-# joblib is imported at module scope in main.py for the model cache, and it
-# writes the pickle - pinned with the stack that reads it back.
 joblib==1.5.3
 
-# Serving and I/O. Ranges are fine here: none of these touches a number.
 fastapi>=0.100.0,<1.0
 uvicorn>=0.20.0,<1.0
 matplotlib>=3.7.0,<4.0
@@ -29,16 +12,7 @@ pyserial>=3.5,<4.0
 python-multipart>=0.0.6,<1.0
 websockets>=12.0,<17.0
 
-# Test and type-check only. Kept here rather than in a separate file because CI
-# installs this one list. fastapi.testclient runs on httpx2 under starlette 1.x;
-# httpx is its deprecated fallback there, and what starlette 0.x needs, which the
-# fastapi range above still allows. scipy-stubs gives the type checker scipy's
-# types and follows the scipy pin.
 httpx>=0.24.0,<1.0
 httpx2>=2.13.1,<3.0
 pytest>=7.4.0,<10.0
 scipy-stubs==1.18.0.1
-
-# Optional. LOOP 2 (1D-CNN + BiLSTM, --eval-temporal) is skipped with a printed
-# notice when this is absent; every other mode runs without it.
-#   torch>=2.0.0

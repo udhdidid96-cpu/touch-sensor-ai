@@ -25,7 +25,6 @@ import main
 
 
 def test_the_three_constants_are_unchanged():
-    # Rule 5: the spec is not edited to fit the data. Nor is the scale.
     assert main.SPEC_DETACH_MAX == 25000.0
     assert main.BASELINE_COUNTS == 28000.0
     assert main.COUNTS_PER_PF == 59.85
@@ -35,18 +34,13 @@ def test_the_three_constants_are_unchanged():
 def test_detachment_criterion_is_unreachable_at_this_scale():
     r = main.spec_detach_reachability(main.SPEC_DETACH_MAX)
     assert r["reachable"] is False
-    # 3,000 counts / 59.85 counts per pF
     assert math.isclose(r["drop_needed_pf"], 50.13, abs_tol=0.01)
-    # more pF than the patch has
     assert r["drop_needed_pf"] > r["available_pf"]
-    # 28,000 - 30 * 59.85
     assert math.isclose(r["floor_counts_at_zero_capacitance"], 26204.5, abs_tol=0.5)
     assert math.isclose(r["shortfall_counts"], 1204.5, abs_tol=0.5)
 
 
 def test_reachability_flips_when_the_baseline_is_large_enough():
-    # Sanity check on the helper itself: if the absolute C0 really were larger,
-    # the criterion would be satisfiable. This is the number to go and measure.
     needed_pf = (main.BASELINE_COUNTS - main.SPEC_DETACH_MAX) / main.COUNTS_PER_PF
     r = main.spec_detach_reachability(main.SPEC_DETACH_MAX, baseline_pf=needed_pf + 1.0)
     assert r["reachable"] is True

@@ -63,7 +63,7 @@ def test_legacy_prefix_then_chained_events_verifies():
 
 def test_editing_an_events_content_breaks_the_chain():
     logs = _chain(_events(5))
-    logs[2]["cpri_percent"] = 12.3          # the edit an attacker would make
+    logs[2]["cpri_percent"] = 12.3
     rep = main.verify_audit_chain(logs)
     assert rep["status"] == "broken"
     assert rep["broken_at"]["index"] == 2
@@ -75,7 +75,6 @@ def test_deleting_an_event_breaks_the_chain():
     del logs[2]
     rep = main.verify_audit_chain(logs)
     assert rep["status"] == "broken"
-    # index 2 is now the old event 3, whose prev_hash points at the deleted one
     assert rep["broken_at"]["index"] == 2
     assert "prev_hash" in rep["broken_at"]["reason"]
 
@@ -102,7 +101,6 @@ def test_the_hash_ignores_key_order_but_not_values():
     assert main.audit_event_hash(ev, g) == main.audit_event_hash(reordered, g)
     assert main.audit_event_hash(ev, g) != main.audit_event_hash(
         {**ev, "cpri_percent": 90.1}, g)
-    # and the link itself is part of the digest
     assert main.audit_event_hash(ev, g) != main.audit_event_hash(ev, "f" * 64)
 
 

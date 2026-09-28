@@ -43,14 +43,12 @@ import main as m
 EPS0 = 8.854187817e-12
 RNG = np.random.default_rng(20260925)
 
-# Stack named in the supervisor's brief (ASSUMED values, as stated there)
-PAD_RADIUS = 3.5e-3            # 38.5 mm^2 per pad (progress report)
-T_ADH, EPS_ADH = 0.30e-3, 3.5  # hydrocolloid
-T_PI, EPS_PI = 25e-6, 3.4      # polyimide flex
+PAD_RADIUS = 3.5e-3
+T_ADH, EPS_ADH = 0.30e-3, 3.5
+T_PI, EPS_PI = 25e-6, 3.4
 EPS_AIR = 1.0
 
 
-# Finite-volume field solver: cell-based permittivity, node-based potential
 def _graded(a: float, b: float, h_min: float, growth: float, h_max: float) -> np.ndarray:
     pts, h = [a], h_min
     while pts[-1] + h < b:
@@ -175,7 +173,7 @@ def field_axisym(quick: bool) -> Dict[str, Any]:
     press = axisym_pad(t_adh=0.8 * T_ADH)
     touch = axisym_pad(finger_gap=0.0)
     d_e = T_ADH / EPS_ADH
-    s0 = EPS0 * math.pi * PAD_RADIUS ** 2 / d_e ** 2 * 1e9            # pF per mm
+    s0 = EPS0 * math.pi * PAD_RADIUS ** 2 / d_e ** 2 * 1e9
     s15 = EPS0 * math.pi * PAD_RADIUS ** 2 / (d_e + 1.5e-3) ** 2 * 1e9
     return {"lift_sweep": sweep,
             "press_20pct_body_pf": round(press["c_body_pf"], 4),
@@ -245,17 +243,13 @@ def shear_cell(offsets_mm: Sequence[float] = (0.0, 0.1, 0.25, 0.5), w: float = 5
         out.append({"shift_mm": dx, "c_left_ff": round(cl, 2), "c_right_ff": round(cr, 2),
                     "diff_ff": round(cl - cr, 2)})
     slope = (out[-1]["diff_ff"] - out[0]["diff_ff"]) / (offsets_mm[-1] - offsets_mm[0])
-    g_mod, anchor = 100e3, 20e-3 * 20e-3        # ASSUMED: soft silicone G, 20 x 20 mm anchor
+    g_mod, anchor = 100e3, 20e-3 * 20e-3
     shift = 10.0 / anchor / g_mod * h
     return {"rows": out, "slope_ff_per_mm": round(slope, 1), "shift_10N_mm": round(shift * 1e3, 4),
             "signal_10N_ff": round(slope * shift * 1e3, 2),
             "signal_10N_counts": round(slope * shift * 1e3 * 1e-3 * m.COUNTS_PER_PF, 3)}
 
 
-# Tissue: conductor or dielectric at the sensing frequency?
-# Four-Cole-Cole fits of Gabriel, Lau and Gabriel, Phys Med Biol 41:2271 (1996),
-# Table 1 - the same table scripts/translation_plan_checks.py tissue() uses.
-# (eps_inf, [(delta_eps, tau_s, alpha), ...], sigma_ionic S/m)
 GABRIEL_1996 = {
     "stratum corneum (dry skin)": (4.0, [(32.0, 7.23e-12, 0.0), (1100.0, 32.48e-9, 0.20)], 0.0002),
     "dermis (wet skin)": (4.0, [(39.0, 7.96e-12, 0.10), (280.0, 79.58e-9, 0.0),
@@ -263,7 +257,7 @@ GABRIEL_1996 = {
     "muscle": (4.0, [(50.0, 7.23e-12, 0.10), (7000.0, 353.68e-9, 0.10),
                      (1.2e6, 318.31e-6, 0.10), (2.5e7, 2.274e-3, 0.0)], 0.2),
 }
-TISSUE_STACK = (("stratum corneum (dry skin)", 20e-6), ("dermis (wet skin)", 2e-3), ("muscle", 10e-3))  # ASSUMED
+TISSUE_STACK = (("stratum corneum (dry skin)", 20e-6), ("dermis (wet skin)", 2e-3), ("muscle", 10e-3))
 
 
 def _eps_tissue(name: str, f: float) -> complex:
@@ -290,7 +284,7 @@ def _stack(f: float) -> Tuple[List[Dict[str, Any]], float, float]:
         z_t += z
         rows.append({"layer": name, "eps_r": round(e.real), "sigma_S_per_m": round(-e.imag * w * EPS0, 4),
                      "abs_Z_ohm": round(abs(z), 1), "conduction_over_displacement": round(-e.imag / e.real, 3)})
-    cp = (1.0 / (z_h + z_t)).imag / w           # parallel-equivalent capacitance of the whole stack
+    cp = (1.0 / (z_h + z_t)).imag / w
     return rows, 100.0 * abs(z_t) / abs(z_h + z_t), 100.0 * (cp / (1.0 / (z_h.imag * -w)) - 1.0)
 
 
@@ -310,7 +304,6 @@ def tissue_regime() -> Dict[str, Any]:
             "tissue_as_conductor_pf": round(EPS0 * area / (T_ADH / EPS_ADH) * 1e12, 3)}
 
 
-# Data: distributions, distances, overlap
 SCEN = {"N_base": "Baseline", "Brief Touch": "Touching", "Press": "Touching", "Friction": "Friction",
         "Vertical Pull NO G": "Pulling", "Horizontal Pull NO G": "Pulling", "PowerP": "Pulling",
         "Peel": "Peeling", "Normal Mix": "Normal Mix (ref)"}
@@ -334,7 +327,6 @@ def _knn_kl(P: np.ndarray, Q: np.ndarray, k: int = 5) -> float:
     """Wang, Kulkarni, Verdu (2009) k-NN estimator of D(P||Q)."""
     from scipy.spatial import cKDTree
     n, d = P.shape
-    # query() is typed to return a float for one point, arrays for several; P has several.
     rho = np.maximum(np.asarray(cKDTree(P).query(P, k=k + 1)[0])[:, -1], 1e-9)
     nu = np.maximum(np.asarray(cKDTree(Q).query(P, k=k)[0])[:, -1], 1e-9)
     return float(d * np.mean(np.log(nu / rho)) + math.log(len(Q) / (n - 1)))
@@ -408,7 +400,6 @@ def data_geometry(ds: m.Dataset) -> Dict[str, Any]:
                        "median_s": round(float(np.median(lens)) * m.SAMPLE_PERIOD_S, 2),
                        "windows6_after_warmup": int(sum(max(0, n - m.KALMAN_WARMUP - 5) for n in lens)),
                        "slack_frames_median": int(np.median(lens)) - m.KALMAN_WARMUP - 6}
-    # Sign regimes: which frames carry a deep negative pad, a strong positive pad, both, neither.
     folders = np.array([fn.replace("\\", "/").split("/")[0] for fn, d in zip(ds.files, ds.frames) for _ in range(len(d))])
 
     def regimes(sel: NDArray[np.bool_]) -> Dict[str, Any]:
@@ -425,7 +416,6 @@ def data_geometry(ds: m.Dataset) -> Dict[str, Any]:
             "polarity": polarity, "polarity_by_folder": polarity_folder}
 
 
-# Learning-theory arithmetic
 def learning_bounds() -> Dict[str, Any]:
     leaves, iters = 31, 150
 
@@ -460,7 +450,6 @@ def annunciator_arithmetic() -> Dict[str, Any]:
         amp[str(p)] = {f"m={k}": [round(_p_alarm(k, p, cfg.window, cfg.min_votes), 3),
                                   round(_p_alarm(k - 1, p, cfg.window, cfg.min_votes), 3)]
                        for k in (6, 7, 8, 10)}
-    # Seed spread quoted in the docs: BiLSTM 0.9531 +/- 0.0230 vs RF 0.9518 +/- 0.0038
     s_b, s_r, m_b, m_r = 0.0230, 0.0038, 0.9531, 0.9518
     seeds = {}
     for n in (3, 5, 10):
@@ -474,7 +463,6 @@ def annunciator_arithmetic() -> Dict[str, Any]:
             "seed_tests": seeds}
 
 
-# Noise, gate, vote, causal median
 def noise_analysis(model: Any) -> Dict[str, Any]:
     gate = m.NOISE_GATE_COUNTS
     leak = {str(s): round(1 - (1 - 2 * float(stats.norm.sf(gate / s))) ** m.N_PADS, 4)
@@ -515,7 +503,6 @@ def noise_analysis(model: Any) -> Dict[str, Any]:
     return res
 
 
-# Power-on contamination and the software safety layers
 def seed_checks() -> Dict[str, Any]:
     import pandas as pd
     seeds = np.array([pd.read_csv(p)[m.SENSOR_COLS].to_numpy(float)[:m.KALMAN_WARMUP].mean(0)
@@ -552,7 +539,6 @@ def seed_checks() -> Dict[str, Any]:
             "shape_sd_counts": round(sd, 1), "shape_sd_pf": round(sd / m.COUNTS_PER_PF, 2)}
 
 
-# Static tube localisation
 def _pads_mm() -> np.ndarray:
     return np.array([[m.PHYSICAL_PAD_COORDS[i][0] * 0.9, m.PHYSICAL_PAD_COORDS[i][1] * 1.2] for i in range(1, 26)])
 
@@ -620,7 +606,6 @@ def tube_checks(trials: int) -> Dict[str, Any]:
             "true_45deg_in_percent_space_deg": round(math.degrees(math.atan(0.9 / 1.2)), 1)}
 
 
-# Spec and calibration-target hypothesis
 def spec_checks() -> Dict[str, Any]:
     t15 = 0.85 * (2 ** 15 - 1)
     return {"reach": m.spec_detach_reachability(m.SPEC_DETACH_MAX),
@@ -631,7 +616,6 @@ def spec_checks() -> Dict[str, Any]:
             "deepest_peel_relative_pct": round(100 * 902.4 / m.BASELINE_COUNTS, 2)}
 
 
-# Mechanics: bending, adhesion and the tent
 def mech_checks() -> Dict[str, Any]:
     def D(E: float, t: float, nu: float) -> float:
         return E * t ** 3 / (12 * (1 - nu ** 2))
@@ -639,7 +623,7 @@ def mech_checks() -> Dict[str, Any]:
           "silicone 0.5mm": D(1e6, 0.5e-3, 0.49)}
     ea = [{"layer": k, "D": float(f"{v:.3g}"), "gamma": g, "L_ea_mm": round(math.sqrt(v / (2 * g)) * 1e3, 3),
            "r_land_mm": round(math.sqrt(math.pi * v / (4 * g)) * 1e3, 3)}
-          for k, v in Ds.items() for g in (10.0, 50.0, 200.0)]            # ASSUMED gamma range, J/m^2
+          for k, v in Ds.items() for g in (10.0, 50.0, 200.0)]
     het = [{"D": d_, "E_adh_kPa": e / 1e3, "lambda_mm": round((4 * d_ / (e / T_ADH)) ** 0.25 * 1e3, 3)}
            for d_ in (1e-6, 1e-5, 1e-4) for e in (20e3, 200e3)]
     ss = [{"D": d_, "h_mm": h * 1e3, "ell_mm": round((18 * d_ * h * h / 50.0) ** 0.25 * 1e3, 2),
@@ -662,11 +646,10 @@ def mech_checks() -> Dict[str, Any]:
             "stack_d_over_eps_um": round((T_ADH / EPS_ADH + T_PI / EPS_PI) * 1e6, 1)}
 
 
-# Normalisation: gate units, affine invariance, per-pad signal budget
 def normalisation_checks(sweep: Sequence[Dict[str, float]]) -> Dict[str, Any]:
     k = m.COUNTS_PER_PF
-    offset = m.BASELINE_COUNTS - m.NOMINAL_BASELINE_PF * k       # the repo's transfer: N = offset + k * C
-    sigma = 8.6                                                   # bench per-pad noise sd, counts (PHYSICS_TO_FEATURE_MAP)
+    offset = m.BASELINE_COUNTS - m.NOMINAL_BASELINE_PF * k
+    sigma = 8.6
     gates = {}
     for c in (15.0, 30.0, 35.0):
         gc: float = m.analyze_surface_topography(np.full(m.N_PADS, offset + k * c), is_cdc_pf=False)["adaptive_lift_gates"][0]
@@ -684,7 +667,7 @@ def normalisation_checks(sweep: Sequence[Dict[str, float]]) -> Dict[str, Any]:
     pads = {"C_par 26 + C_body 4": (26.0, 4.0), "C_par 10 + C_body 25": (10.0, 25.0), "C_par 26 + C_body 0.53": (26.0, 0.53)}
     invariance = {}
     for pname, (cp, cb) in pads.items():
-        c_att, c_air, c_now = cp + cb, cp, cp + 0.5 * cb                  # half of the body coupling lost
+        c_att, c_air, c_now = cp + cb, cp, cp + 0.5 * cb
         for tname, T in transfers.items():
             n_att, n_air, n_now = T(c_att, c_att), T(c_air, c_att), T(c_now, c_att)
             invariance[f"{pname} | {tname}"] = {

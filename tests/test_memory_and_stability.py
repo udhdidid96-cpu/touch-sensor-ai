@@ -24,7 +24,6 @@ def test_telemetry_ring_buffer_bounds_over_10000_frames():
 
     strict bounding at <= 50 entries and zero unbounded array growth.
     """
-    # Execute actual JavaScript engine logic via Node.js
     js_code = """
     const state = {
       chart: {
@@ -98,12 +97,9 @@ def test_live_pipeline_memory_stability_10000_frames():
         val = BASELINE_COUNTS + (i % 20) - 10.0
         pipe.process(np.full(N_PADS, val))
 
-    # Assert internal debouncer history is strictly capped by its window
     assert len(pipe.alarm.history) <= pipe.alarm.window
-    # Assert kalman filter state is fixed shape
     assert pipe.kalman.b is not None
     assert pipe.kalman.b.shape == (N_PADS,)
-    # Assert peel tracker state does not accumulate unbounded memory
     assert isinstance(pipe.peel.streak, int)
     assert pipe.index == 10000
 
@@ -114,19 +110,15 @@ def test_web_audio_node_lifecycle_in_app_js():
     with open(app_js_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # 1. Verify osc.onended disconnects both oscillator and gain nodes
     assert "osc.onended = () => {" in content
     assert "osc.disconnect();" in content
     assert "gain.disconnect();" in content
 
-    # 2. Verify fallback timer for node cleanup
     assert "setTimeout(cleanup," in content or "setTimeout(() => cleanup()" in content
 
-    # 3. Verify siren debouncing to prevent audio node storms
     assert "lastSirenTime" in content
     assert "nowMs - lastSirenTime < 300" in content or "nowMs - lastSirenTime" in content
 
-    # 4. Verify singleton AudioContext initialization pattern
     assert "state.audioCtx" in content
 
 
@@ -136,27 +128,11 @@ def test_webserial_buffer_capping_in_web_serial_js():
     with open(ws_js_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # 1. Chunk buffer capped at 4096 characters.
-    #
-    # This used to also assert the literal "buffer.slice(-4096)". That pinned
-    # HOW the cap was enforced, and the how was wrong: slicing at a byte offset
-    # lands mid-line, so a link emitting no delimiters kept 4,096 chars of
-    # garbage that stayed glued to the first frame when the stream resumed. The
-    # cap is what this test is for and the cap is still here; the guard now
-    # resynchronises to a frame boundary, which tests/test_serial_framing.py
-    # checks. "A guard that greps for a name is not a guard" - AGENTS.md.
     assert "buffer.length > 4096" in content
 
-    # 2. Max line length capped at 512 characters
     assert "line.length > 512" in content
 
-    # 3. Token count bounded between 25 and 28 tokens
     assert "parts.length < 25 || parts.length > 28" in content
 
-    # 4. Silence watchdog is active. The number is not pinned here either:
-    #    tests/test_serial_framing.py holds the constraint that matters, which
-    #    is that the client warns AFTER the server's own IDLE_TIMEOUT_S rather
-    #    than before it. Pinning 1000 ms froze in the ordering that made the
-    #    page and the server disagree about whether a patch was live.
     assert "SERIAL_WATCHDOG_MS" in content
     assert "SENSOR STREAM FROZEN / DISCONNECTED" in content

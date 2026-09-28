@@ -78,8 +78,6 @@ from typing import Any, Callable, Dict, List, Optional, Set
 import numpy as np
 
 if __name__ == "__main__":
-    # Run as a script, only scripts/ is on sys.path; main.py lives in the
-    # repository root.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main
@@ -113,7 +111,7 @@ def _noise(sd_counts: float) -> Perturb:
 def _frame_drop(fraction: float) -> Perturb:
     def f(raw: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         keep = rng.random(len(raw)) >= fraction
-        keep[0] = True          # the Kalman seed stays the frame it would be live
+        keep[0] = True
         if keep.sum() < main.MIN_FRAMES_PER_FILE:
             return raw
         return raw[keep]
@@ -178,7 +176,7 @@ def run_variant(name: str, perturb: Perturb, seed: int = 42,
     detected = int(round(float(st["sensitivity"]) * n_anom))
     fa_files = int(round(float(st["false_alarm_rate"]) * n_norm))
     lo, hi = main.wilson(detected, n_anom)
-    missed: List[str] = st.get("missed", [])        # file names, from evaluate_stream()
+    missed: List[str] = st.get("missed", [])
     return {
         "variant": name,
         "calibration": calibration,
@@ -270,7 +268,6 @@ def _merge_cli(patterns: List[str], out: str) -> int:
         if not hits:
             raise SystemExit(f"no file matches {pattern}")
         paths += hits
-    # a shard cannot merge with itself, and --out may already exist as an input
     payload = merge_shards(list(dict.fromkeys(paths)))
     if not out:
         suffix = "" if payload["calibration"] == "kalman" else f"_{payload['calibration']}"
@@ -319,12 +316,6 @@ def main_cli() -> int:
     if unknown:
         print(f"unknown variant(s): {', '.join(unknown)}\nknown: {', '.join(VARIANTS)}")
         return 2
-    # identity is the row every delta is measured against, so a full or --quick
-    # run always starts there. An explicit --variants subset is left alone: on a
-    # machine where a long run does not survive, the only way to finish the sweep
-    # is one or two variants per process, and re-measuring identity each time
-    # costs more than the whole remainder. Deltas are then omitted rather than
-    # computed against the wrong baseline, and merging the shards restores them.
     explicit_subset = bool(args.variants)
     if not explicit_subset and names[0] != "identity":
         names = ["identity"] + [n for n in names if n != "identity"]

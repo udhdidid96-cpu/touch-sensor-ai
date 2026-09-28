@@ -83,10 +83,8 @@ def check(name: str) -> Callable[[Callable[[], object]], Callable[[], None]]:
     return deco
 
 
-# Geometry and wiring (regressions for FIX F1 / F2)
 @check("F1 centre pad renders at the centre of the heatmap")
 def t_centre_pad() -> str:
-    # Pad 13 sits at (50, 50), dead centre. Spiking it must light up the middle.
     v = np.zeros(M.N_PADS)
     v[12] = 3000.0
     grid = M.SPATIAL.interpolate(v)
@@ -99,9 +97,8 @@ def t_centre_pad() -> str:
 
 @check("F1 left-edge pad does not render on the right")
 def t_edge_pad() -> str:
-    # This is the exact v5.0 failure: pad 20 at x=20% appeared at x=83%.
     v = np.zeros(M.N_PADS)
-    v[19] = 3000.0                      # pad 20 -> (20, 50)
+    v[19] = 3000.0
     grid = M.SPATIAL.interpolate(v)
     _, c = np.unravel_index(np.argmax(grid), grid.shape)
     fx = c / (grid.shape[1] - 1)
@@ -121,7 +118,7 @@ def t_grid_shape() -> str:
 def t_permutation() -> str:
     assert sorted(M.PAD_TO_SIGNAL) == list(range(1, 26)), "not a permutation of 1..25"
     assert len(set(M.PAD_ORDER.tolist())) == 25, "duplicate indices"
-    probe = np.arange(1.0, 26.0)                       # Signal-1..25 == 1..25
+    probe = np.arange(1.0, 26.0)
     pads = M.signals_to_pads(probe)
     assert pads[0] == 20.0, f"pad 1 should read Signal-20, got Signal-{int(pads[0])}"
     assert pads[24] == 1.0, f"pad 25 should read Signal-1, got Signal-{int(pads[24])}"
@@ -173,7 +170,6 @@ def t_single_convention() -> str:
     return f"{n} files, all Signal-* (permuted through PAD_ORDER)"
 
 
-# Security (regression for FIX F3)
 @check("F3 path traversal is rejected")
 def t_traversal() -> str:
     blocked = 0
@@ -190,10 +186,8 @@ def t_traversal() -> str:
     return f"{blocked}/5 traversal attempts blocked, normal path still works"
 
 
-# Numerical safety (regressions for FIX F5 / F7 and CPRI clamp)
 @check("F5 gradient features use real coordinates, not a 5x5 reshape")
 def t_gradient_geometry() -> str:
-    # A perfectly linear ramp in x must give a constant dC/dx and ~zero dC/dy.
     ramp = (M.PAD_XY[:, 0] - 50.0) * 10.0
     g = M.SPATIAL.node_gradients(ramp)
     gx, gy = g[:, 0], g[:, 1]
@@ -206,13 +200,13 @@ def t_gradient_geometry() -> str:
 def t_full_proba() -> str:
     from sklearn.ensemble import RandomForestClassifier
     X = np.random.RandomState(0).rand(60, 9)
-    y = np.array([0] * 20 + [1] * 20 + [2] * 20)        # class 3 absent
+    y = np.array([0] * 20 + [1] * 20 + [2] * 20)
     clf = RandomForestClassifier(n_estimators=5, random_state=0).fit(X, y)
     p = M.full_proba(clf, X)
     assert p.shape == (60, 4), f"got {p.shape}"
     assert np.allclose(p[:, 3], 0.0), "absent class should be zero, not garbage"
     assert np.allclose(p.sum(axis=1), 1.0, atol=1e-6), "rows must still sum to 1"
-    _ = M.cpri(p)                                        # must not raise
+    _ = M.cpri(p)
     return "4 columns, absent class zeroed, CPRI computes"
 
 
@@ -227,19 +221,16 @@ def t_cpri_bounds() -> str:
     return f"range {v.min():.1f}..{v.max():.1f}"
 
 
-# LOOP 4 - Kalman baseline, exercised on Normal Mix
 @check("L4 Kalman tracks slow drift without absorbing a touch spike")
 def t_kalman_gate() -> str:
     raw = M.read_raw_csv(_mix_files()[0])
     assert raw is not None
-    # inject 40 counts of linear drift across the file (sweat-like)
     drift = np.linspace(0, 40, len(raw))[:, None]
     drifted = raw + drift
 
     kal = M.KalmanBaseline().run(drifted)
     stat = M.calibrate(drifted, "static")
 
-    # the static scheme carries the drift straight into the delta
     quiet = np.abs(M.calibrate(raw, "static")).max(axis=1) < 200
     if quiet.sum() < 5:
         quiet = np.ones(len(raw), dtype=bool)
@@ -247,7 +238,6 @@ def t_kalman_gate() -> str:
     kal_bias = float(np.abs(kal[quiet].mean(axis=1)).mean())
     assert kal_bias < stat_bias, f"kalman bias {kal_bias:.1f} not below static {stat_bias:.1f}"
 
-    # and the real spikes survive
     assert kal.max() > 1500.0, f"touch spike flattened to {kal.max():.0f}"
     return f"quiescent bias {stat_bias:.1f} -> {kal_bias:.1f} counts, peak preserved {kal.max():.0f}"
 
@@ -258,13 +248,12 @@ def t_kalman_sustained() -> str:
     assert raw is not None
     base = raw[:5].mean(axis=0)
     synth = np.tile(base, (40, 1))
-    synth[10:35, 6] += 2500.0                 # 14 s press on one pad
+    synth[10:35, 6] += 2500.0
     d = M.KalmanBaseline().run(synth)
     assert d[34, 6] > 2000.0, f"press decayed to {d[34, 6]:.0f} by the end (baseline chased it)"
     return f"press held at {d[34, 6]:.0f} counts after 14 s"
 
 
-# LOOP 3 - propagation, on Normal Mix (must stay idle) and Peel (must fire)
 @check("L3 peel gate: 0 false alarms on all normal classes, 10/10 on Peel")
 def t_propagation() -> str:
     normal = ["N_base", "Brief Touch", "Press", "Friction", "Normal Mix"]
@@ -295,7 +284,6 @@ def t_propagation() -> str:
 
 @check("L3 persistence removes the press-release transient")
 def t_persistence() -> str:
-    # Without persistence the per-frame gate fires on 8/10 Press files.
     press = sorted(glob.glob(os.path.join(M.DATA_ROOT, "Press", "*.csv")))
     inst = sum(1 for f in press
                if any(M.SPATIAL.propagation(d)["active"]
@@ -312,9 +300,6 @@ def t_persistence() -> str:
 
 @check("L3 propagation direction is physically sensible")
 def t_propagation_direction() -> str:
-    # Synthetic peel rooted at the top-right, deepening toward that corner.
-    # Amplitude is set so the whole-grid mean lands near the -371 counts
-    # measured on real Peel recordings, otherwise the gate correctly ignores it.
     v = np.zeros(M.N_PADS)
     for i, (x, y) in enumerate(M.PAD_XY):
         v[i] = -2600.0 * max(0.0, (x - 42.0) / 48.0) * max(0.0, (66.0 - y) / 44.0)
@@ -330,7 +315,7 @@ def t_propagation_direction() -> str:
 @check("L3 an inactive gate still reports diagnostics")
 def t_propagation_inactive() -> str:
     v = np.zeros(M.N_PADS)
-    v[3] = -900.0                                   # one deep pad, nothing else
+    v[3] = -900.0
     pr = M.SPATIAL.propagation(v)
     assert pr["active"] is False, "single-pad dip should not confirm as a peel"
     assert pr["n_lifting_pads"] == 1, pr["n_lifting_pads"]
@@ -338,7 +323,6 @@ def t_propagation_inactive() -> str:
     return f"1 pad, grid mean {pr['grid_mean']}, correctly inactive"
 
 
-# LOOP 1 - live pipeline replay of Normal Mix
 @check("L1 replay source yields pad-ordered frames at the right length")
 def t_replay_source() -> str:
     src = M.ReplayFrameSource("Normal Mix/N_Mix_01.csv", realtime=False)
@@ -366,7 +350,7 @@ def t_live_pipeline() -> str:
     assert len(out[0]["deltas"]) == 25
     assert abs(out[5]["time_sec"] - 5 * M.SAMPLE_PERIOD_S) < 1e-6
     import json
-    json.dumps(out[0])                                    # must be JSON-serialisable
+    json.dumps(out[0])
     return f"{len(out)} frames, JSON-serialisable"
 
 
@@ -399,9 +383,6 @@ def t_warmup_guard() -> str:
             else:
                 worst_raw = max(worst_raw, out["raw_level"])
                 worst_out = max(worst_out, out["severity_level"])
-    # The residual escalation budget is owned by the debouncer test below, which
-    # names the offending file. This test asserts only that the warmup window is
-    # silent and that debouncing strictly reduces what reaches the annunciator.
     assert worst_out <= worst_raw, "debouncer raised a level the classifier never emitted"
     return (f"{len(_mix_files())} files: warmup silent, raw peaked at L{worst_raw}, "
             f"annunciated max L{worst_out}")
@@ -439,12 +420,6 @@ def t_debouncer() -> str:
             if key == "normal":
                 offenders.append(f)
         elif key != "normal":
-            # A k-of-n vote cannot annunciate an event that never has k
-            # supporting frames inside one window. Record whether this file
-            # failed because the annunciator dropped it, or because the
-            # RECORDING ends before the vote can be satisfied - those are
-            # different failures and only the first is a defect. See the
-            # assertion below.
             post = raws[M.KALMAN_WARMUP:]
             best = max((sum(1 for x in post[i:i + M.ALARM.window] if x >= 2)
                         for i in range(max(1, len(post) - M.ALARM.window + 1))), default=0)
@@ -452,20 +427,6 @@ def t_debouncer() -> str:
 
     assert out_fire["peel"] == totals["peel"], f"peel sensitivity dropped to {out_fire['peel']}/{totals['peel']}"
 
-    # Every anomaly recording that CAN satisfy the vote must annunciate.
-    #
-    # This used to read `out_fire["pull"] == totals["pull"]`, i.e. 30/30. That
-    # is the right invariant for a detector and the wrong one for a corpus of
-    # 12-frame clips: at the 6-of-7 operating point adopted 2026-08-19,
-    # Vertical Pull NO G/A_VPull_06.csv is 12 frames long and its pull is the
-    # LAST FIVE of them - the classifier calls level 3 on every single event
-    # frame it is given, and then the recording stops one frame short of the
-    # sixth vote. Nothing is missed; the clip ends mid-event.
-    #
-    # Weakening the bound to 29/30 would have hidden a real regression behind a
-    # corpus artifact, so the check is stated properly instead: a file may only
-    # fail to annunciate if it never has ALARM.min_votes supporting frames
-    # inside one window, and the shortfall is reported by name.
     droppable = [(f, best) for f, best in unvotable if best >= M.ALARM.min_votes]
     assert not droppable, (
         "annunciator dropped recording(s) that had enough supporting frames: "
@@ -501,7 +462,7 @@ def t_no_handcoded_proba() -> str:
     ds, _, _ = oof_pass()
     model = M.new_rf(42).fit(ds.X, ds.y)
     checked = active_n = 0
-    for fi in range(0, ds.n_files, 7):                  # a spread of every class
+    for fi in range(0, ds.n_files, 7):
         delta = ds.frames[fi]
         proba, raw, risk = M.classify_deltas(model, delta, False)
         d = np.atleast_2d(np.asarray(delta, dtype=float))
@@ -611,7 +572,6 @@ def t_model_cache_version_guard() -> str:
     workstation's scikit-learn, into an image that installs a different one.
     load_persisted_model() must refuse it on the recorded version alone."""
     rng = np.random.default_rng(0)
-    # Any fitted classifier will do; two boosting rounds keep it quick.
     model = HistGradientBoostingClassifier(max_iter=2, random_state=42).fit(
         rng.normal(size=(40, 34)), np.arange(40) % M.N_CLASSES)
     prev = (M.MODEL_PERSISTENCE_PATH, M.MODEL_DIGEST_PATH)
@@ -621,7 +581,6 @@ def t_model_cache_version_guard() -> str:
         M.MODEL_DIGEST_PATH = M.MODEL_PERSISTENCE_PATH + ".sha256.json"
         M.persist_model(model, "corpus-a")
         with warnings.catch_warnings():
-            # joblib's own NumPy 2.5 deprecation, one per array in the pickle
             warnings.simplefilter("ignore", DeprecationWarning)
             loaded = M.load_persisted_model("corpus-a")
         assert loaded is not None, "a same-version cache must load"
@@ -663,7 +622,6 @@ def t_serial_scan() -> str:
     return f"{len(ports)} port(s) visible on this host"
 
 
-# LOOP 5 - fusion
 @check("L5 fusion never lowers risk and stays bounded")
 def t_fusion_bounds() -> str:
     d = M.calibrate(_read(_mix_files()[0]), "static")
@@ -685,7 +643,6 @@ def t_lead_time() -> str:
     return f"lead {g:.2f} s"
 
 
-# Dataset hygiene and the headline metric
 @check("short files are excluded from training")
 def t_short_files() -> str:
     ds = M.load_dataset("static", False, verbose=False)
@@ -718,10 +675,6 @@ def t_mix_frame_level() -> str:
     escalated. File-level majority voting absorbs it (see the test above), and
     LOOP 2 addresses it directly - run with --temporal to measure that.
     """
-    # Was a third independent leave-one-file-out pass (evaluate_rf with one
-    # seed) purely to get frame-level out-of-fold predictions that oof_pass() has
-    # already computed. argmax of the out-of-fold proba is the out-of-fold
-    # prediction, so the shared array answers the same question for free.
     ds, oof, _ = oof_pass()
     mix_files = [i for i, f in enumerate(ds.files) if f.startswith("Normal Mix/")]
     mask = np.isin(ds.groups, mix_files)
@@ -799,8 +752,6 @@ def t_debouncer_semantics() -> str:
 
 @check("R8 an intermittent classifier still annunciates (1/3 and 2/3 patterns)")
 def t_debouncer_oscillation() -> str:
-    # v6.0 annunciated nothing on 2/3; v6.1 annunciated nothing on 1/3. Both are
-    # exactly what a real pull produces at the edge of the decision boundary.
     for pattern, name in (([2, 3] * 8, "2/3"), ([1, 3] * 8, "1/3")):
         d = M.AlarmDebouncer(window=5, min_votes=3, hold=2)
         out = [d.update(x) for x in pattern]
@@ -887,11 +838,6 @@ def t_report_consistency() -> str:
     from sklearn.metrics import confusion_matrix
     ds = M.load_dataset("kalman", False, verbose=False)
     assert ds is not None
-    # Two seeds, not three. This check is arithmetic - does the pooled
-    # confusion matrix agree with the headline mean - and two pools prove that
-    # as well as three. Each seed is a full leave-one-file-out pass, which with
-    # the HistGradientBoosting this project now ships costs about two minutes,
-    # and this was the single slowest test in the suite by a wide margin.
     res = M.evaluate_rf(ds, seeds=(42, 43), verbose=False)
     cm = confusion_matrix(res["y_true"], res["y_pred"], labels=list(range(M.N_CLASSES)))
     from_cm = float(np.trace(cm) / cm.sum())
@@ -944,17 +890,12 @@ def t_temporal_spread() -> str:
     assert tr["n_seeds"] >= 3, "a comparison needs at least 3 seeds"
     assert tr["nn_macro_f1_sd"] > 0, "sd of zero means the seed is not varying"
     assert "verdict" in tr
-    # The point of this test is that no single-seed claim survives.
     return (f"BiLSTM {tr['nn_macro_f1_mean']:.4f} ± {tr['nn_macro_f1_sd']:.4f} vs "
             f"RF {tr['rf_macro_f1_mean']:.4f} ± {tr['rf_macro_f1_sd']:.4f} -> {tr['verdict']}")
 
 
 @check("R10-R14 CLI flags behave")
 def t_cli() -> str:
-    # Project root = the PARENT of tests/. This file used to sit at the top
-    # level, where dirname(__file__) was the root; after the move it pointed at
-    # tests/, main.py was not there, and every subprocess below failed for the
-    # wrong reason.
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def run(*a: str) -> subprocess.CompletedProcess[str]:
@@ -971,10 +912,6 @@ def t_cli() -> str:
     return "--seeds 0 rejected, bad --replay handled, --cv session guarded"
 
 
-# Runner - collected at call time so tests appended below still register
-
-
-# v6.2 - episode-level evaluation and out-of-fold honesty
 _STREAM_CACHE: List[Tuple[M.Dataset, Dict[str, Any]]] = []
 _OOF_CACHE: List[Tuple[M.Dataset, np.ndarray, HistGradientBoostingClassifier]] = []
 _SERVED_CACHE: List[List[np.ndarray]] = []
@@ -1051,13 +988,6 @@ def t_episode_metrics() -> str:
                 "alarms_per_hour", "median_latency_s", "onsets_per_anomaly", "curve"):
         assert key in st, f"missing {key}"
     assert st["sensitivity"] >= 0.80, f"sensitivity {st['sensitivity']:.3f} too low to ship"
-    # B10: this used to read "exceeds the desensitisation threshold" against a
-    # 10/hour bar. README's Retracted claims table lists that threshold as
-    # having no source - the cited paper says explicitly that no threshold
-    # defining a "high" alarm rate exists. Enforcing it here made a retracted
-    # number the harness's own pass criterion. Kept as a REGRESSION bound
-    # (roughly double the ~6/hour the shipped operating point measures), which
-    # is a guard against the annunciator degrading, not a clinical claim.
     assert st["alarms_per_hour"] <= 12.0, (
         f"{st['alarms_per_hour']:.1f} alarms/hour - well above the ~6/hour this "
         f"operating point measures; the annunciator has regressed. This bound is "
@@ -1121,11 +1051,11 @@ def t_bad_token() -> str:
         import pandas as pd
         df = pd.DataFrame(np.full((10, 25), 28000.0), columns=M.SIGNAL_COLS)
         df = df.astype(object)
-        df.iloc[4, 6] = "2800x"                     # a garbled UART token
+        df.iloc[4, 6] = "2800x"
         df.to_csv(p, index=False)
         assert M.read_raw_csv(p) is None, "non-numeric token slipped through"
         assert M.describe_csv_problem(p), "no reason reported"
-        rep = M.audit_folder(tmp)                   # must not raise
+        rep = M.audit_folder(tmp)
         assert isinstance(rep, dict)
         return f"rejected: {M.describe_csv_problem(p)[:48]}"
     finally:
@@ -1147,8 +1077,8 @@ def t_stray_session_typo() -> str:
     try:
         for cls in ("N_base", "Brief Touch", "Peel", "VPull"):
             _plant(tmp, cls, 2)
-        _plant(tmp, "Session1/Peel", 3)          # 'Session1' does not match S<n>
-        _plant(tmp, "Peel/retake", 3)            # sub-folder inside a class folder
+        _plant(tmp, "Session1/Peel", 3)
+        _plant(tmp, "Peel/retake", 3)
         M.DATA_ROOT = tmp
         ds = M.load_dataset(verbose=False)
         assert ds is not None, "planted folder failed to load at all"
@@ -1224,8 +1154,6 @@ def t_contact_check_not_pooled() -> str:
     try:
         for cls in ("N_base", "Peel", "VPull"):
             _plant(tmp, cls, 2)
-        # Brief Touch that never reaches 30,000 - the SOP criterion must fail
-        # even though Press/Friction files sit alongside it.
         for cls in ("Brief Touch", "Press", "Friction"):
             os.makedirs(os.path.join(tmp, cls), exist_ok=True)
             for f in sorted(glob.glob(os.path.join(M.DATA_ROOT, "Friction", "*.csv")))[:4]:

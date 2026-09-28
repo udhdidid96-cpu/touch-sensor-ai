@@ -16,27 +16,11 @@ except ImportError:
     print("[ERROR] pyserial is required. Install with: pip install pyserial")
     sys.exit(1)
 
-# websockets is imported where it is used, inside main(), so the friendly
-# pyserial error above is reachable even without it installed.
-
 import urllib.parse
 
-# The live console. Corrected 2026-09-19: this pointed at
-# touch-sensor-ai-156577365290.asia-southeast1.run.app, which was wrong twice
-# over - that service had not been deployed since 2026-08-25 and served no
-# request in the fortnight before it was deleted, and the host in the URL
-# carried a different project number from the one it actually answered on. A
-# bridge whose default target is a dead service fails in the worst way: it looks
-# like it is streaming and nothing is listening.
 DEFAULT_CLOUD_URL = "https://smart-extubation-ai-156577365290.asia-east1.run.app"
 N_PADS = 25
 
-# Frames arrive every 560 ms, so 1.5 s is two missed frames plus jitter. The
-# same number the browser bridge uses (web/web_serial.js), and for the same
-# reason: it sits ABOVE the server's SerialFrameSource.IDLE_TIMEOUT_S of 1.2 s,
-# so the server declares a dropout first and the bridge confirms. Two components
-# racing to declare the same disconnect is how the console and the server ended
-# up disagreeing about whether a patch was live.
 SERIAL_WATCHDOG_S = 1.5
 
 
@@ -72,17 +56,6 @@ def main() -> None:
     ws_url = args.cloud.replace("http://", "ws://").replace("https://", "wss://")
     if not ws_url.endswith("/"):
         ws_url += "/"
-    # source=client is the server's ingest branch: it calls ws.receive_json() in
-    # a loop, classifies each {"raw_frame": [...]} through the one shared
-    # LivePipeline, and sends the result back.
-    #
-    # This used to say source=webserial. main.py treated any unrecognised
-    # source= as "replay" and contained no ws.receive_* call anywhere, so every
-    # frame this script sent was discarded and the dashboard was fed a canned
-    # replay of Normal Mix/N_Mix_01.csv - while this console printed
-    # ">>> SENSOR STREAMING ACTIVE! <<<" and a live frame rate. A demo run looked
-    # perfect and showed nothing from the patch. The confirmation printed below
-    # is now the server's own reply to a frame, not our own optimism.
     ws_endpoint = f"{ws_url}ws/live_sensor?source=client"
     if args.key:
         ws_endpoint += f"&key={urllib.parse.quote(args.key)}"
@@ -91,9 +64,6 @@ def main() -> None:
         print(f"\n[1/2] Connecting to Arduino on {port}...")
         ser = None
         try:
-            # timeout must be BELOW the watchdog, or readline() blocks past the
-            # deadline and the watchdog can never fire. 0.5 s gives three checks
-            # inside SERIAL_WATCHDOG_S.
             ser = serial.Serial(port=port, baudrate=args.baud, timeout=0.5)
             print(" [OK] Arduino USB port opened successfully!")
         except Exception as e:
@@ -106,9 +76,6 @@ def main() -> None:
         try:
             import websockets.sync.client as ws_client
             with ws_client.connect(ws_endpoint, open_timeout=20) as ws:
-                # The server announces the ingest contract on connect. If we do
-                # not get it, we are not talking to an ingest endpoint and we say
-                # so instead of streaming into a void.
                 hello = json.loads(ws.recv())
                 if hello.get("source") != "client":
                     print(f" [FAIL] {args.cloud} did not accept a client ingest session "
@@ -128,13 +95,6 @@ def main() -> None:
                 while True:
                     line = ser.readline().decode("utf-8", errors="replace").strip()
                     if not line or line.startswith("#"):
-                        # Watchdog. A silent port is not a patient event, so
-                        # nothing is sent and nothing is alarmed: the bridge
-                        # stops feeding the server, the server's own idle
-                        # timeout holds the last level through its debouncer,
-                        # and the console freezes on the last valid state. The
-                        # loop keeps reading, so a cable pushed back in resumes
-                        # without a restart.
                         if not link_down and time.time() - last_frame_at > SERIAL_WATCHDOG_S:
                             link_down = True
                             print(f"\n [DISCONNECTED] No serial frame for "
@@ -150,10 +110,6 @@ def main() -> None:
                     if len(parts) < N_PADS:
                         continue
                     try:
-                        # A garbled token drops the whole frame. Filtering the bad
-                        # value out and taking the first 25 of the rest would
-                        # shift every later channel by one position, which reads
-                        # as valid data from a mis-wired patch.
                         vals = [float(p) for p in parts[:N_PADS]]
                     except ValueError:
                         continue

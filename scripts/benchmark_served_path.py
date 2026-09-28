@@ -61,32 +61,25 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 if __name__ == "__main__":
-    # Run as a script, only scripts/ is on sys.path; main.py lives in the
-    # repository root.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import evaluate_robustness as ER
 import main
 
-# Shards are intermediate; the merged file keeps every fold, so they live in
-# the OS temp directory and never in the working copy.
 SHARD_DIR = os.path.join(tempfile.gettempdir(), "project2-served-path-shards")
 OUT = os.path.join(main.DATA_ROOT, "served_path_benchmark.json")
 CANDIDATES: Tuple[str, ...] = ("C0", "C1", "C2", "C3", "C4")
 SCORED: Tuple[str, ...] = ("C0_offline", "C0_served", "C1", "C2", "C3", "C4")
 AUG_SDS: Tuple[float, ...] = (45.0, 90.0, 135.0)
 VARIANTS: Tuple[str, ...] = tuple(ER.VARIANTS)
-#: Plan section 5: the clean-row constraints and the robustness test.
 MAX_ALARM_RATIO = 1.10
 MAX_EXTRA_LATENCY_S = main.SAMPLE_PERIOD_S
 MAX_POOLED_EXTRA_FA = 4
 MAX_VARIANT_LOST_DETECTIONS = 1
 MAX_VARIANT_EXTRA_FA = 2
 MAX_FILE_ACCURACY_LOSS = 1
-ALPHA = 0.05 / (len(CANDIDATES) - 1)          # Bonferroni over C1-C4
+ALPHA = 0.05 / (len(CANDIDATES) - 1)
 
-
-# the corpus and the two calibrations
 
 def load_corpus() -> Tuple[Any, List[str], List[np.ndarray]]:
     ds = main.load_dataset("kalman", False, verbose=False)
@@ -167,8 +160,6 @@ def training_tables(ds: Any, paths: List[str], raws: List[np.ndarray]
     }
 
 
-# one fold
-
 def fit(table: List[Tuple[np.ndarray, np.ndarray]], held: int) -> Any:
     x = np.vstack([t[0] for i, t in enumerate(table) if i != held and len(t[0])])
     y = np.hstack([t[1] for i, t in enumerate(table) if i != held and len(t[1])])
@@ -219,8 +210,6 @@ def run_fold(fi: int, ds: Any, paths: List[str], raws: List[np.ndarray],
             result["scores"][c][variant] = outcome(*served_levels(models[c], raw))
     return result
 
-
-# scoring
 
 def summarise(folds: List[Dict[str, Any]], scored: str, variant: str) -> Dict[str, Any]:
     rows = [(f["label"], f["scores"][scored][variant]) for f in folds]
@@ -303,7 +292,7 @@ def decide(folds: List[Dict[str, Any]], table: Dict[str, Dict[str, Any]]
                   "pooled_detected_reference": sum(base[v]["detected"] for v in perturbed),
                   "pooled_fa_files": pooled_fa, "pooled_fa_reference": pooled_fa_ref}
     passing = [c for c in CANDIDATES[1:] if out[c]["adopt"]]
-    order = ("C1", "C3", "C2", "C4")     # plan: the simplest that passes
+    order = ("C1", "C3", "C2", "C4")
     best = max(passing, key=lambda c: (out[c]["pooled_detected"], -order.index(c)),
                default=None)
     return {"per_candidate": out, "passing": passing, "chosen": best}
@@ -329,8 +318,6 @@ def harness_check(table: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
             if not (abs(got[k] - v) < 1e-6 if isinstance(v, float) else got[k] == v)}
     return {"valid": not diff, "mismatches": diff, "published": want}
 
-
-# main
 
 def run_shard(part: int, parts: int) -> str:
     ds, paths, raws = load_corpus()

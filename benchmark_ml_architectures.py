@@ -29,12 +29,6 @@ import main as M
 warnings.filterwarnings("ignore")
 
 
-# file_vote is NOT redefined here. It used to be a verbatim copy of
-# main.file_vote, and that function carries a load-bearing rule - ties break
-# toward the MORE SEVERE class, which is what stopped two real class-3 files
-# being voted class 1. A private copy of a rule like that drifts silently, and
-# then the benchmark measures a different voting scheme from the product it is
-# supposed to be choosing an estimator for.
 file_vote = M.file_vote
 
 
@@ -44,8 +38,6 @@ class Classifier(Protocol):
     def fit(self, X: np.ndarray, y: np.ndarray, /) -> Self: ...
     def predict(self, X: np.ndarray, /) -> ArrayLike: ...
 
-
-# Deep ResNet-1D Architecture (PyTorch implementation wrapped in Scikit-Learn)
 
 try:
     import torch
@@ -71,7 +63,7 @@ try:
             out = self.dropout(out)
             out = self.fc2(out)
             out = self.bn2(out)
-            out = self.relu(out + residual)  # Residual Connection
+            out = self.relu(out + residual)
             return out
 
     class ResNet1DModel(nn.Module):
@@ -121,7 +113,6 @@ try:
             input_dim = X.shape[1]
             self.model = ResNet1DModel(input_dim=input_dim, hidden_dim=64, num_classes=4)
 
-            # Compute class weights for imbalanced clinical classes
             classes, counts = np.unique(y, return_counts=True)
             weights = len(y) / (len(classes) * counts)
             weight_tensor = torch.tensor(weights, dtype=torch.float32)
@@ -218,7 +209,6 @@ def evaluate_model_lofo(model_factory: Callable[[], Classifier], X: np.ndarray, 
     }
 
 
-# Repeated grouped k-fold - the mode that produces the estimator-choice figure
 def repeated_cv(n_repeats: int = 100, n_splits: int = 5) -> Dict[str, Any]:
     """Run each candidate estimator `n_repeats` times and report a DISTRIBUTION.
 
@@ -307,9 +297,6 @@ def main():
         return
     print(f"Loaded {ds.n_files} recordings, {len(ds.X)} frames across 4 classes.")
 
-    # ds.X is what main.py trains on: 34 columns (25 pad deltas + 9 statistics),
-    # NOT the 11 the label below claimed. The comparison rows are named from
-    # these two shapes, so the names are derived rather than typed.
     X_std = ds.X
     X_comb = build_raw_and_feature_matrix(ds)
     n_std, n_comb = X_std.shape[1], X_comb.shape[1]
@@ -318,22 +305,16 @@ def main():
     groups = ds.groups
 
     models: List[Tuple[str, Callable[[], Classifier], np.ndarray]] = [
-        # 1. Current Baseline: Random Forest (11 features)
         (f"1. Random Forest, production features ({n_std})", lambda: RandomForestClassifier(n_estimators=200, max_depth=12, class_weight="balanced_subsample", random_state=42, n_jobs=-1), X_std),
 
-        # 2. Random Forest on Combined 36 features
         (f"2. Random Forest, +gradient ({n_comb})", lambda: RandomForestClassifier(n_estimators=200, max_depth=14, class_weight="balanced_subsample", random_state=42, n_jobs=-1), X_comb),
 
-        # 3. Extra Trees Classifier (Extremely Randomized Trees)
         (f"3. Extra Trees, +gradient ({n_comb})", lambda: ExtraTreesClassifier(n_estimators=250, max_depth=14, class_weight="balanced_subsample", random_state=42, n_jobs=-1), X_comb),
 
-        # 4. HistGradientBoosting (LightGBM-style)
         (f"4. HistGradientBoosting, +gradient ({n_comb})", lambda: HistGradientBoostingClassifier(max_iter=150, max_depth=8, class_weight="balanced", random_state=42), X_comb),
 
-        # 5. Multi-Layer Perceptron (Deep MLP)
         (f"5. Deep MLP, +gradient ({n_comb})", lambda: MLPClassifier(hidden_layer_sizes=(128, 64, 32), activation="relu", max_iter=250, random_state=42, early_stopping=True), X_comb),
 
-        # 6. Ensemble Meta-Stacking (RF + ExtraTrees + HistGBM)
         (f"6. Ensemble Meta-Stacking, +gradient ({n_comb})", lambda: StackingClassifier(
             estimators=[
                 ("rf", RandomForestClassifier(n_estimators=100, max_depth=10, class_weight="balanced_subsample", random_state=42, n_jobs=-1)),
@@ -344,7 +325,6 @@ def main():
             n_jobs=-1
         ), X_comb),
 
-        # 7. Soft Voting Ensemble (RF + ExtraTrees + HistGBM)
         (f"7. Soft Voting Ensemble, +gradient ({n_comb})", lambda: VotingClassifier(
             estimators=[
                 ("rf", RandomForestClassifier(n_estimators=150, max_depth=12, class_weight="balanced_subsample", random_state=42, n_jobs=-1)),

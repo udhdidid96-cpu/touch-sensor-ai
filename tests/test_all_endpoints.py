@@ -31,7 +31,6 @@ def _enc(rel: str) -> str:
     return "/".join(urllib.parse.quote(p) for p in rel.split("/"))
 
 
-# health / metadata
 def test_health_reports_a_loaded_model(client: TestClient):
     body = client.get("/api/v6/health").json()
     assert body["status"] == "ok"
@@ -44,7 +43,6 @@ def test_layout_exposes_25_pads_with_their_wiring(client: TestClient):
     pads = client.get("/api/v6/layout").json()["pads"]
     assert len(pads) == M.N_PADS
     assert [p["pad"] for p in pads] == list(range(1, M.N_PADS + 1))
-    # the wiring table must stay a bijection or the patch renders scrambled
     assert sorted(p["signal_channel"] for p in pads) == list(range(1, M.N_PADS + 1))
 
 
@@ -91,12 +89,6 @@ def test_dashboard_claims_no_medical_certification(client: TestClient):
             hit = re.search(pattern, text, re.I)
             assert not hit, f"compliance claim back in {name}: {hit.group(0)!r}"
 
-    # "certified" needs its context checked rather than being banned outright.
-    #
-    # A bare r"\bCertified\b" was in the list above, and it cannot tell
-    # "ISO 62304 Certified" from "is not a certified medical device" - so it
-    # failed the honest disclaimer this very test demands three lines further
-    # down. A claim is a claim only when it is not negated.
     negation = re.compile(r"(?:\bnot\b|\bno\b|\bnever\b|\bwithout\b|\buncertified\b)"
                           r"[^.]{0,40}$", re.I)
     for name, text in sources:
@@ -106,11 +98,6 @@ def test_dashboard_claims_no_medical_certification(client: TestClient):
                 f"unqualified certification claim in {name}: "
                 f"...{text[max(0, hit.start() - 60):hit.end() + 20]!r}")
 
-    # The honest negative must be in BOTH files, and index.html is the one that
-    # matters. This assertion covered app.js only, which was satisfied for a long
-    # time by a console.info() on line 7 - executable, true, and invisible to
-    # every person who will ever look at this dashboard, because nobody opens
-    # devtools to find out whether a medical device is certified.
     assert re.search(r"not been assessed against IEC 62304", js), \
         "app.js lost the regulatory disclaimer"
     assert re.search(r"not been assessed against IEC 62304", page), \
@@ -139,14 +126,6 @@ def test_dashboard_does_not_fabricate_its_numbers(client: TestClient):
     assert "/api/v5/dataset/" in js and "/api/v6/heatmap/" in js
     assert "/api/v6/metrics" in js
 
-    # No figures in the metric value slots. Anything displayed there must arrive
-    # from /api/v6/metrics at runtime, so the markup carries a placeholder only.
-    #
-    # Anchored on the data-metric attribute rather than on a regex over a region
-    # of the document: the earlier version sliced from `class="metrics-card"` to
-    # the next card and broke the moment the layout changed, which is exactly the
-    # kind of guard that quietly stops guarding. One attribute per value slot is
-    # stable across any redesign.
     slots = re.findall(r'data-metric="([^"]+)"[^>]*>([^<]*)<', page)
     assert len(slots) >= 4, (
         f"expected at least 4 data-metric value slots in index.html, found "
@@ -156,13 +135,6 @@ def test_dashboard_does_not_fabricate_its_numbers(client: TestClient):
             f'metric slot "{name}" has a hard-coded value in the markup: {text!r}. '
             f"Render it from /api/v6/metrics in renderMetrics() instead.")
 
-    # A slot nobody fills is not a guard, it is a stage prop.
-    #
-    # The four data-metric spans spent a while inside a `<div style="display:none">`
-    # with the renderer that filled them deleted from app.js - so this test's
-    # "no digits in a slot" rule passed on four hidden em dashes, and the panel
-    # showed the operator no measured performance at all. Both halves are now
-    # required: the slots must be visible, and something must write to them.
     hidden = re.search(r'style="[^"]*display:\s*none[^"]*"[^>]*>\s*(?:<[^>]+>\s*)*'
                        r'<[^>]*data-metric=', page)
     assert not hidden, (
@@ -176,24 +148,14 @@ def test_dashboard_does_not_fabricate_its_numbers(client: TestClient):
             f"app.js does not read {key!r} from /api/v6/metrics - a figure it "
             f"cannot read is a figure it will invent or omit")
 
-    # And the specific literals that were there last time, anywhere on the page.
     for literal in ("97.53", "0.9652"):
         assert literal not in page, f"{literal} is hard-coded in index.html again"
 
-    # No emoji in a clinical readout. Every status glyph the old build shipped
-    # (traffic lights, sirens, raised hands) read as a consumer app rather than a
-    # bedside instrument, and they were in the API payload as well as the markup.
     emoji = re.compile("[\U0001F300-\U0001FAFF☀-➿️]")
     for name, text in (("index.html", page), ("app.js", js), ("web_serial.js", serial_js)):
         hit = emoji.search(text)
         assert not hit, f"emoji back in {name}: {hit.group(0)!r}"
 
-    # The ward view was a hard-coded 8-bed grid backed by no multi-patient API.
-    # It was removed once, came back on 2026-08-18 as `icu-bed-card` with eight
-    # invented Thai patients, HN-67081xx hospital numbers, ETT sizes and CPRI
-    # readings between 0.5% and 4.2%, and this assertion stayed green because it
-    # only knew the OLD class name. Guard the thing itself - invented patient
-    # identity and invented telemetry - not the markup it happened to use.
     assert "bed-unit" not in js and "bed-unit" not in page, \
         "the fabricated ICU bed grid is back; it needs a real multi-patient API first"
 
@@ -209,20 +171,11 @@ def test_dashboard_does_not_fabricate_its_numbers(client: TestClient):
         "the dashboard is printing a patch-uptime figure again; nothing in this "
         "system measures uptime")
 
-    # No classifier in app.js either. web_serial.js was cleaned up and this file
-    # then grew its own: a -45 count 'lifting' threshold and a -120/8-pad rule
-    # that printed "Critical: Full Detachment" on its own authority, against
-    # thresholds that exist nowhere in main.py. Pad counts come from
-    # propagation.n_lifting_pads; severity comes from severity_level.
     for marker in ("nLifted", "rawLevel", "liveKalman", "isCriticalDetached"):
         assert marker not in js, (
             f"app.js is classifying again ({marker!r}). The browser renders what "
             f"classify_deltas() decided; it does not decide.")
 
-    # No classifier in the browser. web_serial.js once carried a complete second
-    # pipeline - its own thresholds, its own baseline filter, its own severity
-    # levels, and no debouncer at all - which disagreed with main.py on every
-    # recording.
     for marker in ("rawLevel", "severity_level:", "nLifted", "liveKalman"):
         assert marker not in serial_js, (
             f"web_serial.js is classifying again ({marker!r}). Frames go up via "
@@ -243,7 +196,6 @@ def test_frontend_wiring_and_helper_integrity(client: TestClient):
     assert "showError" in serial_js, "showError is missing in web_serial.js"
     assert "clearError" in serial_js, "clearError is missing in web_serial.js"
 
-    # Check rules/frontend.md: Never inline a color in CSS or JS style.color = ...
     hex_color = re.compile(r"\.style\.(?:color|background|backgroundColor|borderColor)\s*=\s*['\"][^'\"]*#[0-9a-fA-F]{3,8}")
     for name, code in (("app.js", js), ("web_serial.js", serial_js)):
         hit = hex_color.search(code)
@@ -268,7 +220,6 @@ def test_serial_ports_endpoint_survives_having_no_hardware(client: TestClient):
     assert body["available"] == len(body["ports"])
 
 
-# dataset listing and analysis
 def test_datasets_lists_recordings(client: TestClient):
     names = client.get("/api/v5/datasets").json()["datasets"]
     assert names and all(n.endswith(".csv") for n in names)
@@ -328,7 +279,6 @@ def test_calibration_query_param_is_whitelisted(client: TestClient, sample_csv: 
         assert body["calibration"] == expected
 
 
-# heatmap
 def test_heatmap_grid_is_rows_y_by_cols_x(client: TestClient, sample_csv: str):
     """FIX F1: v5.0 built (80, 60) and reshaped to (60, 80), mirroring the patch."""
     body = client.get(f"/api/v6/heatmap/{_enc(sample_csv)}", params={"frame": 0}).json()
@@ -354,7 +304,6 @@ def test_heatmap_honours_the_requested_calibration(client: TestClient, sample_cs
     assert a["calibration"] == "static" and b["calibration"] == "kalman"
 
 
-# errors and containment
 def test_missing_dataset_is_404_not_500(client: TestClient):
     assert client.get("/api/v5/dataset/Peel/nope.csv").status_code == 404
     assert client.get("/api/v6/heatmap/Peel/nope.csv").status_code == 404
@@ -369,24 +318,19 @@ def test_path_traversal_is_refused_on_both_file_endpoints(client: TestClient):
             assert code in (400, 404), f"{route}{evil} returned {code}"
 
 
-# live socket
 def test_websocket_replays_a_recording_end_to_end(client: TestClient, sample_csv: str):
     url = (f"/ws/live_sensor?source=replay"
            f"&file={urllib.parse.quote(sample_csv)}&realtime=0")
     with client.websocket_connect(url) as ws:
         started = ws.receive_json()
         assert started["event"] == "started" and started["source"] == "replay"
-        # The handshake also reports whether PAD_ORDER was applied to this
-        # stream. It is not decoration: the live pad-order convention is the one
-        # open item from A9, so a spatial result pulled off this socket has to
-        # carry its own orientation rather than rely on a comment in main.py.
         assert started["pad_order_applied"] is False, (
             "a replay source feeds recorded Sensor-* frames, which are already in "
             "pad order; permuting them would scramble the patch")
         first = ws.receive_json()
         assert first["index"] == 0
         assert first["warming_up"] is True
-        assert first["severity_level"] == 0        # warmup must be silent
+        assert first["severity_level"] == 0
         assert len(first["deltas"]) == M.N_PADS
         assert len(first["pad_values"]) == M.N_PADS
         assert len(first["probabilities"]) == M.N_CLASSES
@@ -407,7 +351,6 @@ def test_websocket_serial_source_needs_a_port(client: TestClient):
         assert "error" in ws.receive_json()
 
 
-# access gate (A13) — off unless PROJECT2_ACCESS_KEY is set
 def test_access_gate_is_off_by_default(client: TestClient):
     assert client.get("/api/v6/health").status_code == 200
 
@@ -429,7 +372,7 @@ def test_access_gate_rejects_and_admits(dataset: M.Dataset):
     assert c.get("/api/v6/health").status_code == 401
     assert c.get("/api/v6/health?key=wrong").status_code == 401
     assert c.get("/api/v6/health?key=" + key).status_code == 200
-    assert c.get("/api/v6/health").status_code == 200            # cookie carries it
+    assert c.get("/api/v6/health").status_code == 200
     assert c.get("/api/v6/health", headers={"X-Access-Key": key}).status_code == 200
 
 
@@ -470,8 +413,6 @@ def test_no_regulatory_compliance_claim_anywhere_in_python(client: TestClient):
         r"|per\s+[\w/ ]*6(?:0601|2304)[\w.-]*\s+expectation"
         r"|6(?:0601|2304)[\w.-]*\s*(?:CLASS\s+\w+\s*)?COMPLIAN",
         re.I)
-    # the v6.2 changelog quotes verbatim the claim it deleted; that exact string
-    # is the only affirmative form allowed to appear anywhere.
     quoted_removals = ('"ISO 62304 CLASS B COMPLIANT"',
                        '"per IEC 60601-1-8 expectations"')
 
@@ -505,24 +446,20 @@ def test_non_ascii_access_key_is_rejected_not_a_500(dataset: M.Dataset):
 
 
 def test_serial_connect_validates_port_and_handles_loopback(client: TestClient):
-    # Empty port returns disconnected loopback mode
     res1 = client.post("/api/v5/serial/connect", json={"port": ""})
     assert res1.status_code == 200
     assert res1.json()["status"] == "disconnected"
 
-    # Non-existent port returns 404
     res2 = client.post("/api/v5/serial/connect", json={"port": "NON_EXISTENT_COM999"})
     assert res2.status_code == 404
     assert "not available" in res2.json()["detail"]
 
 
 def test_event_log_records_only_real_telemetry(client: TestClient):
-    # GET initial logs
     res_get = client.get("/api/v6/event-log")
     assert res_get.status_code == 200
     assert "events" in res_get.json()
 
-    # POST valid telemetry event
     valid_payload = {
         "dataset": "Normal Mix/N_Mix_01.csv",
         "frame_index": 12,
@@ -537,15 +474,13 @@ def test_event_log_records_only_real_telemetry(client: TestClient):
     assert evt["severity_level"] == 2
     assert evt["cpri_percent"] == 68.4
     assert evt["min_delta"] == -1850.0
-    assert "action_taken" not in evt  # ensure no fake unbacked claim strings exist
+    assert "action_taken" not in evt
 
-    # Bad payload missing required numeric fields returns 400
     res_bad = client.post("/api/v6/event-log", json={"invalid": "data"})
     assert res_bad.status_code == 400
 
 
 def test_event_log_records_all_extended_telemetry_and_exports_csv(client: TestClient, clean_event_log: str):
-    # POST event with full telemetry
     full_payload = {
         "dataset": "Live-Hardware",
         "frame_index": 45,
@@ -572,7 +507,6 @@ def test_event_log_records_all_extended_telemetry_and_exports_csv(client: TestCl
     assert len(evt["deltas"]) == 25
     assert evt["probabilities"] == [0.01, 0.05, 0.14, 0.8]
 
-    # Test CSV export endpoint
     res_csv = client.get("/api/v6/event-log/export-csv")
     assert res_csv.status_code == 200
     assert "text/csv" in res_csv.headers.get("content-type", "")
@@ -586,11 +520,9 @@ def test_event_log_records_all_extended_telemetry_and_exports_csv(client: TestCl
 
 
 def test_upload_custom_csv_endpoint(client: TestClient):
-    # Non-CSV extension is rejected with 400
     res_bad_ext = client.post("/api/v6/upload-csv", files={"file": ("test.txt", b"hello", "text/plain")})
     assert res_bad_ext.status_code == 400
 
-    # Valid 25-channel sensor CSV upload
     header = ",".join([f"Sensor-{i+1}" for i in range(25)]) + "\n"
     row1 = ",".join(["28000.0"] * 25) + "\n"
     row2 = ",".join(["27500.0"] * 25) + "\n"
@@ -605,14 +537,12 @@ def test_upload_custom_csv_endpoint(client: TestClient):
 
 
 def test_upload_custom_csv_size_limit_and_collision(client: TestClient):
-    # Test M3: Upload over 5 MB returns HTTP 413
     huge_data = b"0," * 24 + b"0\n" + b"28000," * 24 + b"28000\n"
-    huge_payload = huge_data * 150000  # > 5 MB
+    huge_payload = huge_data * 150000
     res_large = client.post("/api/v6/upload-csv", files={"file": ("huge_file.csv", huge_payload, "text/csv")})
     assert res_large.status_code == 413
     assert "exceeds limit" in res_large.json()["detail"]
 
-    # Test M3: Duplicate filename creates collision-free suffix
     unique_fn = f"dup_{uuid.uuid4().hex[:6]}.csv"
     header = ",".join([f"Sensor-{i+1}" for i in range(25)]) + "\n"
     row = ",".join(["28000.0"] * 25) + "\n"
@@ -622,11 +552,10 @@ def test_upload_custom_csv_size_limit_and_collision(client: TestClient):
     res2 = client.post("/api/v6/upload-csv", files={"file": (unique_fn, small_csv, "text/csv")})
     assert res1.status_code == 200 and res2.status_code == 200
     assert res1.json()["filename"] == unique_fn
-    assert res2.json()["filename"] != unique_fn  # collision prevented
+    assert res2.json()["filename"] != unique_fn
 
 
 def test_event_log_concurrency_safety(client: TestClient):
-    # Test M2: Concurrent event log POSTs
     import concurrent.futures
 
     def _send_log(i: int) -> httpx2.Response:
@@ -649,19 +578,16 @@ def test_event_log_concurrency_safety(client: TestClient):
 
 
 def test_access_key_gate_rate_limiting(dataset: M.Dataset):
-    # Test M7: Rate limit after 10 failed key guesses
     c, _ = _gated_client(dataset)
     for _ in range(10):
         c.get("/api/v6/health?key=badkey")
 
-    # 11th attempt returns 429
     res_limited = c.get("/api/v6/health?key=badkey")
     assert res_limited.status_code == 429
     assert "Too Many Failed" in res_limited.text
 
 
 def test_websocket_multi_client(client: TestClient, sample_csv: str):
-    # Test M8: Multi-client WebSocket stream
     url = f"/ws/live_sensor?source=replay&file={urllib.parse.quote(sample_csv)}&realtime=0"
     with client.websocket_connect(url) as ws1:
         with client.websocket_connect(url) as ws2:
@@ -674,7 +600,6 @@ def test_websocket_multi_client(client: TestClient, sample_csv: str):
             assert f1["index"] == 0 and f2["index"] == 0
 
 
-# regressions from the 2026-08-17 review
 def test_rate_limit_state_is_per_app_not_module_global(dataset: M.Dataset, model: HistGradientBoostingClassifier):
     """The failed-attempt table used to be a module-level defaultdict.
 
@@ -708,7 +633,6 @@ def test_websocket_auth_is_rate_limited_too(dataset: M.Dataset, model: HistGradi
         except Exception:
             refused += 1
     assert refused == 12, "unauthenticated sockets were accepted"
-    # The shared table means the HTTP gate has now seen those failures.
     assert c.get("/api/v6/health?key=wrong").status_code == 429, \
         "WebSocket auth failures are not counted against the rate limit"
 
@@ -738,7 +662,6 @@ def test_client_ingest_classifies_server_side(client: TestClient):
         assert abs(sum(out["probabilities"]) - 1.0) < 1e-6
         assert out["severity_level"] == 0, "a flat baseline must not annunciate"
 
-        # Malformed frames are rejected, not silently repaired.
         ws.send_json({"raw_frame": [1.0, 2.0]})
         assert "error" in ws.receive_json()
         ws.send_json({"raw_frame": ["x"] * M.N_PADS})
@@ -774,12 +697,10 @@ def test_rejected_upload_never_deletes_existing_files(client: TestClient, isolat
     assert sorted(os.listdir(custom)) == before, \
         "a rejected upload deleted existing recordings"
 
-    # A non-CSV and an invalid CSV must be just as harmless.
     client.post("/api/v6/upload-csv", files={"file": ("x.txt", b"hi", "text/plain")})
     client.post("/api/v6/upload-csv", files={"file": ("bad.csv", b"a,b\n1,2\n", "text/csv")})
     assert sorted(os.listdir(custom)) == before
 
-    # A VALID upload at the cap is allowed to evict exactly one, the oldest.
     res_ok = client.post("/api/v6/upload-csv",
                          files={"file": ("fresh.csv", good, "text/csv")})
     assert res_ok.status_code == 200
@@ -808,7 +729,6 @@ def test_audit_trail_is_never_silently_truncated(client: TestClient, clean_event
     assert post.status_code == 500, "a corrupt trail was silently replaced"
     assert "NOT" in post.json()["detail"]
 
-    # The unreadable file is preserved rather than overwritten.
     assert glob.glob(clean_event_log + ".corrupt-*"), "the corrupt trail was not kept"
     for stray in glob.glob(clean_event_log + ".corrupt-*"):
         os.remove(stray)
@@ -824,7 +744,6 @@ def test_event_ids_are_unique_across_a_truncation(client: TestClient, clean_even
         ids.add(client.post("/api/v6/event-log", json=payload).json()["event"]["event_id"])
     assert len(ids) == 5
 
-    # Shorten the trail by hand, the way a partial restore would.
     with open(clean_event_log, "w", encoding="utf-8") as fh:
         json.dump([], fh)
     for _ in range(3):
@@ -867,8 +786,5 @@ def test_the_two_serving_paths_agree(client: TestClient, sample_csv: str, model:
             live.append(msg)
 
     assert len(live) == len(rest)
-    # The REST view calibrates the whole file at once and the socket runs an
-    # incremental Kalman, so per-frame deltas legitimately differ. The verdict
-    # must not: the worst level either path reaches has to match.
     assert max(f["severity_level"] for f in live) == max(f["severity_level"] for f in rest), \
         "the live socket and the REST view disagree on the severity of one recording"

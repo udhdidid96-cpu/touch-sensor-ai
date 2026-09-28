@@ -8,12 +8,15 @@ declare any other joblib function the same way before using it.
 from os import PathLike
 from typing import IO, Any, Literal
 
+
 def dump(
     value: object,
     filename: str | PathLike[str] | IO[bytes],
     compress: bool | int | str | tuple[str, int] = ...,
     protocol: int | None = ...,
 ) -> list[str]: ...
+
+
 def load(
     filename: str | PathLike[str] | IO[bytes],
     mmap_mode: Literal["r+", "r", "w+", "c"] | None = ...,

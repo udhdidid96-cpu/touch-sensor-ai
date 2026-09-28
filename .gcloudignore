@@ -1,6 +1,3 @@
-# Keep in sync with .dockerignore - same reasoning: without this, deploys upload
-# the git history, two 54 MB tunnel binaries, four screen recordings and the whole
-# research corpus.
 .git
 .gitignore
 .github
@@ -19,10 +16,8 @@ __pycache__/
 _archive/
 tests/
 
-# Exclude only large non-essential plots
 Data/research_plots/
 
-# Model cache - see .dockerignore. The Dockerfile trains the image's own.
 Data/*.joblib
 Data/*.joblib.sha256.json
 

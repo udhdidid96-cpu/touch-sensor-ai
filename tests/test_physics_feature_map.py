@@ -22,10 +22,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC = os.path.join(REPO_ROOT, "docs", "PHYSICS_TO_FEATURE_MAP.md")
 STATS = os.path.join(REPO_ROOT, "Data", "physics_feature_stats.json")
 
-# feature -> (median decimals, quartile decimals) as the page prints them.
-# Std Delta keeps one decimal in its quartiles because the baseline row is the
-# board's noise floor - 8.6 [7.7, 9.9] counts - and rounding that to [8, 10]
-# throws away the resolution the 60-count noise gate is argued from.
 FORMATS = {
     "Min Delta": (1, 0), "Max Delta": (1, 0), "Mean Delta": (1, 0), "Std Delta": (1, 1),
     "Drop Count (<= -300)": (0, 0), "Drop Count (<= -600)": (0, 0),
@@ -49,7 +45,6 @@ def test_every_measured_cell_appears_in_the_page():
     for scenario, r in stats["scenarios"].items():
         if not r["frames"]:
             continue
-        # the row header itself
         if f"| {scenario} |" not in doc:
             missing.append(f"{scenario}: row missing entirely")
             continue

@@ -39,18 +39,14 @@ def test_scale_normalized_deltas_negative_20pct_baseline():
 
     scale-normalized deltas restore the -300 count gate for early detachment.
     """
-    shifted_baseline = np.full(N_PADS, 22400.0)  # -20%
-    # A 1.1% detachment air-gap on this shifted baseline produces -246.4 counts
-    physical_lift_delta = -0.011 * shifted_baseline  # -246.4 counts
+    shifted_baseline = np.full(N_PADS, 22400.0)
+    physical_lift_delta = -0.011 * shifted_baseline
 
-    # Under raw unnormalized threshold (-300.0), this physical lift FAILS to trigger
     assert np.all(physical_lift_delta > -DELTA_THRESHOLD), "Physical lift unnormalized is shallower than -300"
 
-    # Under scale normalization:
     frac_delta = compute_fractional_deltas(physical_lift_delta, shifted_baseline)
     norm_delta = frac_delta * 28000.0
 
-    # Must cleanly reach -308.0 counts and cross the -300 count gate!
     assert np.all(norm_delta <= -DELTA_THRESHOLD), f"Normalized delta {norm_delta[0]} failed to cross -300 gate"
     assert np.isclose(norm_delta[0], -308.0, atol=0.1)
 
@@ -60,14 +56,12 @@ def test_scale_normalized_deltas_positive_20pct_baseline():
 
     scale-normalized deltas prevent over-sensitisation.
     """
-    shifted_baseline = np.full(N_PADS, 33600.0)  # +20%
-    # A 1.1% detachment lift produces -369.6 counts
+    shifted_baseline = np.full(N_PADS, 33600.0)
     physical_lift_delta = -0.011 * shifted_baseline
 
     frac_delta = compute_fractional_deltas(physical_lift_delta, shifted_baseline)
     norm_delta = frac_delta * 28000.0
 
-    # Normalized delta scales back to exact -308.0 counts
     np.testing.assert_allclose(norm_delta, np.full(N_PADS, -308.0), atol=0.1)
 
 
@@ -81,7 +75,6 @@ def test_analyze_surface_topography_planar():
     assert len(res["tenting_pads"]) == 0
     assert len(res["flush_pads"]) == N_PADS
     assert len(res["adaptive_lift_gates"]) == N_PADS
-    # Nominal adaptive gate is min(-150, -0.011 * 28000) = -308.0
     assert np.isclose(res["adaptive_lift_gates"][0], -308.0, atol=0.1)
 
 
@@ -91,7 +84,6 @@ def test_analyze_surface_topography_stepped_ridge_tenting():
     and assigned sensitive adaptive lift gates.
     """
     base = np.full(N_PADS, 28000.0)
-    # Pads 11, 12, 13 bridge the ETT tube and experience tenting (baseline drops to 14,000 counts)
     base[10] = 14000.0
     base[11] = 14000.0
     base[12] = 14000.0
@@ -104,16 +96,11 @@ def test_analyze_surface_topography_stepped_ridge_tenting():
     assert 12 in res["tenting_pads"]
     assert 13 in res["tenting_pads"]
 
-    # Check adaptive lift gates:
     gates = res["adaptive_lift_gates"]
-    # Tented pads should have sensitive gates: -0.011 * 14000 = -154.0
     assert np.isclose(gates[10], -154.0, atol=0.5)
     assert np.isclose(gates[11], -154.0, atol=0.5)
-    # Flush pads remain at -308.0
     assert np.isclose(gates[0], -308.0, atol=0.5)
 
-    # Verify that a detachment lift of -160 counts on a tented pad
-    # triggers the adaptive gate (-154) whereas it would miss the fixed -300 gate
     assert -160.0 <= gates[10], "Adaptive gate did not detect early detachment on tented pad"
     assert -160.0 > -DELTA_THRESHOLD, "Fixed -300 gate would have missed this lift"
 
@@ -123,12 +110,10 @@ def test_static_tube_localization_orientations():
 
     vertical, horizontal, and diagonal tube axis orientations.
     """
-    # 1. Planar / uniform profile (no tube)
     c_uniform = np.full(N_PADS, 30.0)
     res_uni = detect_static_tube_localization(c_uniform)
     assert res_uni["detected"] is False
 
-    # 2. Vertical tube shadow: centerline pads (1, 12, 13, 14, 11) along x ≈ 50-58, y from 22 to 90
     c_vert = np.full(N_PADS, 30.0)
     for p in [1, 12, 13, 14, 11]:
         c_vert[p - 1] = 27.5
@@ -136,7 +121,6 @@ def test_static_tube_localization_orientations():
     assert res_vert["detected"] is True
     assert res_vert["axis_orientation"] == "vertical"
 
-    # 3. Horizontal tube shadow: transverse row (6, 7, 13, 20, 21) along y = 50, x from 20 to 80
     c_horiz = np.full(N_PADS, 30.0)
     for p in [6, 7, 13, 20, 21]:
         c_horiz[p - 1] = 27.5
@@ -144,7 +128,6 @@ def test_static_tube_localization_orientations():
     assert res_horiz["detected"] is True
     assert res_horiz["axis_orientation"] == "horizontal"
 
-    # 4. Diagonal tube shadow: diagonal pads (2, 5, 13, 22, 25) spanning both x and y >= 25mm
     c_diag = np.full(N_PADS, 30.0)
     for p in [2, 5, 13, 22, 25]:
         c_diag[p - 1] = 27.5

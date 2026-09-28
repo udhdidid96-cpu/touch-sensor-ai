@@ -27,8 +27,6 @@ from typing import Any, Dict, List, Tuple, TypedDict
 import numpy as np
 
 if __name__ == "__main__":
-    # Run as a script, only scripts/ is on sys.path; main.py lives in the
-    # repository root.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main as M
@@ -38,7 +36,7 @@ def wilson_score_interval(k: int, n: int, confidence: float = 0.95) -> Tuple[flo
     """Calculate Wilson score interval with continuity bounds."""
     if n == 0:
         return 0.0, 0.0
-    z = 1.95996  # 95% confidence
+    z = 1.95996
     p = k / n
     denom = 1.0 + (z**2) / n
     centre = (p + (z**2) / (2 * n)) / denom
@@ -64,7 +62,6 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         print("ERROR: Could not load dataset from Data/")
         return {}
 
-    # Define scenario mapping based on file folder names
     scenario_defs: Dict[str, ScenarioDef] = {
         "1. Baseline (อยู่นิ่ง)": {
             "folders": ["N_base"],
@@ -123,7 +120,6 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         },
     }
 
-    # Model inference preparation
     if mode == "oof":
         print("Computing Leave-One-File-Out (Out-Of-Fold) predictions over 81 files ...")
         oof_preds = M.compute_oof(ds, 42)
@@ -155,30 +151,26 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         mismatched_files: List[Tuple[str, int, int]] = []
 
         for fi in indices:
-            raw_frames = ds.frames[fi]  # (n_frames, 25)
+            raw_frames = ds.frames[fi]
             min_val = float(np.min(raw_frames))
             max_val = float(np.max(raw_frames))
             deepest_deltas.append(min_val)
             max_deltas.append(max_val)
 
-            # Check gate crossings (LIFT_GATE_COUNTS is -300.0)
             if min_val <= M.LIFT_GATE_COUNTS:
                 lift_gate_crossings += 1
             if max_val >= M.NOISE_GATE_COUNTS or min_val <= -M.NOISE_GATE_COUNTS:
                 noise_gate_crossings += 1
 
-            # Predictions for this file
             file_mask = (ds.groups == fi)
             preds = oof_preds[file_mask]
 
-            # File-level majority vote
             vote = M.file_vote(preds)
             file_votes.append(vote)
             true_label = ds.labels[fi]
             if vote != true_label:
                 mismatched_files.append((ds.files[fi], true_label, vote))
 
-            # Annunciator / Episode alarm evaluation (7-of-6 hold 9)
             debouncer = M.AlarmDebouncer(window=7, min_votes=6, hold=9)
             triggered = False
             for p in preds:
@@ -222,7 +214,6 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         scenario_results[name] = scenario_stat
         all_summary.append(scenario_stat)
 
-    # Print Formatted Markdown Profile
     print("\n### 5-SCENARIO BIOMEDICAL PROFILE TABLE\n")
     header = (
         f"{'Scenario':<32} | {'Files':<5} | {'Median Min Δ':<12} | "
@@ -252,7 +243,6 @@ def evaluate_5_scenarios(mode: str = "oof") -> Dict[str, Any]:
         mismatch_str = f" -> Mismatches: {s['mismatched_files']}" if s['mismatched_files'] else ""
         print(f"  * {s['scenario']:<32}: Base={vd['0:Baseline']}, Touch={vd['1:Touch/Press']}, Peel={vd['2:Peel']}, Pull={vd['3:Pull']}{mismatch_str}")
 
-    # Output to JSON
     out_path = os.path.join(M.DATA_ROOT, "five_scenarios_evaluation.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({

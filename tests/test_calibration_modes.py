@@ -30,8 +30,6 @@ def test_kalman_norm_is_invariant_to_a_global_gain_change():
     assert np.abs(base - gained).max() < 1.0, (
         f"kalman_norm drifted {np.abs(base - gained).max():.1f} counts under a +20% gain")
 
-    # and the unnormalised mode does not have that property - if this ever
-    # passes, F10 has stopped doing anything and the test above is vacuous.
     plain = M.calibrate(raw, "kalman")
     plain_gained = M.calibrate(raw * 1.20, "kalman")
     assert np.abs(plain - plain_gained).max() > 50.0, (

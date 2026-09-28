@@ -37,8 +37,6 @@ from typing import Any, Callable, Dict, List
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 METRICS_PATH = os.path.join(REPO_ROOT, "Data", "metrics.json")
 
-# Markdown trees to scan. Data/METRICS.md is excluded on purpose: --report
-# writes it, and a second writer for one file is how they drift apart.
 SCAN_DIRS = [REPO_ROOT, os.path.join(REPO_ROOT, "docs")]
 
 BLOCK_RE = re.compile(

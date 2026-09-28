@@ -12,7 +12,6 @@
 </head>
 <body class="app" data-level="0">
 
-<!-- ============================================================ TOP BAR == -->
 <header class="topbar">
   <div class="topbar__brand">
     <span class="brandmark" aria-hidden="true">
@@ -69,7 +68,6 @@
 
 <div class="shell">
 
-  <!-- ========================================================= SIDEBAR == -->
   <nav class="sidebar" aria-label="Main">
     <ul class="nav">
       <li><button class="nav__item is-active" data-view="dashboard" onclick="showView('dashboard')">
@@ -117,13 +115,10 @@
     </div>
   </nav>
 
-  <!-- ============================================================ MAIN == -->
   <main class="main">
 
-    <!-- ================================================= VIEW: DASHBOARD == -->
     <section class="view is-active" id="view-dashboard">
 
-      <!-- Operator control rail -->
       <div class="rail">
         <div class="segmented" role="tablist" aria-label="Acquisition mode">
           <button class="segmented__btn active" id="btnModeLive" role="tab" aria-selected="true" onclick="setDashboardMode('live')">
@@ -158,7 +153,6 @@
         </div>
       </div>
 
-      <!-- Live controls -->
       <div class="rail rail--sub" id="liveControlsArea" style="display:flex;">
         <div class="rail__group">
           <button class="btn btn--ghost" id="btnCalibrateZero" onclick="resetLiveCalibration()">
@@ -179,7 +173,6 @@
         </div>
       </div>
 
-      <!-- Replay controls -->
       <div class="rail rail--sub" id="replayControlsArea" style="display:none;">
         <div class="rail__group">
           <span class="field__k" id="txt-preset-label" data-i18n="f_preset">SCENARIO</span>
@@ -205,10 +198,8 @@
         </div>
       </div>
 
-      <!-- Row 1 -->
       <div class="grid grid--main">
 
-        <!-- LIVE ANALYSIS -->
         <section class="panel panel--analysis">
           <div class="panel__head">
             <h2 class="panel__title" data-i18n="p_analysis">LIVE ANALYSIS</h2>
@@ -221,9 +212,6 @@
                 <canvas id="heatmapCanvas" width="400" height="533"></canvas>
                 <svg id="patchSvg" viewBox="0 0 100 133.33" aria-label="Sensor patch map">
                   <defs>
-                    <!-- The interpolated wash extrapolates past the outer pads.
-                         Without this clip it paints invented signal in bands
-                         outside the dressing outline. -->
                     <clipPath id="patchClip" clipPathUnits="objectBoundingBox">
                       <path d="M .5 .06 C .15 .1875, .02 .375, .08 .7125 C .12 .9375, .40 .99, .5 .99 C .60 .99, .88 .9375, .92 .7125 C .98 .375, .85 .1875, .5 .06 Z"/>
                     </clipPath>
@@ -243,7 +231,6 @@
           </div>
         </section>
 
-        <!-- ASSESSMENT SUMMARY -->
         <section class="panel panel--summary">
           <div class="panel__head">
             <h2 class="panel__title" data-i18n="p_summary">ASSESSMENT SUMMARY</h2>
@@ -296,10 +283,8 @@
         </section>
       </div>
 
-      <!-- Row 2 -->
       <div class="grid grid--second">
 
-        <!-- PROCESSING PIPELINE -->
         <section class="panel">
           <div class="panel__head"><h2 class="panel__title" data-i18n="p_pipeline">PROCESSING PIPELINE</h2></div>
           <div class="panel__body">
@@ -342,7 +327,6 @@
           </div>
         </section>
 
-        <!-- MODEL VALIDATION -->
         <section class="panel">
           <div class="panel__head">
             <h2 class="panel__title" data-i18n="p_validation">MODEL VALIDATION</h2>
@@ -383,7 +367,6 @@
         </section>
       </div>
 
-      <!-- Row 3 -->
       <div class="grid grid--third">
         <section class="panel">
           <div class="panel__head">
@@ -418,7 +401,6 @@
       </div>
     </section>
 
-    <!-- ==================================================== VIEW: EVENTS == -->
     <section class="view" id="view-events">
       <div class="grid grid--one">
         <section class="panel">
@@ -450,7 +432,6 @@
       </div>
     </section>
 
-    <!-- ===================================================== VIEW: MODEL == -->
     <section class="view" id="view-model">
       <div class="grid grid--one">
         <section class="panel">
@@ -485,7 +466,6 @@
       </div>
     </section>
 
-    <!-- ====================================================== VIEW: WARD == -->
     <section class="view" id="view-ward">
       <div class="grid grid--one">
         <section class="panel">
@@ -501,7 +481,6 @@
       </div>
     </section>
 
-    <!-- =================================================== VIEW: REPORTS == -->
     <section class="view" id="view-reports">
       <div class="grid grid--one">
         <section class="panel">
@@ -525,7 +504,6 @@
       </div>
     </section>
 
-    <!-- ================================================== VIEW: SETTINGS == -->
     <section class="view" id="view-settings">
       <div class="grid grid--one">
         <section class="panel">
@@ -566,7 +544,6 @@
   </main>
 </div>
 
-<!-- ================================================ PATIENT EDIT DIALOG == -->
 <div class="modal" id="patientEditModal" style="display:none;" role="dialog" aria-modal="true">
   <div class="modal__box">
     <div class="modal__head">

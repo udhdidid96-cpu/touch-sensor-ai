@@ -51,7 +51,7 @@ def server_is_up(port: int, key: str = "") -> bool:
         with urllib.request.urlopen(url, timeout=2) as resp:
             return resp.status == 200
     except urllib.error.HTTPError as exc:
-        return exc.code in (401, 403)      # it is up, it is just gating us
+        return exc.code in (401, 403)
     except Exception:
         return False
 
@@ -63,7 +63,7 @@ def launch_server(port: int, key: str) -> subprocess.Popen[bytes]:
     cmd = [sys.executable, "-u", "main.py", "--port", str(port)]
     print(f"[*] starting: {' '.join(cmd)}")
     proc = subprocess.Popen(cmd, cwd=os.path.dirname(os.path.abspath(__file__)), env=env)
-    for _ in range(60):                    # up to ~30 s; the model has to train first
+    for _ in range(60):
         time.sleep(0.5)
         if server_is_up(port, key):
             print("[+] local server is up")

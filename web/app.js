@@ -1,8 +1,3 @@
-/**
- * Smart Extubation AI — Modern Clinical Telemetry Dashboard Engine
- * Clean Light Clinical Theme with Real-time Multi-Class Inference
- */
-
 'use strict';
 
 console.info('This system has not been assessed against IEC 62304.');
@@ -21,7 +16,7 @@ const state = {
   chart: null,
   isMuted: false,
   lastLevel: 0,
-  lastLoggedLevel: null,   // level of the previous frame, for audit-trail edges
+  lastLoggedLevel: null,
   audioCtx: null,
   currentLang: 'th',
   mode: 'live',
@@ -41,7 +36,6 @@ function withKey(url) {
   }
 }
 
-// Verified 25-node physical layout coordinates (90x120 mm patch)
 const DEFAULT_LAYOUT = [
   { pad: 1, x: 57.0, y: 90.0 }, { pad: 2, x: 73.0, y: 78.0 }, { pad: 3, x: 58.0, y: 78.0 },
   { pad: 4, x: 79.0, y: 64.0 }, { pad: 5, x: 65.0, y: 64.0 }, { pad: 6, x: 80.0, y: 50.0 },
@@ -54,35 +48,32 @@ const DEFAULT_LAYOUT = [
   { pad: 25, x: 25.0, y: 24.0 }
 ];
 
-// Verified physical pad to raw Signal-* channel index mapping (0-indexed)
-// Pad N (1..25) -> Signal channel index (Signal-K -> K-1)
-// Verified by 1-by-1 press sweep (Spearman rho 1.0000)
 const RAW_TO_PAD_MAP = [
-  19, // Pad 1  -> Signal-20 (idx 19)
-  20, // Pad 2  -> Signal-21 (idx 20)
-  18, // Pad 3  -> Signal-19 (idx 18)
-  21, // Pad 4  -> Signal-22 (idx 21)
-  17, // Pad 5  -> Signal-18 (idx 17)
-  22, // Pad 6  -> Signal-23 (idx 22)
-  16, // Pad 7  -> Signal-17 (idx 16)
-  23, // Pad 8  -> Signal-24 (idx 23)
-  15, // Pad 9  -> Signal-16 (idx 15)
-  24, // Pad 10 -> Signal-25 (idx 24)
-  14, // Pad 11 -> Signal-15 (idx 14)
-  13, // Pad 12 -> Signal-14 (idx 13)
-  12, // Pad 13 -> Signal-13 (idx 12)
-  11, // Pad 14 -> Signal-12 (idx 11)
-  5,  // Pad 15 -> Signal-6  (idx 5)
-  6,  // Pad 16 -> Signal-7  (idx 6)
-  4,  // Pad 17 -> Signal-5  (idx 4)
-  7,  // Pad 18 -> Signal-8  (idx 7)
-  3,  // Pad 19 -> Signal-4  (idx 3)
-  8,  // Pad 20 -> Signal-9  (idx 8)
-  2,  // Pad 21 -> Signal-3  (idx 2)
-  9,  // Pad 22 -> Signal-10 (idx 9)
-  1,  // Pad 23 -> Signal-2  (idx 1)
-  10, // Pad 24 -> Signal-11 (idx 10)
-  0   // Pad 25 -> Signal-1  (idx 0)
+  19,
+  20,
+  18,
+  21,
+  17,
+  22,
+  16,
+  23,
+  15,
+  24,
+  14,
+  13,
+  12,
+  11,
+  5,
+  6,
+  4,
+  7,
+  3,
+  8,
+  2,
+  9,
+  1,
+  10,
+  0
 ];
 
 function remapToPhysicalPads(raw) {
@@ -96,15 +87,6 @@ function remapToPhysicalPads(raw) {
 
 
 
-/* -------------------------------------------------------- Multi-Language --
- * Three languages, applied by `data-i18n` attribute rather than by a hand-kept
- * map of element ids. The old map named 22 ids; anything added to the markup
- * after it was written silently stayed English, which is how a "Thai" console
- * ended up half in English. An attribute travels with the element.
- *
- * The `txt-*` id map below is kept only for the handful of nodes the frame
- * renderer also writes to by id.
- */
 const TRANSLATIONS = {
   th: {
     peel_dir: 'ทิศทางการลอก',
@@ -428,15 +410,13 @@ function switchLanguage(lang) {
 
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const v = t(el.getAttribute('data-i18n'));
-    if (typeof v === 'string') el.textContent = v;   // textContent only: class
-  });                                                // and state stay put
+    if (typeof v === 'string') el.textContent = v;
+  });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => {
     const v = t(el.getAttribute('data-i18n-ph'));
     if (typeof v === 'string') el.setAttribute('placeholder', v);
   });
 
-  // The frame renderer also writes some of these by id, so they are kept in
-  // step here rather than waiting for the next frame.
   const byId = {
     'txt-provenance': 'provenance', 'txt-v1-label': 'v1_label', 'txt-v2-label': 'v2_label',
     'txt-v3-label': 'v3_label', 'txt-preset-label': 'preset_label', 'txt-upload': 'upload',
@@ -472,11 +452,6 @@ function switchLanguage(lang) {
   if (state.chart) restyleChart();
 }
 
-/* ------------------------------------------------------------- Appearance --
- * Light is the default. The choice is per-browser and survives a reload; the
- * canvases are redrawn on every change because Chart.js bakes its axis colours
- * in at construction time and the heatmap is painted, not styled.
- */
 function applyTheme(mode, persist) {
   const m = (mode === 'dark') ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', m);
@@ -499,11 +474,6 @@ function cssVar(name, fallback) {
   return v || fallback;
 }
 
-/* ---------------------------------------------------------------- Routing --
- * "Live Monitor" and "Replay & Audit" are the same face in two acquisition
- * modes, so they route to the dashboard and set the mode rather than cloning
- * the panels into a second copy that would then drift out of step.
- */
 function showView(name) {
   let target = name;
   if (name === 'live')   { setDashboardMode('live');   target = 'dashboard'; }
@@ -522,7 +492,6 @@ function showView(name) {
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
-/* ------------------------------------------------------------------ Gauge -- */
 function updateGauge(cpri, level) {
   const needle = document.getElementById('gaugeNeedle');
   if (needle) {
@@ -543,10 +512,7 @@ function updateConfidence(fr) {
   el.className = 'stat__v ' + (top >= 0.75 ? 'stat__v--ok' : top >= 0.5 ? 'stat__v--blue' : 'stat__v--warn');
 }
 
-/* ------------------------------------------------------------------ init -- */
 window.addEventListener('load', async () => {
-  // Appearance and language come back from the last visit before anything is
-  // painted, so the page does not flash the wrong theme or the wrong script.
   let savedTheme = 'light', savedLang = null;
   try {
     savedTheme = localStorage.getItem('p2.theme') || 'light';
@@ -559,8 +525,6 @@ window.addEventListener('load', async () => {
   const hdrTime = document.getElementById('hdrAcquired');
   if (hdrTime) hdrTime.textContent = started.toLocaleString();
   const hdrSes = document.getElementById('hdrSessionId');
-  // A session label, not a patient or hospital identifier: date plus the
-  // wall-clock minute this console was opened.
   if (hdrSes) hdrSes.textContent = 'SES-' + started.toISOString().slice(0, 16).replace(/[-:T]/g, '');
 
   updateBedSelectLabels();
@@ -590,11 +554,9 @@ window.addEventListener('load', async () => {
   renderMetrics();
   renderICUGrid();
 
-  // Set initial mode to Pure Real-Time Live Standby (Waiting for user connection)
   setDashboardMode('live', false);
 });
 
-/* ----------------------------------------------------------- SVG Nodes -- */
 function initNodesSVG() {
   const g = document.getElementById('svgNodes');
   if (!g) return;
@@ -603,7 +565,7 @@ function initNodesSVG() {
   const NS = 'http://www.w3.org/2000/svg';
 
   layout.forEach((p) => {
-    const cx = p.x, cy = p.y * 1.3333; // SVG aspect ratio scaling
+    const cx = p.x, cy = p.y * 1.3333;
     const grp = document.createElementNS(NS, 'g');
     
     const glow = document.createElementNS(NS, 'circle');
@@ -633,7 +595,6 @@ function initNodesSVG() {
   });
 }
 
-/* --------------------------------------------------------- Chart.js Graph -- */
 function initRiskChart() {
   const canvas = document.getElementById('riskChart');
   if (!canvas || typeof Chart === 'undefined') return;
@@ -667,9 +628,6 @@ function initRiskChart() {
   });
 }
 
-/* Chart.js resolves its colours once, at construction. The palette below is
- * read from the token layer so that a theme switch restyles the same chart
- * instead of leaving dark-theme axis text on a white card. */
 function chartColours() {
   return {
     cpri:     cssVar('--sig-cpri', '#5b62d6'),
@@ -714,7 +672,6 @@ function paintChart(frames) {
   state.chart.update();
 }
 
-/* ------------------------------------------------------------- Load & Play -- */
 function pickForClass(kind) {
   const want = {
     normal: ['N_base/', 'Baseline/'],
@@ -850,21 +807,6 @@ async function heatmapFor(i) {
   }
 }
 
-/**
- * Fill every [data-metric] slot from /api/v6/metrics.
- *
- * This function had disappeared. What remained fetched the endpoint and used
- * exactly one field from the response - `generated`, for a timestamp pill -
- * while the four measured figures sat in a display:none wrapper reading "—",
- * with nothing in the page ever writing to them. The guard test asserts those
- * slots contain no digits, so an em dash passed it, and the panel showed the
- * operator no performance figures at all for as long as that was true.
- *
- * Every value below is read from the file --report wrote. Nothing here computes
- * or rounds a headline figure into existence: if a key is missing from
- * metrics.json the slot stays a dash and says so, rather than being filled with
- * something plausible.
- */
 async function renderMetrics() {
   let m;
   try {
@@ -883,8 +825,6 @@ async function renderMetrics() {
   setMetric('accuracy', pct(rf.accuracy_mean));
   setMetric('macro_f1', num(rf.macro_f1_mean));
   setMetric('peel_f1', num(rf.peel_f1));
-  // The clinically meaningful false-alarm figure is the episode one, not the
-  // file-level vote: it is what a ward experiences per recording.
   setMetric('false_alarm_rate', pct(ep.false_alarm_rate));
 
   const op = ep.operating_point;
@@ -893,9 +833,6 @@ async function renderMetrics() {
     const el = document.getElementById(id);
     if (el) el.textContent = m.generated || '\u2014';
   });
-  // The operating point is the other half of every alarm figure on this page:
-  // a false-alarm rate without the vote window it was measured at is a number
-  // with no units.
   ['pipeOp', 'pipeOpFull'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = opText;
@@ -919,23 +856,14 @@ function setMetricSlots(_value, note) {
 }
 
 
-/* ---------------------------------------------------------- Frame Renderer -- */
 function renderFrame(fr, total) {
   if (!fr) return;
-  // Time & Counter
   const timeSec = Number.isFinite(fr.time_sec) ? fr.time_sec : ((fr.index || 0) * 0.56);
   const timeEl = document.getElementById('timeReadout');
   if (timeEl) timeEl.textContent = timeSec.toFixed(1) + 's';
   const cntEl = document.getElementById('frameCounter');
   if (cntEl) cntEl.textContent = `Frame ${(fr.index || 0) + 1} / ${total || state.frames.length || 1}`;
 
-  // Where the Kalman baseline booted, as the SERVER judged it.
-  //
-  // Invariant 1: the status and the note are consumed verbatim. This block does
-  // not compare the seed against ATTACHED_SEED_BAND, does not read pad values,
-  // and does not decide attachment - seed_plausibility() on the server does all
-  // of that and never rejects a frame, so this badge warns and nothing else.
-  // Absent on replay payloads, which carry no seed; the badge then stays hidden.
   const seedEl = document.getElementById('seedBadge');
   const reseedBtn = document.getElementById('reseedBtn');
   if (seedEl) {
@@ -946,13 +874,10 @@ function renderFrame(fr, total) {
     seedEl.hidden = !flagged;
     seedEl.textContent = flagged ? String(seed.note || seed.status) : '';
     seedEl.title = flagged ? `Kalman seed: ${seed.status}` : '';
-    // A contaminated channel and a whole-patch bad zero are different faults and
-    // read differently on the console. Both strings come from the server.
     seedEl.classList.toggle('pipe__s--outlier', outlier);
     if (reseedBtn) reseedBtn.hidden = !flagged;
   }
 
-  // Quiescent recovery: the server decided this, the page only says so.
   const quietEl = document.getElementById('quiescentBadge');
   if (quietEl) {
     const q = fr.quiescent_recovery;
@@ -961,23 +886,11 @@ function renderFrame(fr, total) {
     quietEl.textContent = engaged ? String(q.note || '') : '';
   }
 
-  // Severity Level & Status Banner
   const lvl = fr.severity_level || 0;
   state.lastLevel = lvl;
   const cp = fr.cpri_percent || 0.0;
   const deltas = fr.deltas || [];
-  
-  // Patch integrity - RENDERED FROM THE SERVER, not decided here.
-  //
-  // This block used to run its own miniature classifier: a -45 count threshold
-  // for "lifting", a -120 threshold counted over 8 pads, plus `cpri >= 80` and
-  // a substring match on the status text, and from those it printed its own
-  // verdict "Critical: Full Detachment" - a severity the server had not
-  // assigned, against thresholds that exist nowhere else in the project (the
-  // lift gate is -300 counts, DELTA_THRESHOLD). It is the same second-classifier
-  // -in-the-browser that was removed from web_serial.js. The pad count now comes
-  // from propagation.n_lifting_pads, which the server computes with the same
-  // gate its own peel tracker uses, and the wording follows severity_level.
+
   const prop = fr.propagation || {};
   const nLifting = Number.isFinite(prop.n_lifting_pads) ? prop.n_lifting_pads : 0;
   const nAttached = Math.max(0, 25 - nLifting);
@@ -987,8 +900,6 @@ function renderFrame(fr, total) {
 
   const intDescEl = document.getElementById('patchIntegrityDesc');
   if (intDescEl) {
-    // Colour by class, not by an inline hex. The hexes here were picked for a
-    // dark canvas and measured under 3:1 once the console went light.
     if (nLifting === 0) {
       intDescEl.textContent = t('desc_gate_none');
       intDescEl.className = 'stat__s stat__s--ok';
@@ -997,22 +908,16 @@ function renderFrame(fr, total) {
       intDescEl.textContent = t('desc_gate_some').replace('{n}', nLifting)
         + (prop.confirmed ? t('desc_gate_confirmed') : '');
       intDescEl.className = 'stat__s ' + (lvl >= 3 ? 'stat__s--bad' : lvl === 2 ? 'stat__s--warn' : 'stat__s--info');
-      intDescEl.removeAttribute('data-i18n');  // carries an interpolated count
+      intDescEl.removeAttribute('data-i18n');
     }
   }
 
-  // Severity Level & Status Banner
   const b = document.getElementById('statusBanner');
   b.className = 'status-pill lvl-' + lvl;
   b.textContent = t(`status_${lvl}`) || fr.status;
   b.setAttribute('data-i18n', `status_${lvl}`);
 
   const dot = document.getElementById('statusDot');
-  // The status beacon was wired to the wrong classes: level 3 got `dot-press`
-  // (cyan) and level 1 got `dot-deep` (crimson), so the calmest colour on the
-  // face marked full detachment and the most alarming one marked an incidental
-  // touch - the exact inversion of the legend three sections below, which has
-  // always read deep=Full Detach, peel=Partial Peel, press=Touch/Press.
   if (dot) dot.className = `legend-dot dot-${lvl === 3 ? 'deep' : lvl === 2 ? 'peel' : lvl === 1 ? 'press' : 'normal'}`;
 
   const descEl = document.getElementById('statusDesc');
@@ -1021,7 +926,6 @@ function renderFrame(fr, total) {
     descEl.setAttribute('data-i18n', `desc_${lvl}`);
   }
 
-  // CPRI Risk Score Gauge (exact model calculation, no synthetic distortion)
   const cpriEl = document.getElementById('cpriValue');
   cpriEl.textContent = cp.toFixed(1) + '%';
   cpriEl.className = 'gauge__value ' + (cp >= 75 ? 'is-bad' : cp >= 50 ? 'is-warn' : cp >= 25 ? 'is-info' : 'is-ok');
@@ -1032,38 +936,21 @@ function renderFrame(fr, total) {
     cpriCatEl.setAttribute('data-i18n', `cat_${lvl}`);
   }
 
-  // Dial needle and the console-wide alarm level, plus the top-class figure the
-  // summary card reports as confidence.
   updateGauge(cp, lvl);
   updateConfidence(fr);
 
-  // Audio Siren & Alarm
   siren(lvl, cp);
   if (state.lastLoggedLevel !== lvl) {
     logExtubationEvent(fr);
   }
 
-  // Paint Pad Nodes with Noise-Immune Clinical Color Mapping
-  //
-  // Per-pad colour is a display mapping of THAT pad's own delta, and nothing
-  // else. It used to start with a detached flag, a page-level
-  // verdict this file had computed for itself, which painted all 25 pads red
-  // whenever the browser decided the patch had detached - including pads
-  // sitting at 0. The break points come from the two constants that actually
-  // exist in main.py (NOISE_GATE_COUNTS 60, DELTA_THRESHOLD 300) instead of
-  // -180 / -35 / +50, which existed only here.
-  //
-  // The colours themselves are class names now, not hexes written into SVG
-  // attributes: the old values were picked against a dark canvas, and a
-  // quiescent pad filled with #0f172a is a black blot on a light one. The
-  // opaque halo they drew also hid the interpolated wash underneath.
   const layout = state.layout || DEFAULT_LAYOUT;
   layout.forEach((p, i) => {
     const d = (deltas && deltas[i] !== undefined) ? deltas[i] : 0;
     let kind = 'quiet';
-    if (d <= -150)      kind = 'deep';   // past the lift gate: away from skin (Detach)
-    else if (d <= -45)  kind = 'peel';   // moving off baseline (Partial Peel)
-    else if (d >= 45)   kind = 'press';  // contact side: pressing (Touch/Press)
+    if (d <= -150)      kind = 'deep';
+    else if (d <= -45)  kind = 'peel';
+    else if (d >= 45)   kind = 'press';
 
     const cir = document.getElementById(`cir-${p.pad}`);
     const glow = document.getElementById(`glow-${p.pad}`);
@@ -1073,27 +960,21 @@ function renderFrame(fr, total) {
     if (txt)  txt.setAttribute('class', `padtxt padtxt--${kind}`);
   });
 
-  // Class Probabilities Progress Bars
   const p = fr.probabilities || [1.0, 0.0, 0.0, 0.0];
   setProbBar('Normal', Math.round((p[0] || 0) * 100));
   setProbBar('Touch',  Math.round((p[1] || 0) * 100));
   setProbBar('Peel',   Math.round((p[2] || 0) * 100));
   setProbBar('Pull',   Math.round((p[3] || 0) * 100));
 
-  // Peel Propagation
   const pr = fr.propagation || {};
   const info = document.getElementById('peelPropInfo');
   if (info) {
-    // The server does not always supply a description; printing the field raw
-    // put the word "undefined" on the live face.
     const desc = (pr && pr.confirmed && pr.description) ? pr.description : null;
     info.textContent = desc ? `${t('peel_dir')}: ${desc}` : t('chip_dir');
   }
 
-  // Draw Smooth Gaussian Heatmap
   drawHeatmapGaussian(deltas);
 
-  // Update active ward bed telemetry
   if (state.wardBeds) {
     const liveBed = state.wardBeds.find(b => b.bed === state.activeBed);
     if (liveBed) {
@@ -1112,7 +993,6 @@ function setProbBar(name, val) {
   if (barEl) barEl.style.width = val + '%';
 }
 
-/* ------------------------------------------- Smooth Gaussian Glow Heatmap -- */
 function drawHeatmapGaussian(deltas) {
   const c = document.getElementById('heatmapCanvas');
   if (!c || !deltas) return;
@@ -1121,9 +1001,6 @@ function drawHeatmapGaussian(deltas) {
 
   const pads = state.layout || DEFAULT_LAYOUT;
   const W = c.width, H = c.height;
-  // The wash is painted, not styled, so it has to fetch its own colours when
-  // the theme changes; and it needs more opacity on a light canvas than on a
-  // dark one to read as the same intensity.
   const light = document.documentElement.getAttribute('data-theme') !== 'dark';
   const boost = light ? 1.15 : 1.0;
   const hue = {
@@ -1134,7 +1011,7 @@ function drawHeatmapGaussian(deltas) {
 
   pads.forEach((p, i) => {
     const d = deltas[i] || 0;
-    if (Math.abs(d) < 45) return; // resting noise, below the 60-count gate
+    if (Math.abs(d) < 45) return;
 
     const cx = (p.x / 100) * W;
     const cy = (p.y / 133.33) * H;
@@ -1160,8 +1037,6 @@ function drawHeatmapGaussian(deltas) {
   });
 }
 
-/* "#0e8fb5" -> "14, 143, 181". Canvas gradients need per-stop alpha, which a
- * hex token cannot carry. */
 function rgbOf(hex) {
   const h = String(hex).trim().replace('#', '');
   const full = (h.length === 3) ? h.split('').map(x => x + x).join('') : h;
@@ -1170,7 +1045,6 @@ function rgbOf(hex) {
   return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
 }
 
-/* ------------------------------------------------------------- Audio Siren & Chimes -- */
 function unlockAudioContext() {
   try {
     if (!state.audioCtx) {
@@ -1247,7 +1121,6 @@ function playChime(kind = 'connect') {
     const now = ctx.currentTime;
 
     if (kind === 'connect') {
-      // 3-tone ascending pleasant medical chime (C5 -> E5 -> G5)
       const freqs = [523.25, 659.25, 783.99];
       freqs.forEach((f, i) => {
         const osc = ctx.createOscillator();
@@ -1276,7 +1149,6 @@ function playChime(kind = 'connect') {
         osc.stop(now + i * 0.08 + 0.23);
       });
     } else if (kind === 'disconnect') {
-      // 2-tone descending soft chime (E5 -> C5)
       const freqs = [659.25, 440.0];
       freqs.forEach((f, i) => {
         const osc = ctx.createOscillator();
@@ -1305,7 +1177,6 @@ function playChime(kind = 'connect') {
         osc.stop(now + i * 0.11 + 0.25);
       });
     } else if (kind === 'calibrate') {
-      // Crisp bell chime (A5 - 880Hz)
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
@@ -1334,7 +1205,6 @@ function playChime(kind = 'connect') {
   } catch (e) {}
 }
 
-/* -------------------------------------------------------- Toast Notification Engine -- */
 function showToast(title, message, type = 'success') {
   const container = document.getElementById('toastContainer');
   if (!container) return;
@@ -1373,9 +1243,6 @@ function toggleMuteSiren() {
     btn.textContent = state.isMuted ? 'Audio: OFF' : 'Audio: ON';
     btn.classList.toggle('tool-btn--off', state.isMuted);
   }
-  // IEC 60601-1-8: silencing an audible alarm is an operator action that has to
-  // be recorded, not just a UI toggle. Without this the trail shows an alarm
-  // and no sound, with nothing to say a person chose that.
   logAudioAction(state.isMuted ? 'audio_muted' : 'audio_unmuted');
 }
 
@@ -1411,7 +1278,6 @@ async function logAudioAction(eventType) {
   }
 }
 
-/* ------------------------------------------------------- Serial & COM Port -- */
 async function refreshComPorts(interactive = false) {
   const sel = document.getElementById('comPortSelect');
   if (!sel) return;
@@ -1463,7 +1329,6 @@ async function refreshComPorts(interactive = false) {
   }
 }
 
-/* ---------------------------------------------------- Operational Mode Switcher -- */
 function setDashboardMode(mode, autoStart = false) {
   pausePlayback();
   state.mode = mode;
@@ -1472,7 +1337,6 @@ function setDashboardMode(mode, autoStart = false) {
   const liveControls = document.getElementById('liveControlsArea');
   const replayControls = document.getElementById('replayControlsArea');
 
-  // Prune history on mode transitions to prevent memory accumulation and chart thrashing
   if (state.chart && state.chart.data && state.chart.data.labels) {
     while (state.chart.data.labels.length > 50) {
       state.chart.data.labels.shift();
@@ -1564,7 +1428,6 @@ function updateLiveStreamButton(active) {
   }
 }
 
-/* --------------------------------------------------- Live WebSocket Telemetry -- */
 function startLiveWebSocketStream(silent = false) {
   clearTimeout(state.liveReconnectTimer);
   state.liveReconnectTimer = null;
@@ -1602,7 +1465,6 @@ function startLiveWebSocketStream(silent = false) {
     const rel = pickForClass(state.liveStressTest);
     wsUrl += `&source=replay&file=${encodeURIComponent(rel)}&loop=1`;
   } else {
-    // Pure live sensor standby baseline (continuous simulated loopback)
     wsUrl += `&source=simulator`;
   }
 
@@ -1630,7 +1492,6 @@ function startLiveWebSocketStream(silent = false) {
         if (frame.error) {
           console.warn('Live WS error:', frame.error);
           showToast('Live Stream Notice', frame.error, 'warning');
-          // Keep the selected COM port locked permanently and retry connecting
           if (state.liveStreaming && state.mode === 'live') {
             clearTimeout(state.liveReconnectTimer);
             state.liveReconnectTimer = setTimeout(() => {
@@ -1782,20 +1643,6 @@ function updateLiveChart(frame) {
   state.chart.update('none');
 }
 
-/**
- * Re-seed the live baseline.
- *
- * This used to POST /api/v5/calibration/reset, which does not exist and never
- * has - main.py has no such route, so every press got a 404 that the empty
- * catch below swallowed, and the button then reported "Baseline Zeroed
- * (25 Nodes Attached)" while the server's Kalman baseline carried on exactly as
- * before. A control that says it zeroed a clinical baseline and did not is
- * worse than no control.
- *
- * The baseline lives in the LivePipeline that the WebSocket handler creates per
- * connection, so re-seeding it means starting a new connection. That is what
- * this does now, and the label only changes once the socket is actually back.
- */
 async function resetLiveCalibration() {
   const isWebSerial = (typeof webSerialActive !== 'undefined' && webSerialActive);
   const wasStreaming = state.liveStreaming || isWebSerial;
@@ -1823,14 +1670,6 @@ async function resetLiveCalibration() {
   if (wasStreaming && typeof showToast === 'function') {
     showToast('Calibrated', 'ตั้งศูนย์แผ่นเซนเซอร์ (Zero Baseline) สำเร็จ', 'success');
   }
-
-  // A synthetic frame used to be painted here - severity 0, CPRI 0.0%,
-  // probabilities [1,0,0,0], all 25 deltas zero, status "Normal (Baseline
-  // Active)" - so pressing the button drew a reassuring green face that no
-  // sensor had produced. If the patch were being pulled at that moment the
-  // screen would have said Normal. The display now simply waits for the next
-  // real frame from the re-seeded stream; the tag above says which state we are
-  // in, and nothing is drawn that did not come off the wire.
 
   if (wasStreaming) {
     showToast('กำลังตั้งค่าศูนย์ใหม่',
@@ -1872,7 +1711,6 @@ async function connectSelectedComPort() {
   }
 }
 
-/* ------------------------------------------------------- Event Audit Logs -- */
 function formatLocalTime(ts) {
   if (!ts) return '-';
   try {
@@ -1890,8 +1728,6 @@ function formatLocalTime(ts) {
 }
 
 async function loadEventLogs() {
-  // Two tables read this: the summary on the dashboard and the full log in its
-  // own view. One fetch fills both, so they cannot disagree about the trail.
   const bodies = ['eventLogTbody', 'eventLogTbodyFull']
     .map(id => document.getElementById(id)).filter(Boolean);
   if (!bodies.length) return;
@@ -1917,29 +1753,6 @@ async function loadEventLogs() {
   } catch (e) {}
 }
 
-/**
- * Record an alarm episode in the audit trail.
- *
- * Two bugs lived here, both of which made the trail quietly incomplete - the
- * one thing an audit trail may never be.
- *
- *  1. The guard was `if (state.lastLevel === fr.severity_level) return`, and
- *     `state.lastLevel` was only ever updated inside this function. renderFrame
- *     calls it only while the level is >= 2, so a sequence L3 -> L0 -> L3 wrote
- *     ONE entry: on the way back up the stored value still read 3 and the
- *     second, separate episode was dropped. It now tracks the level of the
- *     previous frame whatever that level was, so returning to an alarm from
- *     below is a new event.
- *  2. `catch (e) {}`. main.py was deliberately changed to answer 500 rather
- *     than a false 200 when the trail cannot be written; the browser threw that
- *     away, so the operator saw a siren and assumed a record existed. Failures
- *     are surfaced now.
- *
- * `event_id` and `timestamp` are not sent: the server mints a uuid and stamps
- * its own time, and it ignored these anyway. A client-generated
- * `EVT-${last 4 digits of Date.now()}` is exactly the collision-prone id that
- * was removed from the server side.
- */
 async function logExtubationEvent(fr) {
   const lvl = fr.severity_level || 0;
   const cp = fr.cpri_percent || 0.0;
@@ -2011,21 +1824,6 @@ async function exportEventsCSV() {
   }
 }
 
-/* -------------------------------------------------------- Ward Modal View & Patient Management -- */
-/**
- * Empty bed slots. NOTHING here describes a real patient, and nothing here may.
- *
- * This array used to ship eight invented patients - Thai names, HN-67081xx
- * hospital numbers, ETT sizes and insertion depths, clinical notes, and CPRI
- * readings between 0.5% and 4.2% - rendered on screen exactly like live data.
- * /api/v6/ward/status carried a second, different set of inventions. This build
- * classifies ONE patch on ONE socket; there is no multi-patient data source, so
- * every one of those beds was a monitor reporting a patient it could not see.
- *
- * The slots are empty by construction. The operator names the bed they are
- * actually using; an unnamed slot renders as "no device attached" and shows no
- * number, because a dash cannot be mistaken for a reading.
- */
 const WARD_BED_SLOTS = 8;
 const DEFAULT_WARD_BEDS = Array.from({ length: WARD_BED_SLOTS }, (_, i) => ({
   bed: `Bed ${String(i + 1).padStart(2, '0')}`,
@@ -2040,9 +1838,6 @@ const DEFAULT_WARD_BEDS = Array.from({ length: WARD_BED_SLOTS }, (_, i) => ({
   is_live: false,
 }));
 
-// Storage key deliberately bumped to .v2: browsers that ran the previous build
-// still hold the invented patients under 'icu_ward_beds', and reading that key
-// back would restore them.
 const WARD_STORAGE_KEY = 'p2.ward.beds.v2';
 
 function getWardBeds() {
@@ -2114,8 +1909,6 @@ function savePatientEdit(e) {
 
   const idx = state.wardBeds.findIndex(b => b.bed === bedVal);
   if (idx !== -1) {
-    // Empty means empty. `value || previous` made a cleared field impossible to
-    // clear, so a label typed once could never be taken off the screen.
     state.wardBeds[idx].patient_id = pIdVal || null;
     state.wardBeds[idx].patient_name = pNameVal || null;
     state.wardBeds[idx].tube_type = pTubeVal || null;
@@ -2139,16 +1932,6 @@ function updateBedSelectLabels() {
   updateTopPatientBadge();
 }
 
-/**
- * Ask the SERVER to re-take the Kalman baseline.
- *
- * Invariant 1: this sends an event and nothing else. It does not clear, zero or
- * re-interpret anything on the page - LivePipeline.reseed() owns that, and the
- * next frame the server sends is what the console draws.
- *
- * Two sockets can be live: the dashboard's own stream (state.liveWs) and the
- * browser serial bridge in web_serial.js. Whichever is open gets the event.
- */
 function requestReseedBaseline() {
   const payload = JSON.stringify({ event: 'reseed' });
   let sent = false;
@@ -2157,7 +1940,7 @@ function requestReseedBaseline() {
       state.liveWs.send(payload);
       sent = true;
     }
-  } catch (e) { /* fall through to the serial bridge */ }
+  } catch (e) { }
   if (typeof sendSerialControl === 'function' && sendSerialControl(payload)) {
     sent = true;
   }
@@ -2180,9 +1963,6 @@ function updateTopPatientBadge() {
     : `${bed} · ${t('ward_unassigned')}`;
 }
 
-// The ward and the shift report are views in the left menu now, not modals
-// stacked over the live face. These two names are kept because other code and
-// older shortcuts call them.
 function openCentralICUModal() { showView('ward'); }
 function closeCentralICUModal() { showView('dashboard'); }
 
@@ -2221,7 +2001,6 @@ function renderICUGrid() {
   }).join('');
 }
 
-/* ------------------------------------------------- Shift Handover Modal -- */
 async function openShiftReportModal() {
   try {
     const report = await getJSON('/api/v6/shift-report');
@@ -2238,12 +2017,10 @@ async function openShiftReportModal() {
 
 function closeShiftReportModal() { showView('dashboard'); }
 
-/* ----------------------------------------------------- Medical PDF Export -- */
 function generateMedicalPDF() {
   window.print();
 }
 
-/* --------------------------------------------------------- Helper Fetch -- */
 async function getJSON(url) {
   const res = await fetch(withKey(url));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

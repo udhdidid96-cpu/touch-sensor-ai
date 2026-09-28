@@ -43,16 +43,11 @@ from scipy import stats
 from _root import ROOT
 import main as m
 
-# --- published rates used in section 6 --------------------------------------
-# Li, Sun, Xu. Intensive Crit Care Nurs 2022 (38 studies): pooled unplanned
-# extubation 1.06 per 100 ventilator-days (95% CI 0.7-1.3); 84.2% of them were
-# self-extubations. Guillemin et al., Anaesth Crit Care Pain Med 2024
-# (Safe-ICU, 47 French ICUs): 1.0 per 100 MV days; 88% self-extubation.
 UE_PER_100_VD = {"meta_2022": 1.06, "safe_icu_2024": 1.0}
 SELF_FRACTION = {"meta_2022": 0.842, "safe_icu_2024": 0.88}
-PLANNED_MONITORING_HOURS = 4800.0      # the Phase 6 figure under review
+PLANNED_MONITORING_HOURS = 4800.0
 PLANNED_PATIENTS = 100
-TARGET_FA_PER_BED_DAY = 5.0            # the Phase 6 false-alarm target
+TARGET_FA_PER_BED_DAY = 5.0
 
 
 def _csv_frames(path: str) -> np.ndarray:
@@ -119,8 +114,6 @@ def _live_ramp_deepest(v_per_frame: float, frames: int = 3000) -> float:
 def kalman_ramp() -> Dict[str, Any]:
     kb = m.KalmanBaseline()
     q, gate, t = kb.q, kb.gate, m.SAMPLE_PERIOD_S
-    # Per-pad noise measured on the five N_base recordings (first differences / sqrt 2,
-    # robust to slow drift), which is what the offline seed's r_vec is meant to capture.
     sds: List[float] = []
     for path in sorted(glob.glob(os.path.join(ROOT, "Data", "N_base", "*.csv"))):
         raw = _csv_frames(path)
@@ -135,7 +128,7 @@ def kalman_ramp() -> Dict[str, Any]:
     for label, r, path in cases:
         r_eff = float(np.clip(r, 20.0, 150.0))
         k = _k_steady(q, r_eff)
-        v_star = gate * k                      # counts per frame
+        v_star = gate * k
         sims = {}
         for f in (0.8, 1.2):
             if path == "live":
@@ -180,7 +173,6 @@ def cdc_seed() -> Dict[str, Any]:
             lp.process(np.full(m.N_PADS, counts))
         res = lp.process(np.full(m.N_PADS, counts))
         out["counts_power_on"][f"{pf:g} pF ({counts:,.0f} counts)"] = res["seed_plausibility"]["status"]
-    # what a patch that is applied AFTER a CDC power-on in air looks like
     lp = m.LivePipeline(model=None, cdc_mode=True)
     for _ in range(m.KALMAN_WARMUP + 1):
         lp.process(np.full(m.N_PADS, 5.0))
@@ -191,7 +183,7 @@ def cdc_seed() -> Dict[str, Any]:
 
 def adaptive_gates() -> Dict[str, Any]:
     floor = m.spec_detach_reachability(m.SPEC_DETACH_MAX)["floor_counts_at_zero_capacitance"]
-    flush_pf, tent_pf = 35.0, 15.0     # the plan's own illustrative values, unmeasured
+    flush_pf, tent_pf = 35.0, 15.0
     base_pf = np.array([flush_pf] * 20 + [tent_pf] * 5)
     base_counts = floor + base_pf * m.COUNTS_PER_PF
     g_counts = m.analyze_surface_topography(base_counts, is_cdc_pf=False)["adaptive_lift_gates"]
@@ -221,8 +213,6 @@ def hpull_depth() -> Dict[str, Any]:
         for path in files:
             raw = _csv_frames(path)
             if name == "static":
-                # static_baseline() returns the RE-CENTRED frames (raw shifted so the
-                # first k frames sit at BASELINE_COUNTS), not a baseline vector.
                 d = m.static_baseline(raw) - m.BASELINE_COUNTS
             elif name == "kalman":
                 d = m.KalmanBaseline().run(raw)
@@ -243,7 +233,6 @@ def _cp_lower(x: int, n: int, alpha: float = 0.05) -> float:
 
 
 def _power(n: int, lower_target: float, true_se: float) -> float:
-    # smallest x whose two-sided 95% Clopper-Pearson lower bound clears the target
     x_min = next((x for x in range(n + 1) if _cp_lower(x, n) >= lower_target), None)
     return 0.0 if x_min is None else float(stats.binom.sf(x_min - 1, n, true_se))
 
@@ -272,7 +261,7 @@ def trial() -> Dict[str, Any]:
     vd = PLANNED_MONITORING_HOURS / 24.0
     out: Dict[str, Any] = {"ventilator_days": vd, "sources": {}}
     for key in UE_PER_100_VD:
-        rate = UE_PER_100_VD[key] / 100.0 * SELF_FRACTION[key]    # self-extubations per VD
+        rate = UE_PER_100_VD[key] / 100.0 * SELF_FRACTION[key]
         lam = vd * rate
         lo, hi = stats.poisson.ppf(0.025, lam), stats.poisson.ppf(0.975, lam)
         out["sources"][key] = {
@@ -338,17 +327,16 @@ def tissue() -> Dict[str, Any]:
 
 def pad_coupling() -> Dict[str, Any]:
     """Parallel-plate order of magnitude for one pad against a conductor."""
-    e0, area = 8.854e-12, 38.5e-6          # pad area from the progress report, m^2
+    e0, area = 8.854e-12, 38.5e-6
     out: Dict[str, Any] = {"pad_area_mm2": 38.5, "coupling_pf": {}}
     for d_mm in (0.5, 0.1, 0.05):
         out["coupling_pf"][f"{d_mm} mm at eps_r 3"] = round(e0 * 3.0 * area / (d_mm * 1e-3) * 1e12, 2)
-    # lifting a pad by 0.5 mm of air on top of a 0.5 mm, eps_r 3 backing
     c0 = e0 * area / (0.5e-3 / 3.0)
     c1 = e0 * area / (0.5e-3 / 3.0 + 0.5e-3)
     out["lift_0p5mm_on_0p5mm_backing_pf"] = round((c1 - c0) * 1e12, 2)
     out["lift_0p5mm_on_0p5mm_backing_counts"] = round((c1 - c0) * 1e12 * m.COUNTS_PER_PF, 0)
-    peel_pf = 869.3 / m.COUNTS_PER_PF      # median deepest peel delta, METRICS / 5-scenario table
-    d_over_eps = e0 * area / (peel_pf * 1e-12)   # d / eps_r that a full loss of peel_pf implies
+    peel_pf = 869.3 / m.COUNTS_PER_PF
+    d_over_eps = e0 * area / (peel_pf * 1e-12)
     out["median_peel_pf"] = round(peel_pf, 1)
     out["implied_d_over_eps_um"] = round(d_over_eps * 1e6, 1)
     out["implied_d_at_eps_r3_um"] = round(d_over_eps * 3.0 * 1e6, 0)

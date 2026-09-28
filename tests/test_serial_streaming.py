@@ -36,8 +36,8 @@ class FakePort:
 
 
 def _open(port: FakePort, idle_timeout: float = 0.15) -> M.SerialFrameSource:
-    src = M.SerialFrameSource("fake", ser=port)    # no pyserial, no hardware
-    src.IDLE_TIMEOUT_S = idle_timeout        # keep the tests fast
+    src = M.SerialFrameSource("fake", ser=port)
+    src.IDLE_TIMEOUT_S = idle_timeout
     src.EMPTY_READ_SLEEP_S = 0.001
     return src
 
@@ -50,7 +50,6 @@ def _line(vals: Iterable[float]) -> bytes:
     return (",".join(str(v) for v in vals) + "\r\n").encode()
 
 
-# serial parsing
 def test_serial_frames_are_reordered_into_pad_order():
     """The firmware emits Signal-1..25 in electrical order; the source must
     apply PAD_ORDER so everything downstream shares one convention."""
@@ -59,7 +58,7 @@ def test_serial_frames_are_reordered_into_pad_order():
     frame = next(src.frames())
     assert frame.shape == (M.N_PADS,)
     np.testing.assert_array_equal(frame, np.array(vals, dtype=float)[M.PAD_ORDER])
-    assert frame[0] == M.PAD_TO_SIGNAL[0]      # pad 1 carries Signal-20's value
+    assert frame[0] == M.PAD_TO_SIGNAL[0]
 
 
 def test_serial_accepts_whitespace_and_comma_separators():
@@ -70,10 +69,10 @@ def test_serial_accepts_whitespace_and_comma_separators():
 
 
 @pytest.mark.parametrize("bad", [
-    b"\r\n",                                        # blank keepalive
-    b"1,2,3\r\n",                                   # short frame
-    ("x," * M.N_PADS).encode() + b"\r\n",           # non-numeric tokens
-    b"28000,28001,2800x," + b"0," * 22 + b"0\r\n",  # one garbled token
+    b"\r\n",
+    b"1,2,3\r\n",
+    ("x," * M.N_PADS).encode() + b"\r\n",
+    b"28000,28001,2800x," + b"0," * 22 + b"0\r\n",
 ])
 def test_serial_skips_malformed_lines_without_raising(bad: bytes):
     good = _line([28000] * M.N_PADS)
@@ -88,14 +87,14 @@ def test_serial_close_is_idempotent_and_stops_the_generator():
     src.close()
     src.close()
     assert port.closed
-    assert list(src.frames()) == []      # _stop is set, so it yields nothing
+    assert list(src.frames()) == []
 
 
 def test_serial_ends_the_stream_when_the_device_goes_quiet():
     """A10: an unplugged sensor used to hang the generator forever - the
     dashboard froze on its last frame with no error and never recovered."""
     src = _source([_line([28000] * M.N_PADS)], idle_timeout=0.15)
-    frames = list(src.frames())          # must terminate, not block
+    frames = list(src.frames())
     assert len(frames) == 1
 
 
@@ -105,7 +104,6 @@ def test_serial_does_not_busy_spin_on_empty_reads():
     port = FakePort([])
     src = _open(port, idle_timeout=0.20)
     assert list(src.frames()) == []
-    # 0.20 s at a 1 ms floor is ~200 reads; anything near a million is a spin.
     assert port.reads < 5000, f"busy-waited {port.reads} reads"
 
 
@@ -115,7 +113,6 @@ def test_list_serial_ports_degrades_gracefully():
     assert all({"device", "description", "hwid"} <= set(p) for p in ports)
 
 
-# replay source
 def test_replay_source_yields_pad_ordered_frames(dataset: M.Dataset):
     src = M.ReplayFrameSource(dataset.files[0], realtime=False)
     frames = list(src.frames())
@@ -128,7 +125,6 @@ def test_replay_source_refuses_a_path_outside_data():
         M.ReplayFrameSource("../main.py", realtime=False)
 
 
-# live pipeline
 def test_live_pipeline_is_silent_during_warmup(dataset: M.Dataset):
     """The Kalman state is seeded from frame 0, so the first deltas are
     identically zero - a vector the classifier never saw. Unguarded, that

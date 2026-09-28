@@ -42,7 +42,6 @@ def test_band_contains_every_recording_that_starts_at_rest():
     outside = [s for s in resting if not (lo <= s <= hi)]
     assert not outside, (f"{len(outside)} resting recording seed(s) fall outside "
                          f"ATTACHED_SEED_BAND {main.ATTACHED_SEED_BAND}: {outside[:5]}")
-    # narrower than the F3 garbage bounds by a lot, or it means nothing
     assert (hi - lo) < 0.1 * (45000.0 - 10000.0)
 
 
@@ -50,7 +49,6 @@ def test_band_is_tight_around_the_resting_corpus_not_arbitrary():
     rows = _corpus_seed_means()
     resting = [s for f, s in rows if f not in PRESS_FOLDERS]
     lo, hi = main.ATTACHED_SEED_BAND
-    # margins on each side no larger than a few noise gates
     assert 0.0 < min(resting) - lo < 6 * main.NOISE_GATE_COUNTS
     assert 0.0 < hi - max(resting) < 6 * main.NOISE_GATE_COUNTS
 
@@ -99,14 +97,6 @@ def test_live_pipeline_reports_where_it_seeded():
     assert res2["seed_plausibility"]["status"] == "below_band"
 
 
-# Per-channel seed contamination (2026-09-18)
-# Six of the ten Brief Touch recordings were started with a finger already on
-# one or two pads. Those channels seeded high and then read 470-810 counts BELOW
-# a baseline that was never valid, for the whole recording, in files labelled
-# normal. The band check above cannot see it: it is a median over 25 pads, and
-# one or two elevated channels do not move a 25-channel median.
-
-
 def _seed_frame(folder: str, name: str) -> np.ndarray:
     raw = main.read_raw_csv(os.path.join(main.DATA_ROOT, folder, name))
     assert raw is not None and len(raw) >= main.KALMAN_WARMUP, f"{folder}/{name} unusable"
@@ -147,7 +137,6 @@ def test_n_touch_02_is_flagged_as_a_channel_outlier():
     assert out["status"] == "channel_outlier", out
     assert 2 in out["outlier_pads"], out["outlier_pads"]
     assert out["outlier_pads_high"], "pad 2 seeded HIGH; direction must be reported"
-    # the band check alone would have called this file fine, which is the point
     assert out["band_status"] == "attached_band"
 
 
@@ -187,7 +176,6 @@ def test_every_status_carries_the_outlier_key():
         assert "outlier_pads" in main.seed_plausibility(frame)
 
 
-# Quiescent negative-step recovery
 def _contaminated_stream(n: int = 40, bad_pad: int = 1, offset: float = 800.0,
                          seed: int = 0) -> np.ndarray:
     """A patch at rest, with one pad held `offset` high for the seed frames only.
@@ -206,9 +194,7 @@ def test_quiescent_recovery_repairs_a_contaminated_channel():
     pipe = main.LivePipeline(None)
     raw = _contaminated_stream()
     deltas = [pipe.process(row)["deltas"][1] for row in raw]
-    # right after the finger leaves, the channel reads deeply negative
     assert deltas[main.KALMAN_WARMUP + 1] < main.LIFT_GATE_COUNTS, deltas[:10]
-    # and by the end of the record the baseline has walked back to the skin
     assert abs(deltas[-1]) < abs(deltas[main.KALMAN_WARMUP + 1]) / 4.0, (
         f"quiescent recovery did not converge: {deltas[main.KALMAN_WARMUP + 1]:.0f} "
         f"-> {deltas[-1]:.0f}")
@@ -231,7 +217,6 @@ def test_quiescent_recovery_never_touches_a_moving_channel():
     rng = np.random.default_rng(1)
     n = 40
     raw = main.BASELINE_COUNTS + rng.normal(0, 8.0, size=(n, main.N_PADS))
-    # one pad driven steadily downward from frame 10: a slow, real lift
     raw[10:, 1] -= np.linspace(300.0, 1200.0, n - 10)
     pipe = main.LivePipeline(None)
     engaged = False
@@ -247,7 +232,7 @@ def test_quiescent_recovery_never_engages_on_a_peel():
     rng = np.random.default_rng(2)
     n = 40
     raw = main.BASELINE_COUNTS + rng.normal(0, 8.0, size=(n, main.N_PADS))
-    raw[main.KALMAN_WARMUP:, 0:6] -= 900.0      # six pads down together, then still
+    raw[main.KALMAN_WARMUP:, 0:6] -= 900.0
     pipe = main.LivePipeline(None)
     engaged = False
     for row in raw:

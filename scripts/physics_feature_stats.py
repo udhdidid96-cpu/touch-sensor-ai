@@ -41,14 +41,10 @@ from typing import Any, Dict, List
 import numpy as np
 
 if __name__ == "__main__":
-    # Run as a script, only scripts/ is on sys.path; main.py lives in the
-    # repository root.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main
 
-# Folder groups, identical to scripts/evaluate_5_scenarios.py so the two
-# documents cannot describe different partitions of the same corpus.
 SCENARIOS: Dict[str, List[str]] = {
     "1. Baseline":            ["N_base"],
     "2a. Brief Touch":        ["Brief Touch"],
@@ -71,8 +67,6 @@ def _stats_for(folders: List[str]) -> Dict[str, Any]:
             if raw is None or len(raw) <= main.KALMAN_WARMUP:
                 continue
             delta = main.calibrate(raw, "kalman")[main.KALMAN_WARMUP:]
-            # include_pads=False -> the 9 statistics only; the 25 pad deltas are
-            # per-pad and have no meaningful scenario-level median.
             frames.append(main.extract_features(delta, use_gradient=False, include_pads=False))
             n_files += 1
     if not frames:
