@@ -788,3 +788,28 @@ def test_the_two_serving_paths_agree(client: TestClient, sample_csv: str, model:
     assert len(live) == len(rest)
     assert max(f["severity_level"] for f in live) == max(f["severity_level"] for f in rest), \
         "the live socket and the REST view disagree on the severity of one recording"
+
+
+def test_notify_line_validation(client: TestClient):
+    """POST /api/v6/notify/line validates message and credentials."""
+    resp = client.post("/api/v6/notify/line", json={})
+    assert resp.status_code == 400
+
+    resp = client.post("/api/v6/notify/line", json={"message": "test warning"})
+    assert resp.status_code == 400
+
+    resp = client.post("/api/v6/notify/line", json={"token": "dummy_token"})
+    assert resp.status_code == 400
+
+
+def test_presentation_deck_endpoint(client: TestClient):
+    """GET /slides and GET /deck serve the presentation deck."""
+    resp1 = client.get("/slides")
+    assert resp1.status_code == 200
+    assert "Smart Dressing Defense Deck" in resp1.text
+    assert "not been assessed against IEC 62304" in resp1.text
+
+    resp2 = client.get("/deck")
+    assert resp2.status_code == 200
+    assert "Smart Dressing Defense Deck" in resp2.text
+

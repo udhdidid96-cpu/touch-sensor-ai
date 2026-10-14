@@ -90,6 +90,17 @@ function remapToPhysicalPads(raw) {
 const TRANSLATIONS = {
   th: {
     peel_dir: 'ทิศทางการลอก',
+    ann_k: 'สัญญาณเตือน', ann_none: 'ไม่มีภาวะเตือน', ann_info: 'ข้อมูล: มีการสัมผัสแผ่นปิด (กริ่งเตือนสัมผัส)',
+    ann_medium: 'ระดับกลาง: แผ่นเริ่มลอก', ann_high: 'ระดับสูง: แผ่นหลุดทั้งแผ่น', ann_low: 'ระดับต่ำ',
+    ann_tech: 'เตือนทางเทคนิค: สัญญาณเซนเซอร์ขาดหาย',
+    ann_ref: 'สีและอัตรากะพริบตามแนวทาง IEC 60601-1-8 โดยเซิร์ฟเวอร์เป็นผู้กำหนด ยังไม่ได้ประเมินตาม IEC 60601-1-8 และต้นแบบนี้ยังไม่ได้ประเมินตาม IEC 62304',
+    p_quality: 'คุณภาพการสัมผัส', chip_quality: 'ตัวชี้วัดเชิงวิศวกรรม',
+    cqi_k: 'ดัชนีคุณภาพการสัมผัส (CQI)', cqi_s: 'ค่าเฉลี่ยเรขาคณิตของสามสัดส่วนด้านล่าง คำนวณที่เซิร์ฟเวอร์ ยังไม่ได้ตรวจสอบทางคลินิก',
+    cqi_seated: 'แนบตำแหน่ง (แพดอยู่ในช่วงแนบ)', cqi_quiet: 'สัญญาณนิ่ง (สัญญาณรบกวนขณะพัก)', cqi_stable: 'เสถียร (แพดอยู่ในเกณฑ์สัญญาณรบกวน)',
+    p_drift: 'การเลื่อนของ baseline', chip_drift: 'baseline Kalman ลบค่าเริ่มต้น รายแพด',
+    drift_max: 'เลื่อนมากที่สุด', drift_rate: 'อัตราเลื่อนเฉลี่ย', drift_over: 'แพดเกินเกณฑ์สัญญาณรบกวน',
+    drift_note: 'baseline สูงขึ้นแสดงด้วยสีการกด ต่ำลงแสดงด้วยสีการลอก ตัวกรอง Kalman ไม่รับการเปลี่ยนแปลงที่เกิน 120 counts เข้า baseline แต่การเปลี่ยนแปลงต่อเนื่องที่เล็กกว่านั้น (เหงื่อ อุณหภูมิ การกดเบาช้า ๆ) จะถูกดูดซับและแสดงที่นี่',
+    cqi_na: 'ยังไม่มี baseline',
     standby: 'รอเชื่อมต่อ', protocol_replay: 'ตรวจสอบไฟล์ย้อนหลัง', ward_unassigned: 'ยังไม่ได้ระบุผู้ป่วย',
     desc_gate_none: 'ไม่มีแพดใดต่ำกว่าเกณฑ์ยกตัว −300 counts',
     desc_gate_some: 'ยกตัว {n} / 25 แพด (ต่ำกว่า −300 counts)',
@@ -103,7 +114,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'หน้าหลัก', nav_live: 'เฝ้าระวังสด', nav_replay: 'ย้อนหลังและตรวจสอบ',
     nav_events: 'บันทึกเหตุการณ์', nav_model: 'ประสิทธิภาพโมเดล', nav_ward: 'มุมมองทั้งวอร์ด',
-    nav_reports: 'รายงานและส่งออก', nav_settings: 'ตั้งค่าระบบ',
+    nav_reports: 'รายงานและส่งออก', nav_settings: 'ตั้งค่าระบบ', nav_slides: 'สไลด์นำเสนอ',
     disclaimer_k: 'ข้อจำกัด', foot_dept: 'วิศวกรรมชีวการแพทย์',
 
     mode_live: 'สด', mode_replay: 'ย้อนหลัง',
@@ -146,8 +157,16 @@ const TRANSLATIONS = {
     notes_hint: 'เก็บไว้ในเบราว์เซอร์นี้เท่านั้น ไม่มีการเขียนลงเวชระเบียนผู้ป่วย',
 
     p_eventlog: 'บันทึกเหตุการณ์', chip_audit: 'ร่องรอยตรวจสอบฝั่งเซิร์ฟเวอร์',
+    btn_print_log: 'พิมพ์บันทึก',
     btn_refresh: 'รีเฟรช',
     events_hint: 'ระบบเขียนบันทึกทุกครั้งที่ระดับการเตือนเปลี่ยน หากเขียนไม่สำเร็จจะแจ้งเตือนขึ้นมา ไม่กลืนความผิดพลาด',
+
+    p_line: 'ระบบแจ้งเตือนผ่าน LINE',
+    line_hint: 'แจ้งเตือนผ่าน LINE Messaging API (broadcast ถึงผู้ติดตามช่อง) หรือ HTTPS webhook ข้อความมีเพียงชื่อเตียงและระดับเตือน ไม่มีชื่อหรือเลขผู้ป่วย เชื่อมต่อหรือตัดการเชื่อมต่อได้ตลอดเวลา การตั้งค่าเก็บในเบราว์เซอร์นี้ (LINE Notify ปิดบริการแล้วเมื่อ 31 มี.ค. 2025)',
+    line_service: 'ประเภทบริการ', line_min_level: 'ระดับที่เริ่มแจ้งเตือน',
+    line_token: 'LINE ACCESS TOKEN', line_webhook: 'WEBHOOK URL',
+    btn_line_connect: 'เชื่อมต่อ LINE', btn_line_test: 'ทดสอบส่งแจ้งเตือน', btn_line_disconnect: 'ตัดการเชื่อมต่อ',
+    line_status_connected: 'เชื่อมต่อแล้ว', line_status_disconnected: 'ไม่ได้เชื่อมต่อ',
 
     p_modelperf: 'ประสิทธิภาพโมเดล',
     m_acc_s: 'ระดับเฟรม นอกโฟลด์', m_f1_s: 'เฉลี่ยไม่ถ่วงน้ำหนักทั้ง 4 คลาส',
@@ -192,6 +211,17 @@ const TRANSLATIONS = {
 
   en: {
     peel_dir: 'Peel direction',
+    ann_k: 'ALARM SIGNAL', ann_none: 'No alarm condition', ann_info: 'Information: contact on the dressing (tactile alert chime)',
+    ann_medium: 'Medium priority: dressing peel', ann_high: 'High priority: full detachment', ann_low: 'Low priority',
+    ann_tech: 'Technical alarm: sensor signal lost',
+    ann_ref: 'Priority colour and flash rate follow IEC 60601-1-8 conventions, chosen by the server. Not assessed against IEC 60601-1-8; this prototype has not been assessed against IEC 62304.',
+    p_quality: 'CONTACT QUALITY', chip_quality: 'Engineering indicator',
+    cqi_k: 'CONTACT QUALITY INDEX (CQI)', cqi_s: 'Geometric mean of the three fractions below, from the server. Not clinically validated.',
+    cqi_seated: 'Seated (pads in attached band)', cqi_quiet: 'Quiet (rest-frame jitter vs noise gate)', cqi_stable: 'Stable (pads within noise gate of seed)',
+    p_drift: 'BASELINE DRIFT', chip_drift: 'Kalman baseline minus seed, per pad',
+    drift_max: 'Largest drift', drift_rate: 'Mean drift rate', drift_over: 'Pads past noise gate',
+    drift_note: 'Rising baseline shows in the press hue, falling in the peel hue. The Kalman gate keeps changes larger than 120 counts out of the baseline; smaller sustained changes (sweat, warming, a slow light press) are absorbed and show up here.',
+    cqi_na: 'No baseline yet',
     standby: 'Standby', protocol_replay: 'Recorded-file audit', ward_unassigned: 'No patient assigned',
     desc_gate_none: 'No pad past the −300 count lift gate',
     desc_gate_some: '{n} of 25 pads lifting (below −300 counts)',
@@ -205,7 +235,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'Dashboard', nav_live: 'Live Monitor', nav_replay: 'Replay & Audit',
     nav_events: 'Event Log', nav_model: 'Model Performance', nav_ward: 'Ward View',
-    nav_reports: 'Reports & Export', nav_settings: 'System Settings',
+    nav_reports: 'Reports & Export', nav_settings: 'System Settings', nav_slides: 'Presentation Slides',
     disclaimer_k: 'DISCLAIMER', foot_dept: 'Biomedical Engineering',
 
     mode_live: 'Live', mode_replay: 'Replay',
@@ -248,8 +278,16 @@ const TRANSLATIONS = {
     notes_hint: 'Held in this browser only. Nothing here is written to a patient record.',
 
     p_eventlog: 'EVENT LOG', chip_audit: 'Server-side audit trail',
+    btn_print_log: 'Print Log',
     btn_refresh: 'Refresh',
     events_hint: 'An entry is written on every change of alarm level. A failed write is surfaced as a toast, never swallowed.',
+
+    p_line: 'LINE NOTIFICATION ALERTS',
+    line_hint: 'Push alerts through the LINE Messaging API (broadcast to the channel followers) or an HTTPS webhook. Messages carry the bed label and alarm level only, never a patient name or number. Connect or disconnect at any time; settings stay in this browser. LINE Notify ended on 31 March 2025 and is not offered.',
+    line_service: 'SERVICE TYPE', line_min_level: 'NOTIFICATION TRIGGER',
+    line_token: 'LINE ACCESS TOKEN', line_webhook: 'WEBHOOK URL',
+    btn_line_connect: 'Connect LINE', btn_line_test: 'Test Alert', btn_line_disconnect: 'Disconnect',
+    line_status_connected: 'Connected', line_status_disconnected: 'Disconnected',
 
     p_modelperf: 'MODEL PERFORMANCE',
     m_acc_s: 'Frame-level, out of fold', m_f1_s: 'Unweighted over four classes',
@@ -294,6 +332,17 @@ const TRANSLATIONS = {
 
   jp: {
     peel_dir: '剥離方向',
+    ann_k: 'アラーム信号', ann_none: 'アラーム状態なし', ann_info: '情報：ドレッシングへの接触 (接触チャイム音)',
+    ann_medium: '中優先度：ドレッシング剥離', ann_high: '高優先度：全面剥離', ann_low: '低優先度',
+    ann_tech: '技術アラーム：センサー信号消失',
+    ann_ref: '優先度の色と点滅周期は IEC 60601-1-8 の慣例に従い、サーバーが決定します。IEC 60601-1-8 による評価は受けておらず、本試作機は IEC 62304 による評価も受けていません。',
+    p_quality: '接触品質', chip_quality: '工学的指標',
+    cqi_k: '接触品質指数（CQI）', cqi_s: '下の3つの割合の幾何平均（サーバー算出）。臨床的には未検証です。',
+    cqi_seated: '着座（装着帯域内のパッド）', cqi_quiet: '静穏（安静時ジッタ / ノイズゲート）', cqi_stable: '安定（初期値からノイズゲート内のパッド）',
+    p_drift: 'ベースラインドリフト', chip_drift: 'Kalman ベースライン − 初期値（パッド毎）',
+    drift_max: '最大ドリフト', drift_rate: '平均ドリフト速度', drift_over: 'ノイズゲート超過パッド',
+    drift_note: 'ベースライン上昇は押圧色、下降は剥離色で表示。Kalman ゲートは 120 counts を超える変化をベースラインに取り込みませんが、それより小さい持続的変化（発汗・温度・ゆっくりした軽い押圧）は吸収され、ここに表示されます。',
+    cqi_na: 'ベースライン未確立',
     standby: '待機中', protocol_replay: '記録ファイルの監査', ward_unassigned: '患者未割当',
     desc_gate_none: '−300 counts の剥離しきい値を超えたパッドはありません',
     desc_gate_some: '25 枚中 {n} 枚が剥離（−300 counts 未満）',
@@ -307,7 +356,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'ダッシュボード', nav_live: 'ライブ監視', nav_replay: '再生と監査',
     nav_events: 'イベントログ', nav_model: 'モデル性能', nav_ward: '病棟ビュー',
-    nav_reports: 'レポートと出力', nav_settings: 'システム設定',
+    nav_reports: 'レポートと出力', nav_settings: 'システム設定', nav_slides: 'スライド発表',
     disclaimer_k: '注意事項', foot_dept: '医用生体工学',
 
     mode_live: 'ライブ', mode_replay: '再生',
@@ -350,8 +399,16 @@ const TRANSLATIONS = {
     notes_hint: 'このブラウザ内にのみ保持されます。診療記録には一切書き込まれません。',
 
     p_eventlog: 'イベントログ', chip_audit: 'サーバー側の監査証跡',
+    btn_print_log: 'ログ印刷',
     btn_refresh: '更新',
     events_hint: '警報レベルが変わるたびに記録します。書き込みに失敗した場合は通知され、握り潰されることはありません。',
+
+    p_line: 'LINE 通知アラート',
+    line_hint: 'LINE Messaging API（チャネルの友だちへ一斉送信）またはHTTPS Webhookで通知します。送信内容はベッド名とアラームレベルのみで、患者の氏名・番号は含みません。いつでも接続・切断でき、設定はこのブラウザに保存されます。LINE Notifyは2025年3月31日に終了しました。',
+    line_service: 'サービス種別', line_min_level: '通知トリガー',
+    line_token: 'LINE アクセストークン', line_webhook: 'Webhook URL',
+    btn_line_connect: 'LINE 接続', btn_line_test: 'テスト通知', btn_line_disconnect: '切断',
+    line_status_connected: '接続中', line_status_disconnected: '未接続',
 
     p_modelperf: 'モデル性能',
     m_acc_s: 'フレーム単位・未学習データ', m_f1_s: '4クラスの非加重平均',
@@ -529,6 +586,7 @@ window.addEventListener('load', async () => {
 
   updateBedSelectLabels();
   initNodesSVG();
+  initDriftMap();
   initRiskChart();
   
   try {
@@ -536,6 +594,7 @@ window.addEventListener('load', async () => {
     if (layout && layout.pads) {
       state.layout = layout.pads;
       initNodesSVG();
+      initDriftMap();
     }
   } catch (e) {
     console.warn('Using fallback layout:', e);
@@ -553,6 +612,7 @@ window.addEventListener('load', async () => {
   loadEventLogs();
   renderMetrics();
   renderICUGrid();
+  renderLineStatusUI();
 
   setDashboardMode('live', false);
 });
@@ -733,6 +793,7 @@ async function loadRecording(rel) {
   pausePlayback();
   state.file = rel;
   state.heatCache.clear();
+  driftHistory.length = 0;
   
   const sel = document.getElementById('fileSelect');
   if (sel) sel.value = rel;
@@ -939,9 +1000,12 @@ function renderFrame(fr, total) {
   updateGauge(cp, lvl);
   updateConfidence(fr);
 
-  siren(lvl, cp);
+  siren(fr.alarm_signal);
   if (state.lastLoggedLevel !== lvl) {
     logExtubationEvent(fr);
+  }
+  if (lvl >= 2) {
+    dispatchLineNotification(fr);
   }
 
   const layout = state.layout || DEFAULT_LAYOUT;
@@ -974,6 +1038,8 @@ function renderFrame(fr, total) {
   }
 
   drawHeatmapGaussian(deltas);
+  renderAnnunciator(fr.alarm_signal);
+  renderQuality(fr.signal_quality);
 
   if (state.wardBeds) {
     const liveBed = state.wardBeds.find(b => b.bed === state.activeBed);
@@ -993,6 +1059,14 @@ function setProbBar(name, val) {
   if (barEl) barEl.style.width = val + '%';
 }
 
+// Smooth field: normalised Gaussian-kernel interpolation of the 25 pad deltas onto a
+// coarse grid, upscaled with bilinear smoothing. A constant "zero pad" weight in the
+// denominator lets the field fall to zero away from the pads instead of extrapolating,
+// and #heatmapCanvas is clipped to the patch outline as before. Display only: the
+// colour bands are a rendering choice, the alarm decision is the server's.
+const HEAT_GRID = { w: 60, h: 80, sigma: 8.5, prior: 0.35 };
+let heatBuffer = null;
+
 function drawHeatmapGaussian(deltas) {
   const c = document.getElementById('heatmapCanvas');
   if (!c || !deltas) return;
@@ -1000,41 +1074,152 @@ function drawHeatmapGaussian(deltas) {
   ctx.clearRect(0, 0, c.width, c.height);
 
   const pads = state.layout || DEFAULT_LAYOUT;
-  const W = c.width, H = c.height;
   const light = document.documentElement.getAttribute('data-theme') !== 'dark';
   const boost = light ? 1.15 : 1.0;
   const hue = {
-    press: rgbOf(cssVar('--sig-press', '#0e8fb5')),
-    peel:  rgbOf(cssVar('--sig-peel',  '#d08700')),
-    deep:  rgbOf(cssVar('--sig-deep',  '#d93a2b'))
+    press: rgbOf(cssVar('--sig-press', '#0e8fb5')).split(',').map(Number),
+    peel:  rgbOf(cssVar('--sig-peel',  '#d08700')).split(',').map(Number),
+    deep:  rgbOf(cssVar('--sig-deep',  '#d93a2b')).split(',').map(Number)
   };
 
-  pads.forEach((p, i) => {
-    const d = deltas[i] || 0;
-    if (Math.abs(d) < 45) return;
+  const { w, h, sigma, prior } = HEAT_GRID;
+  if (!heatBuffer) {
+    heatBuffer = document.createElement('canvas');
+    heatBuffer.width = w; heatBuffer.height = h;
+  }
+  const bctx = heatBuffer.getContext('2d');
+  const img = bctx.createImageData(w, h);
+  const inv2s2 = 1 / (2 * sigma * sigma);
+  const px = pads.map(p => p.x), py = pads.map(p => p.y);
+  const vals = pads.map((_, i) => Number(deltas[i]) || 0);
 
-    const cx = (p.x / 100) * W;
-    const cy = (p.y / 133.33) * H;
-    const radius = 48;
-
-    let rgb, alpha;
-    if (d > 0) {
-      rgb = hue.press; alpha = Math.min(0.68, 0.20 + 0.45 * Math.min(1, d / 1000)) * boost;
-    } else if (d <= -250) {
-      rgb = hue.deep;  alpha = Math.min(0.74, 0.25 + 0.45 * Math.min(1, -d / 800)) * boost;
-    } else {
-      rgb = hue.peel;  alpha = Math.min(0.68, 0.20 + 0.45 * Math.min(1, -d / 600)) * boost;
+  for (let gy = 0; gy < h; gy++) {
+    const y = (gy + 0.5) / h * 133.33;
+    for (let gx = 0; gx < w; gx++) {
+      const x = (gx + 0.5) / w * 100;
+      let num = 0, den = prior;
+      for (let i = 0; i < vals.length; i++) {
+        const dx = x - px[i], dy = y - py[i];
+        const k = Math.exp(-(dx * dx + dy * dy) * inv2s2);
+        num += k * vals[i]; den += k;
+      }
+      const v = num / den;
+      const o = (gy * w + gx) * 4;
+      let rgb = null, a = 0;
+      if (v >= 45) {
+        rgb = hue.press; a = Math.min(0.68, 0.18 + 0.45 * Math.min(1, v / 1000));
+      } else if (v <= -250) {
+        rgb = hue.deep;  a = Math.min(0.76, 0.26 + 0.45 * Math.min(1, -v / 800));
+      } else if (v <= -45) {
+        rgb = hue.peel;  a = Math.min(0.68, 0.18 + 0.45 * Math.min(1, -v / 600));
+      }
+      if (!rgb) continue;
+      img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2];
+      img.data[o + 3] = Math.round(255 * Math.min(1, a * boost));
     }
+  }
+  bctx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(heatBuffer, 0, 0, c.width, c.height);
+}
 
-    const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, radius);
-    grad.addColorStop(0, `rgba(${rgb}, ${alpha.toFixed(3)})`);
-    grad.addColorStop(1, `rgba(${rgb}, 0)`);
+// ---- Alarm-signal annunciator: renders the server's alarm_signal, decides nothing. ----
+function renderAnnunciator(sig) {
+  const el = document.getElementById('alarmAnnunciator');
+  const label = document.getElementById('annPriority');
+  if (!el || !label) return;
+  const s = sig || { priority: 'none' };
+  const prio = String(s.priority || 'none');
+  el.dataset.priority = prio;
+  el.dataset.condition = s.condition || '';
+  if (Number(s.flash_hz) > 0) el.style.setProperty('--flash-period', (1 / Number(s.flash_hz)).toFixed(3) + 's');
+  else el.style.removeProperty('--flash-period');
+  el.setAttribute('aria-live', prio === 'high' ? 'assertive' : 'polite');
+  const key = s.condition === 'technical' ? 'ann_tech' : `ann_${prio}`;
+  label.setAttribute('data-i18n', key);
+  label.textContent = t(key) || s.text || prio;
+  label.title = s.text || '';
+}
 
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fill();
+// ---- Contact quality + baseline drift: renders signal_quality from the server. ----
+const DRIFT_FULL_SCALE = 300;   // counts at which the drift wash saturates (display only)
+const driftHistory = [];
+
+function initDriftMap() {
+  const g = document.getElementById('driftDots');
+  if (!g) return;
+  g.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  (state.layout || DEFAULT_LAYOUT).forEach(p => {
+    const grp = document.createElementNS(ns, 'g');
+    const base = document.createElementNS(ns, 'circle');
+    base.setAttribute('cx', p.x); base.setAttribute('cy', p.y); base.setAttribute('r', 5.6);
+    base.setAttribute('class', 'driftdot'); base.id = `drift-${p.pad}`;
+    const wash = document.createElementNS(ns, 'circle');
+    wash.setAttribute('cx', p.x); wash.setAttribute('cy', p.y); wash.setAttribute('r', 5.6);
+    wash.setAttribute('class', 'driftdot__wash'); wash.id = `driftw-${p.pad}`;
+    const tip = document.createElementNS(ns, 'title');
+    tip.id = `driftt-${p.pad}`; tip.textContent = `Pad ${p.pad}`;
+    grp.append(base, wash, tip);
+    g.appendChild(grp);
   });
+}
+
+function setQualityBar(id, frac) {
+  const v = document.getElementById(id + 'V');
+  const bar = document.getElementById(id + 'Bar');
+  const ok = Number.isFinite(frac);
+  if (v) v.textContent = ok ? Math.round(frac * 100) + '%' : '\u2014';
+  if (bar) bar.style.width = ok ? Math.round(frac * 100) + '%' : '0%';
+}
+
+function renderQuality(q) {
+  const cqiEl = document.getElementById('cqiValue');
+  if (!cqiEl) return;
+  const cqi = q && Number.isFinite(q.cqi) ? q.cqi : null;
+  cqiEl.textContent = cqi === null ? '\u2014' : cqi.toFixed(0);
+  cqiEl.className = 'cqi__v' + (cqi === null ? '' : cqi >= 80 ? ' is-ok' : cqi >= 50 ? ' is-warn' : ' is-bad');
+  cqiEl.title = (q && q.note) || '';
+  const comp = (q && q.components) || {};
+  setQualityBar('cqiSeated', comp.seated);
+  setQualityBar('cqiQuiet', comp.quiet);
+  setQualityBar('cqiStable', comp.stable);
+
+  const d = q && q.drift;
+  const txt = (id, s) => { const e = document.getElementById(id); if (e) e.textContent = s; };
+  if (!d) {
+    txt('driftMax', '\u2014'); txt('driftRate', '\u2014'); txt('driftOver', '\u2014');
+    return;
+  }
+  const sign = v => (v > 0 ? '+' : '') + Number(v).toFixed(0);
+  txt('driftMax', `${d.max_abs.toFixed(0)} counts (pad ${d.max_abs_pad})`);
+  txt('driftRate', d.rate_counts_per_min === null ? '\u2014' : `${sign(d.rate_counts_per_min)} counts/min`);
+  txt('driftOver', `${d.n_over_noise_gate} / 25`);
+
+  const per = d.per_pad || [];
+  (state.layout || DEFAULT_LAYOUT).forEach((p, i) => {
+    const v = Number(per[i]) || 0;
+    const wash = document.getElementById(`driftw-${p.pad}`);
+    const base = document.getElementById(`drift-${p.pad}`);
+    const tip = document.getElementById(`driftt-${p.pad}`);
+    if (wash) {
+      wash.setAttribute('class', 'driftdot__wash ' + (v >= 0 ? 'driftdot__wash--up' : 'driftdot__wash--down'));
+      wash.style.setProperty('--a', Math.min(0.85, Math.abs(v) / DRIFT_FULL_SCALE).toFixed(2));
+    }
+    if (base) base.setAttribute('class', 'driftdot' + (Math.abs(v) > d.noise_gate ? ' driftdot--over' : ''));
+    if (tip) tip.textContent = `Pad ${p.pad}: ${sign(v)} counts`;
+  });
+
+  driftHistory.push(Number(d.mean) || 0);
+  if (driftHistory.length > 108) driftHistory.shift();
+  const line = document.getElementById('driftSparkLine');
+  if (line && driftHistory.length > 1) {
+    const span = Math.max(DRIFT_FULL_SCALE / 3, ...driftHistory.map(Math.abs));
+    const pts = driftHistory.map((v, i) =>
+      `${(i / (driftHistory.length - 1) * 200).toFixed(1)},${(20 - v / span * 18).toFixed(1)}`);
+    line.setAttribute('points', pts.join(' '));
+  }
 }
 
 function rgbOf(hex) {
@@ -1062,49 +1247,60 @@ function unlockAudioContext() {
   document.addEventListener(e, unlockAudioContext, { once: false, passive: true })
 );
 
+// ---- Alarm sound: follows the server's alarm_signal; the page picks no priority. ----
+// info (touch/press): one soft two-note sine chime (880 -> 1175 Hz) when contact begins. It never
+//   repeats: touch is information, not an alarm, so it must stay the least frequent sound in the room.
+// medium (peel, or signal loss): 3-pulse 660 Hz caution, repeated every 5 s while it lasts.
+// high (full detachment): 5-pulse 988/740 Hz square buzzer, repeated every 2 s.
+// Pulse counts follow the IEC 60601-1-8 burst idea (medium 3; high there is 10); not assessed against it.
+const SIREN_REPEAT_MS = { medium: 5000, high: 2000 };
 let lastSirenTime = 0;
+let lastSirenPrio = 'none';
 
-function siren(level, cpri = 0) {
-  const isAlarm = (level >= 2) || (Number(cpri) >= 60);
-  if (state.isMuted || !isAlarm) return;
+function tone(freq, at, dur, type, vol) {
+  const ctx = state.audioCtx;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, at);
+  gain.gain.setValueAtTime(vol, at);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    try { osc.disconnect(); } catch (e) {}
+    try { gain.disconnect(); } catch (e) {}
+  };
+  osc.onended = () => { cleanup(); };
+  setTimeout(cleanup, (at - ctx.currentTime + dur) * 1000 + 300);
+  osc.start(at);
+  osc.stop(at + dur);
+}
 
+function siren(sig) {
+  const prio = !sig ? 'none' : (sig.condition === 'technical' ? 'medium' : String(sig.priority || 'none'));
   const nowMs = Date.now();
-  if (nowMs - lastSirenTime < 300) {
-    return;
-  }
+  const rising = prio !== lastSirenPrio;
+  const repeat = SIREN_REPEAT_MS[prio];
+  lastSirenPrio = prio;
+  if (state.isMuted || prio === 'none' || prio === 'low') return;
+  if (!rising && (!repeat || nowMs - lastSirenTime < repeat)) return;
   lastSirenTime = nowMs;
-
   try {
-    if (!state.audioCtx) {
-      state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
+    const t0 = state.audioCtx.currentTime + 0.02;
+    if (prio === 'info') {
+      tone(880.0, t0, 0.16, 'sine', 0.08);
+      tone(1174.66, t0 + 0.10, 0.26, 'sine', 0.075);
+    } else if (prio === 'medium') {
+      [0, 0.28, 0.56].forEach(d => tone(660, t0 + d, 0.2, 'triangle', 0.09));
+    } else {
+      [0, 0.14, 0.28, 0.56, 0.70].forEach((d, i) => tone(i % 2 ? 740 : 988, t0 + d, 0.11, 'square', 0.06));
     }
-    if (state.audioCtx.state === 'suspended') {
-      state.audioCtx.resume();
-    }
-    const osc = state.audioCtx.createOscillator();
-    const gain = state.audioCtx.createGain();
-    const isCritical = (level === 3);
-    osc.type = isCritical ? 'sawtooth' : 'sine';
-    osc.frequency.setValueAtTime(isCritical ? 920 : 640, state.audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.08, state.audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, state.audioCtx.currentTime + 0.25);
-    osc.connect(gain);
-    gain.connect(state.audioCtx.destination);
-
-    let cleaned = false;
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      try { osc.disconnect(); } catch (e) {}
-      try { gain.disconnect(); } catch (e) {}
-    };
-    osc.onended = () => {
-      cleanup();
-    };
-    setTimeout(cleanup, 500);
-
-    osc.start();
-    osc.stop(state.audioCtx.currentTime + 0.25);
   } catch (e) {}
 }
 
@@ -1431,6 +1627,7 @@ function updateLiveStreamButton(active) {
 function startLiveWebSocketStream(silent = false) {
   clearTimeout(state.liveReconnectTimer);
   state.liveReconnectTimer = null;
+  driftHistory.length = 0;
 
   const comSel = document.getElementById('comPortSelect');
   const port = comSel ? comSel.value : '';
@@ -1742,14 +1939,15 @@ async function loadEventLogs() {
     }
     paint(limit => events.slice(-limit).reverse().map(e => `
       <tr>
-        <td><b>${e.event_id}</b></td>
-        <td>${formatLocalTime(e.timestamp)}</td>
-        <td>${e.dataset || 'live'}</td>
-        <td>Frame ${e.frame_index} (${e.time_sec}s)</td>
-        <td><span class="status-pill lvl-${e.severity_level}">Level ${e.severity_level}</span></td>
-        <td><b>${e.cpri_percent}%</b></td>
+        <td><b>${esc(e.event_id)}</b></td>
+        <td>${esc(formatLocalTime(e.timestamp))}</td>
+        <td>${esc(e.dataset || 'live')}</td>
+        <td>Frame ${esc(e.frame_index)} (${esc(e.time_sec)}s)</td>
+        <td><span class="status-pill lvl-${Number(e.severity_level) || 0}">Level ${esc(e.severity_level)}</span></td>
+        <td><b>${esc(e.cpri_percent)}%</b></td>
       </tr>
     `).join(''));
+    state.lastEventLog = data;
   } catch (e) {}
 }
 
@@ -2021,6 +2219,275 @@ function generateMedicalPDF() {
   window.print();
 }
 
+async function printEventLog() {
+  const tsEl = document.getElementById('printTimestamp');
+  if (tsEl) tsEl.textContent = new Date().toLocaleString();
+  const bedEl = document.getElementById('printBedBadge');
+  if (bedEl) bedEl.textContent = state.activeBed || 'Bed 01';
+
+  showView('events');
+  await loadEventLogs();
+
+  // Summary line from the server's own log and its hash-chain check; nothing here is computed from the screen.
+  const sumEl = document.getElementById('printSummary');
+  const log = state.lastEventLog || { events: [], chain: {} };
+  if (sumEl) {
+    const ev = log.events || [], by = [0, 0, 0, 0];
+    ev.forEach(e => { const l = Number(e.severity_level); if (l >= 0 && l <= 3) by[l] += 1; });
+    const ch = log.chain || {};
+    const last = ev.length && ev[ev.length - 1].hash ? String(ev[ev.length - 1].hash).slice(0, 16) : 'none';
+    sumEl.innerHTML = [`<span><b>Events:</b> ${ev.length}</span>`,
+      `<span><b>Level 3:</b> ${by[3]}</span>`, `<span><b>Level 2:</b> ${by[2]}</span>`,
+      `<span><b>Level 1:</b> ${by[1]}</span>`, `<span><b>Level 0:</b> ${by[0]}</span>`,
+      `<span><b>Audit chain:</b> ${esc(ch.status || 'unknown')}</span>`,
+      `<span><b>Last hash:</b> <code>${esc(last)}</code></span>`,
+      ev.length > 200 ? '<span>Table shows the latest 200 events; export CSV for all.</span>' : ''].join('');
+  }
+
+  const eventsView = document.getElementById('view-events');
+  if (eventsView) eventsView.classList.add('is-printing');
+
+  window.print();
+
+  setTimeout(() => {
+    if (eventsView) eventsView.classList.remove('is-printing');
+  }, 1000);
+}
+
+const LINE_STORAGE_KEY = 'p2.line.alert.config.v1';
+
+function getLineConfig() {
+  try {
+    const raw = localStorage.getItem(LINE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) return parsed;
+    }
+  } catch (e) {}
+  return {
+    enabled: false,
+    service: 'messaging_api',
+    token: '',
+    webhookUrl: '',
+    minLevel: 2
+  };
+}
+
+function saveLineConfig(cfg) {
+  try {
+    localStorage.setItem(LINE_STORAGE_KEY, JSON.stringify(cfg));
+  } catch (e) {}
+}
+
+state.lineConfig = getLineConfig();
+let lastLineNotificationTime = 0;
+let lastNotifiedLevel = 0;
+
+function updateLineFormFields() {
+  const sel = document.getElementById('lineServiceSelect');
+  const tokenWrap = document.getElementById('lineTokenFieldWrap');
+  const hookWrap = document.getElementById('lineWebhookFieldWrap');
+  if (!sel || !tokenWrap || !hookWrap) return;
+  const isHook = sel.value === 'webhook';
+  tokenWrap.style.display = isHook ? 'none' : 'block';
+  hookWrap.style.display = isHook ? 'block' : 'none';
+}
+
+function renderLineStatusUI() {
+  const cfg = state.lineConfig || getLineConfig();
+  const badge = document.getElementById('lineStatusBadge');
+  const statEl = document.getElementById('lineConnectionStatus');
+  const tokenInp = document.getElementById('lineTokenInput');
+  const hookInp = document.getElementById('lineWebhookInput');
+  const servSel = document.getElementById('lineServiceSelect');
+  const lvlSel = document.getElementById('lineMinLevelSelect');
+
+  if (servSel && cfg.service) servSel.value = cfg.service;
+  if (lvlSel && cfg.minLevel) lvlSel.value = String(cfg.minLevel);
+  if (tokenInp && cfg.token) tokenInp.value = cfg.token;
+  if (hookInp && cfg.webhookUrl) hookInp.value = cfg.webhookUrl;
+  updateLineFormFields();
+
+  if (badge) {
+    if (cfg.enabled) {
+      badge.textContent = t('line_status_connected');
+      badge.className = 'chip chip--ok';
+    } else {
+      badge.textContent = t('line_status_disconnected');
+      badge.className = 'chip';
+    }
+  }
+  if (statEl) {
+    if (cfg.enabled) {
+      const modeText = cfg.service === 'webhook' ? 'Webhook' : 'LINE Messaging API';
+      statEl.textContent = `Status: Connected (${modeText}) · Active for Level ${cfg.minLevel}+`;
+      statEl.className = 'stat__s stat__s--ok';
+    } else {
+      statEl.textContent = 'Status: Disconnected / ไม่ได้เชื่อมต่อ';
+      statEl.className = 'stat__s stat__s--info';
+    }
+  }
+}
+
+async function connectLineAlert() {
+  const servSel = document.getElementById('lineServiceSelect');
+  const lvlSel = document.getElementById('lineMinLevelSelect');
+  const tokenInp = document.getElementById('lineTokenInput');
+  const hookInp = document.getElementById('lineWebhookInput');
+
+  const service = servSel ? servSel.value : 'messaging_api';
+  const minLevel = lvlSel ? Number(lvlSel.value) || 2 : 2;
+  const token = tokenInp ? tokenInp.value.trim() : '';
+  const webhookUrl = hookInp ? hookInp.value.trim() : '';
+
+  if (service === 'webhook' && !webhookUrl) {
+    showToast('กรุณากรอก Webhook URL', 'ระบุ URL ปลายทางที่ต้องการส่งการแจ้งเตือน', 'warning');
+    return;
+  }
+  if (service !== 'webhook' && !token) {
+    showToast('กรุณากรอก Token', 'ระบุ LINE Access Token ก่อนเชื่อมต่อ', 'warning');
+    return;
+  }
+
+  state.lineConfig = {
+    enabled: true,
+    service: service,
+    token: token,
+    webhookUrl: webhookUrl,
+    minLevel: minLevel
+  };
+  saveLineConfig(state.lineConfig);
+  renderLineStatusUI();
+
+  showToast('เชื่อมต่อ LINE สำเร็จ', `ระบบเปิดการแจ้งเตือน LINE สำหรับ Level ${minLevel}+ แล้ว`, 'success');
+}
+
+function disconnectLineAlert() {
+  state.lineConfig = {
+    enabled: false,
+    service: 'messaging_api',
+    token: '',
+    webhookUrl: '',
+    minLevel: 2
+  };
+  saveLineConfig(state.lineConfig);
+
+  const tokenInp = document.getElementById('lineTokenInput');
+  if (tokenInp) tokenInp.value = '';
+  const hookInp = document.getElementById('lineWebhookInput');
+  if (hookInp) hookInp.value = '';
+
+  renderLineStatusUI();
+  showToast('ตัดการเชื่อมต่อ LINE แล้ว', 'ยกเลิกการส่งการแจ้งเตือนผ่าน LINE เรียบร้อย', 'info');
+}
+
+async function testLineAlert() {
+  const servSel = document.getElementById('lineServiceSelect');
+  const tokenInp = document.getElementById('lineTokenInput');
+  const hookInp = document.getElementById('lineWebhookInput');
+
+  const service = servSel ? servSel.value : (state.lineConfig.service || 'messaging_api');
+  const token = tokenInp && tokenInp.value.trim() ? tokenInp.value.trim() : state.lineConfig.token;
+  const webhookUrl = hookInp && hookInp.value.trim() ? hookInp.value.trim() : state.lineConfig.webhookUrl;
+
+  if (service === 'webhook' && !webhookUrl) {
+    showToast('กรุณากรอก Webhook URL', 'ระบุ Webhook URL เพื่อทดสอบส่งข้อความ', 'warning');
+    return;
+  }
+  if (service !== 'webhook' && !token) {
+    showToast('กรุณากรอก Token', 'ระบุ LINE Token เพื่อทดสอบส่งข้อความ', 'warning');
+    return;
+  }
+
+  showToast('กำลังทดสอบส่งแจ้งเตือน...', 'กำลังเชื่อมต่อไปยัง LINE...', 'info');
+
+  const testMsg = `[Smart Extubation Early Warning]\n` +
+    `SYSTEM TEST NOTIFICATION\n` +
+    `Bed: ${state.activeBed || 'Bed 01'}\n` +
+    `Time: ${new Date().toLocaleString()}\n` +
+    `Status: Test connection successful\n` +
+    `Notice: Research Prototype (not been assessed against IEC 62304)`;
+
+  try {
+    const res = await fetch(withKey('/api/v6/notify/line'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: service === 'webhook' ? '' : token,
+        webhook_url: service === 'webhook' ? webhookUrl : '',
+        message: testMsg,
+        level: 0,
+        bed: state.activeBed || 'Bed 01'
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('ทดสอบสำเร็จ', `ส่งข้อความแจ้งเตือนผ่าน ${data.channel || 'LINE'} เรียบร้อยแล้ว`, 'success');
+      if (!state.lineConfig.enabled) {
+        state.lineConfig.enabled = true;
+        state.lineConfig.token = token;
+        state.lineConfig.webhookUrl = webhookUrl;
+        state.lineConfig.service = service;
+        saveLineConfig(state.lineConfig);
+        renderLineStatusUI();
+      }
+    } else {
+      showToast('การส่งทดสอบล้มเหลว', data.error || 'ไม่สามารถส่งข้อความได้ ตรวจสอบ Token หรือ Webhook', 'warning');
+    }
+  } catch (err) {
+    console.error('Line test error:', err);
+    showToast('การเชื่อมต่อล้มเหลว', String(err.message || err), 'warning');
+  }
+}
+
+async function dispatchLineNotification(fr) {
+  const cfg = state.lineConfig || getLineConfig();
+  if (!cfg || !cfg.enabled) return;
+
+  const lvl = fr.severity_level || 0;
+  const minLvl = cfg.minLevel || 2;
+  if (lvl < minLvl) return;
+
+  const now = Date.now();
+  if (lvl <= lastNotifiedLevel && (now - lastLineNotificationTime < 30000)) {
+    return;
+  }
+
+  lastLineNotificationTime = now;
+  lastNotifiedLevel = lvl;
+
+  const cp = (fr.cpri_percent !== undefined && fr.cpri_percent !== null) ? Number(fr.cpri_percent).toFixed(1) : '—';
+  // The bed label only: a patient name or hospital number never leaves the hospital in a push message.
+  const bedName = state.activeBed || 'Bed 01';
+
+  const alertLevelText = lvl === 3 ? 'CRITICAL: Full Detachment / Tube At Risk' : (lvl === 2 ? 'WARNING: Dressing Peeling Detected' : 'INFO: Contact Detected');
+
+  const alertMsg = `[Smart Extubation Early Warning]\n` +
+    `ALERT: ${alertLevelText}\n` +
+    `Bed: ${bedName}\n` +
+    `Severity: Level ${lvl}\n` +
+    `CPRI: ${cp}%\n` +
+    `Status: ${fr.status || t('status_' + lvl) || 'Alarm Active'}\n` +
+    `Time: ${new Date().toLocaleString()}\n` +
+    `Notice: Research Prototype (not been assessed against IEC 62304)`;
+
+  try {
+    await fetch(withKey('/api/v6/notify/line'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: cfg.service === 'webhook' ? '' : cfg.token,
+        webhook_url: cfg.service === 'webhook' ? cfg.webhookUrl : '',
+        message: alertMsg,
+        level: lvl,
+        bed: bedName
+      })
+    });
+  } catch (e) {
+    console.warn('LINE dispatch failed:', e);
+  }
+}
+
 async function getJSON(url) {
   const res = await fetch(withKey(url));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2029,4 +2496,8 @@ async function getJSON(url) {
 
 function enc(s) {
   return encodeURIComponent(s);
+}
+
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
