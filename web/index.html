@@ -101,6 +101,10 @@
       <li><button class="nav__item" data-view="settings" onclick="showView('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 8.2 1V1a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1" transform="translate(2 2) scale(0.86)"/></svg>
         <span data-i18n="nav_settings">System Settings</span></button></li>
+
+      <li><a class="nav__item" href="/slides" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span data-i18n="nav_slides">Presentation Slides</span></a></li>
     </ul>
 
     <div class="sidebar__note">
@@ -198,6 +202,13 @@
         </div>
       </div>
 
+      <div class="annunciator" id="alarmAnnunciator" role="status" aria-live="polite" data-priority="none">
+        <span class="annunciator__lamp" aria-hidden="true"></span>
+        <span class="annunciator__k" data-i18n="ann_k">ALARM SIGNAL</span>
+        <span class="annunciator__p" id="annPriority" data-i18n="ann_none">No alarm condition</span>
+        <span class="annunciator__ref" data-i18n="ann_ref">Priority colour and flash rate follow IEC 60601-1-8 conventions, chosen by the server. Not assessed against IEC 60601-1-8; this prototype has not been assessed against IEC 62304.</span>
+      </div>
+
       <div class="grid grid--main">
 
         <section class="panel panel--analysis">
@@ -279,6 +290,51 @@
                 <span class="stat__s" id="patchIntegrityDesc" data-i18n="desc_gate_none">No pad past the −300 count lift gate</span>
               </div>
             </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="grid grid--quality">
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_quality">CONTACT QUALITY</h2>
+            <span class="chip" data-i18n="chip_quality">Engineering indicator</span>
+          </div>
+          <div class="panel__body cqi">
+            <div class="cqi__head">
+              <span class="stat__k" data-i18n="cqi_k">CONTACT QUALITY INDEX (CQI)</span>
+              <span class="cqi__v" id="cqiValue">&mdash;</span>
+              <span class="stat__s" data-i18n="cqi_s">Geometric mean of the three fractions below, from the server. Not clinically validated.</span>
+            </div>
+            <div class="cqi__bars">
+              <div class="prob"><span class="prob__k" data-i18n="cqi_seated">Seated (pads in attached band)</span><span class="prob__v" id="cqiSeatedV">&mdash;</span><span class="prob__bar"><i class="bar-cqi" id="cqiSeatedBar"></i></span></div>
+              <div class="prob"><span class="prob__k" data-i18n="cqi_quiet">Quiet (rest-frame jitter vs noise gate)</span><span class="prob__v" id="cqiQuietV">&mdash;</span><span class="prob__bar"><i class="bar-cqi" id="cqiQuietBar"></i></span></div>
+              <div class="prob"><span class="prob__k" data-i18n="cqi_stable">Stable (pads within noise gate of seed)</span><span class="prob__v" id="cqiStableV">&mdash;</span><span class="prob__bar"><i class="bar-cqi" id="cqiStableBar"></i></span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_drift">BASELINE DRIFT</h2>
+            <span class="chip" data-i18n="chip_drift">Kalman baseline minus seed, per pad</span>
+          </div>
+          <div class="panel__body drift">
+            <svg class="driftmap" id="driftMap" viewBox="0 0 100 133.33" role="img" aria-label="Per-pad baseline drift">
+              <path class="patch-outline" d="M 50 8 C 15 25, 2 50, 8 95 C 12 125, 40 132, 50 132 C 60 132, 88 125, 92 95 C 98 50, 85 25, 50 8 Z"/>
+              <g id="driftDots"></g>
+            </svg>
+            <dl class="drift__kv">
+              <dt data-i18n="drift_max">Largest drift</dt><dd class="mono" id="driftMax">&mdash;</dd>
+              <dt data-i18n="drift_rate">Mean drift rate</dt><dd class="mono" id="driftRate">&mdash;</dd>
+              <dt data-i18n="drift_over">Pads past noise gate</dt><dd class="mono" id="driftOver">&mdash;</dd>
+            </dl>
+            <svg class="drift__spark" id="driftSpark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
+              <line class="drift__zero" x1="0" y1="20" x2="200" y2="20"/>
+              <polyline class="drift__line" id="driftSparkLine" points=""/>
+            </svg>
+            <span class="stat__s" data-i18n="drift_note">Rising baseline shows in the press hue, falling in the peel hue. The Kalman gate keeps changes larger than 120 counts out of the baseline; smaller sustained changes (sweat, warming, a slow light press) are absorbed and show up here.</span>
           </div>
         </section>
       </div>
@@ -407,11 +463,25 @@
           <div class="panel__head">
             <h2 class="panel__title" data-i18n="p_eventlog">EVENT LOG</h2>
             <div style="display:inline-flex;align-items:center;gap:12px">
+              <button class="btn btn--primary btn--sm" onclick="printEventLog()" data-i18n="btn_print_log">Print Log</button>
               <button class="btn btn--ghost btn--sm" onclick="exportEventsCSV()" data-i18n="btn_export_csv">Export CSV</button>
               <span class="chip" data-i18n="chip_audit">Server-side audit trail</span>
             </div>
           </div>
           <div class="panel__body panel__body--flush">
+            <div class="print-header" id="eventLogPrintHeader">
+              <div class="print-header__title">SMART EXTUBATION EARLY WARNING SYSTEM</div>
+              <div class="print-header__sub">Ward Clinical Event Audit Trail &amp; Telemetry Log</div>
+              <div class="print-header__meta">
+                <span><b>Ward:</b> ____________________</span>
+                <span><b>Monitored Stream:</b> <span id="printBedBadge">Bed 01</span></span>
+                <span><b>Printed At:</b> <span id="printTimestamp">&mdash;</span></span>
+              </div>
+              <div class="print-header__disclaimer">
+                Research prototype &middot; this prototype has not been assessed against IEC 62304 &middot; it is a screening aid and not a medical device
+              </div>
+              <div class="print-header__summary" id="printSummary"></div>
+            </div>
             <div class="tablewrap">
               <table class="table">
                 <thead><tr>
@@ -422,6 +492,11 @@
                   <tr><td colspan="6" class="table__empty" data-i18n="tbl_empty">No events recorded in this shift</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div class="print-sign">
+              <span>Reviewed by (name, position): ______________________________</span>
+              <span>Signature: ____________________</span>
+              <span>Date / time: ____________________</span>
             </div>
           </div>
           <div class="panel__foot">
@@ -535,6 +610,52 @@
                 <dt data-i18n="s_ch">Channels</dt><dd data-i18n="s_ch_v">25 capacitive pads, 90 × 120 mm dressing</dd>
                 <dt data-i18n="s_gate">Lift gate</dt><dd data-i18n="s_gate_v">−300 counts per pad; noise gate 60 counts</dd>
               </dl>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_line">LINE NOTIFICATION ALERTS</h2>
+            <span class="chip" id="lineStatusBadge" data-i18n="line_status_disconnected">Disconnected</span>
+          </div>
+          <div class="panel__body">
+            <div class="line-settings">
+              <p class="hint" style="margin-bottom: 14px;" data-i18n="line_hint">
+                Push alerts through the LINE Messaging API (broadcast to the channel followers) or an HTTPS webhook. Messages carry the bed label and alarm level only, never a patient name or number. Connect or disconnect at any time; settings stay in this browser. LINE Notify ended on 31 March 2025 and is not offered.
+              </p>
+              <div class="grid grid--second" style="gap: 16px;">
+                <label class="field">
+                  <span class="field__k" data-i18n="line_service">SERVICE TYPE</span>
+                  <select class="field__ctl" id="lineServiceSelect" onchange="updateLineFormFields()">
+                    <option value="messaging_api">LINE Messaging API (Broadcast)</option>
+                    <option value="webhook">Custom Webhook (Relay / n8n / Make)</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field__k" data-i18n="line_min_level">NOTIFICATION TRIGGER</span>
+                  <select class="field__ctl" id="lineMinLevelSelect">
+                    <option value="2">Level 2 (Warning) &amp; Level 3 (Critical Pull)</option>
+                    <option value="3">Level 3 (Critical Detachment Only)</option>
+                  </select>
+                </label>
+              </div>
+              <div class="field" id="lineTokenFieldWrap" style="margin-top: 12px;">
+                <span class="field__k" data-i18n="line_token">LINE ACCESS TOKEN</span>
+                <input type="password" class="field__ctl" id="lineTokenInput" placeholder="Messaging API channel access token" autocomplete="off" />
+              </div>
+              <div class="field" id="lineWebhookFieldWrap" style="margin-top: 12px; display: none;">
+                <span class="field__k" data-i18n="line_webhook">WEBHOOK URL</span>
+                <input type="url" class="field__ctl" id="lineWebhookInput" placeholder="https://..." autocomplete="off" />
+              </div>
+              <div class="rail__group" style="margin-top: 16px;">
+                <button type="button" class="btn btn--primary" id="btnConnectLine" onclick="connectLineAlert()" data-i18n="btn_line_connect">Connect LINE</button>
+                <button type="button" class="btn btn--ghost" id="btnTestLine" onclick="testLineAlert()" data-i18n="btn_line_test">Test Alert</button>
+                <button type="button" class="btn btn--ghost" id="btnDisconnectLine" onclick="disconnectLineAlert()" data-i18n="btn_line_disconnect">Disconnect</button>
+              </div>
+              <div id="lineConnectionStatus" class="stat__s stat__s--info" style="margin-top: 10px;">
+                Status: Not connected
+              </div>
             </div>
           </div>
         </section>

@@ -11,7 +11,11 @@ __pycache__/
 *.avi
 *.zip
 *.bat
+*.pdf
+*.pptx
 
+Claude outputs/
+scratch/
 .agents/
 _archive/
 tests/

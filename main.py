@@ -34,6 +34,9 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from typing import (TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Literal, Optional,
@@ -809,6 +812,7 @@ def extract_features(pad_delta: np.ndarray, use_gradient: bool = True, include_p
 
 
 SESSION_DIR_RE = __import__("re").compile(r"^S\d+$")
+VACUUM_STATION_DIR = "data new vaccum"   # sic: the folder name on disk
 
 SIGNAL_COLS = [f"Signal-{i + 1}" for i in range(N_PADS)]
 SENSOR_COLS = [f"Sensor-{i + 1}" for i in range(N_PADS)]
@@ -977,6 +981,17 @@ def scan_csv_dirs(root: str) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str
                           "dashboard uploads - reviewable via /api/v5/dataset, and "
                           "deliberately NOT training data (they carry no class label)"))
             continue
+        if parts[0] == VACUUM_STATION_DIR:   # one note for the whole station, not one per class folder
+            prev = next((i for i, x in enumerate(stray) if x[0] == VACUUM_STATION_DIR), None)
+            if prev is not None:
+                stray[prev] = (VACUUM_STATION_DIR, stray[prev][1] + n_csv, stray[prev][2])
+                continue
+            stray.append((VACUUM_STATION_DIR, n_csv,
+                          "vacuum demo station - scored separately by "
+                          "scripts/evaluate_vacuum_station.py, and deliberately NOT training "
+                          "data: its labels are confounded with the attachment (CLAUDE.md). "
+                          "Do not rename it to S1"))
+            continue
         leaf = parts[-1]
         if len(parts) == 1 and leaf in CLASS_MAPPING:
             known.append((rel, leaf, dirpath))
@@ -1084,7 +1099,7 @@ def load_dataset(calibration: str = "static", use_gradient: bool = False,
         banner. Splitting them stops the alarm firing every single run and
         training people to ignore it.
         """
-        expected = [x for x in unknown if x[0].split("/")[0] == "Custom_Uploads"]
+        expected = [x for x in unknown if x[0].split("/")[0] in ("Custom_Uploads", VACUUM_STATION_DIR)]
         suspect = [x for x in unknown if x not in expected]
         if suspect:
             n_suspect = sum(n for _, n, _ in suspect)
@@ -2193,6 +2208,101 @@ def list_serial_ports() -> List[Dict[str, str]]:
              "hwid": p.hwid or ""} for p in list_ports.comports()]
 
 
+# --- Operator-console indicators (server side; the browser only renders them) ----------
+
+ALARM_SIGNAL_STANDARD = ("IEC 60601-1-8 visual alarm-signal conventions (colour, flash rate). "
+                         "Not assessed against IEC 60601-1-8 or IEC 62304.")
+
+# Priority, colour and flash rate follow the alarm-indicator-light characteristics in
+# IEC 60601-1-8: high = red, flashing 1.4-2.8 Hz; medium = yellow, flashing 0.4-0.8 Hz;
+# low = cyan or yellow, constant. Duty cycle 20-60 % on. Level 1 (touch / press) is
+# expected patient activity, so it is an information signal, not an alarm condition:
+# making it an alarm would add to the burden the 7-of-6 vote window exists to keep down.
+# Sounds (played by web/app.js siren()): info = one two-note chime when contact begins, never
+# repeated; medium = 3-pulse beep every 5 s; high = 5-pulse buzzer every 2 s. "low" is not emitted.
+ALARM_SIGNALS: Dict[str, Dict[str, Any]] = {
+    "high":   {"colour": "red", "flash_hz": 2.0, "duty_cycle": 0.5, "sound": "high_pulse_buzzer"},
+    "medium": {"colour": "yellow", "flash_hz": 0.6, "duty_cycle": 0.5, "sound": "medium_caution_beep"},
+    "low":    {"colour": "cyan", "flash_hz": 0.0, "duty_cycle": 1.0, "sound": "none"},
+    "info":   {"colour": None, "flash_hz": 0.0, "duty_cycle": 1.0, "sound": "tactile_contact_chime"},
+    "none":   {"colour": None, "flash_hz": 0.0, "duty_cycle": 0.0, "sound": "none"},
+}
+
+
+def alarm_signal(level: int, disconnected: bool = False, warming: bool = False) -> Dict[str, Any]:
+    """Map the debounced severity level onto an alarm-signal priority.
+
+    Takes the level AlarmDebouncer already decided; it decides nothing about the
+    patient itself. Loss of signal is a technical alarm condition: the patch is no
+    longer being monitored, which during an extubation watch is not low priority.
+    """
+    if disconnected:
+        priority, condition, text = "medium", "technical", "Sensor signal lost - monitoring interrupted"
+    elif warming:
+        priority, condition, text = "none", None, "Baseline calibrating - no alarm conditions evaluated"
+    elif level >= 3:
+        priority, condition, text = "high", "patient", "Full detachment pattern"
+    elif level == 2:
+        priority, condition, text = "medium", "patient", "Dressing peel or partial pull pattern"
+    elif level == 1:
+        priority, condition, text = "info", None, "Contact on the dressing - tactile alert chime"
+    else:
+        priority, condition, text = "none", None, "No alarm condition"
+    return {"priority": priority, "condition": condition, "text": text,
+            **ALARM_SIGNALS[priority], "reference": ALARM_SIGNAL_STANDARD}
+
+
+DRIFT_RATE_WINDOW_FRAMES = 108  # 60 s at 560 ms
+
+
+def signal_quality(baseline: Optional[np.ndarray], seed: Optional[np.ndarray],
+                   jitter_counts: float, mean_drift_history: Sequence[float] = (),
+                   disconnected: bool = False) -> Dict[str, Any]:
+    """Per-pad baseline drift and a Contact Quality Index (CQI), from measured counts.
+
+    drift      = Kalman baseline now minus the baseline it was seeded with, per pad.
+    CQI        = 100 x geometric mean of three fractions, each in [0, 1]:
+                 seated  - pads whose baseline sits inside ATTACHED_SEED_BAND (the
+                           bench-measured attached-at-rest range);
+                 quiet   - 1 - frame-to-frame jitter / NOISE_GATE_COUNTS;
+                 stable  - pads whose |drift| is within NOISE_GATE_COUNTS.
+    A geometric mean, so any one failing component pulls the index down.
+
+    This is an engineering indicator of whether the numbers on screen are worth
+    reading. It has not been validated against any clinical outcome, and the
+    seated band comes from the round-1 bench, not from skin.
+    """
+    if disconnected or baseline is None or seed is None:
+        return {"cqi": 0.0 if disconnected else None, "components": None, "drift": None,
+                "note": "no signal" if disconnected else "baseline not seeded"}
+    b = np.asarray(baseline, dtype=float)
+    drift = b - np.asarray(seed, dtype=float)
+    lo, hi = ATTACHED_SEED_BAND
+    seated = float(np.mean((b >= lo) & (b <= hi)))
+    quiet = float(np.clip(1.0 - float(jitter_counts) / NOISE_GATE_COUNTS, 0.0, 1.0))
+    stable = float(np.mean(np.abs(drift) <= NOISE_GATE_COUNTS))
+    cqi = 100.0 * float(np.cbrt(seated * quiet * stable))
+    hist = [float(x) for x in mean_drift_history]
+    rate = None
+    if len(hist) >= 2:
+        rate = (hist[-1] - hist[0]) / ((len(hist) - 1) * SAMPLE_PERIOD_S / 60.0)
+    worst = int(np.argmax(np.abs(drift)))
+    return {
+        "cqi": round(cqi, 1),
+        "components": {"seated": round(seated, 3), "quiet": round(quiet, 3), "stable": round(stable, 3)},
+        "drift": {
+            "per_pad": [round(float(v), 1) for v in drift],
+            "mean": round(float(drift.mean()), 1),
+            "max_abs": round(float(np.abs(drift[worst])), 1),
+            "max_abs_pad": worst + 1,
+            "n_over_noise_gate": int(np.sum(np.abs(drift) > NOISE_GATE_COUNTS)),
+            "rate_counts_per_min": None if rate is None else round(rate, 1),
+            "noise_gate": NOISE_GATE_COUNTS,
+        },
+        "note": "engineering indicator; not clinically validated",
+    }
+
+
 class LivePipeline:
     """Calibrate -> classify -> summarise, one frame at a time.
 
@@ -2236,6 +2346,9 @@ class LivePipeline:
         self._quiescent_latched = np.zeros(N_PADS, dtype=bool)
         self.jitter_active = False
         self.jitter_noise_counts = 0.0
+        self._seed_baseline: Optional[np.ndarray] = None
+        self._mean_drift: collections.deque[float] = collections.deque(maxlen=DRIFT_RATE_WINDOW_FRAMES)
+        self._rest_jitter: collections.deque[float] = collections.deque(maxlen=JITTER_WINDOW_FRAMES)
 
     @property
     def warming_up(self) -> bool:
@@ -2260,6 +2373,9 @@ class LivePipeline:
         self._quiescent_latched = np.zeros(N_PADS, dtype=bool)
         self.jitter_active = False
         self.jitter_noise_counts = 0.0
+        self._seed_baseline = None
+        self._mean_drift.clear()
+        self._rest_jitter.clear()
 
     def _release_quiescent(self) -> None:
         """Put the per-channel gates back and report the recovery as idle."""
@@ -2383,12 +2499,16 @@ class LivePipeline:
                                 "n_lifting_pads": 0, "description": "sensor disconnected"},
                 "disconnected": True,
                 "mode": "cdc" if is_cdc else "raw_counts",
+                "alarm_signal": alarm_signal(held, disconnected=True),
+                "signal_quality": signal_quality(None, None, 0.0, disconnected=True),
             }
 
         reconnected = (getattr(self, "_disconnected_run", 0) >= self.RESEED_AFTER_LOST_FRAMES)
         if not self._seeded or reconnected:
             self.kalman.seed(working_frame[None, :])
             self._seeded = True
+            self._seed_baseline = None if self.kalman.b is None else self.kalman.b.copy()
+            self._mean_drift.clear()
             self.seed_plausibility = seed_plausibility(
                 self.kalman.b if self.kalman.b is not None else working_frame)
         self._disconnected_flag = False
@@ -2463,6 +2583,16 @@ class LivePipeline:
             "propagation": self.peel.update(delta, adaptive_gates=self.adaptive_lift_gates),
             "mode": "cdc" if is_cdc else "raw_counts",
         }
+        out["alarm_signal"] = alarm_signal(level, warming=warming)
+        if self.kalman.b is not None and self._seed_baseline is not None:
+            self._mean_drift.append(float((self.kalman.b - self._seed_baseline).mean()))
+        # Noise is sampled only on frames the model called baseline, so a real event
+        # moving the deltas does not read as poor contact.
+        if not warming and raw_level == 0 and len(self._delta_history) >= 2:
+            self._rest_jitter.append(float(np.median(np.abs(self._delta_history[-1] - self._delta_history[-2]))))
+        out["signal_quality"] = signal_quality(
+            self.kalman.b, self._seed_baseline,
+            float(np.median(self._rest_jitter)) if self._rest_jitter else 0.0, self._mean_drift)
         if self.topography is not None:
             out["topography"] = self.topography
         if fused is not None:
@@ -2676,6 +2806,29 @@ def _key_ok(supplied: str, expected: str) -> bool:
     """
     return hmac.compare_digest(supplied.encode("utf-8", "surrogatepass"),
                                expected.encode("utf-8", "surrogatepass"))
+
+
+LINE_BROADCAST_URL = "https://api.line.me/v2/bot/message/broadcast"
+LINE_MESSAGE_MAX = 5000   # LINE text message limit, characters
+
+
+def validate_webhook_url(url: str) -> Optional[str]:
+    """None if `url` is an HTTPS URL whose host resolves only to public addresses,
+    else the reason it is refused. Blocks loopback, private, link-local and other
+    non-global targets so /api/v6/notify/line cannot reach the server's own network.
+    """
+    import ipaddress
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        return "must be an https:// URL with a host"
+    try:
+        infos = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return "host does not resolve"
+    for info in infos:
+        if not ipaddress.ip_address(info[4][0].split("%")[0]).is_global:
+            return "host resolves to a non-public address"
+    return None
 
 
 def create_app(model_holder: Dict[str, Any]) -> FastAPI:
@@ -3191,6 +3344,52 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
 
     app.add_api_route("/api/v6/shift-report", get_shift_report, methods=["GET"])
 
+    def notify_line(body: Dict[str, Any]) -> Dict[str, Any]:
+        """Relay an alert to LINE (Messaging API broadcast) or to an HTTPS webhook.
+
+        LINE Notify was shut down on 2025-03-31, so it is not offered. Connecting
+        and disconnecting is the operator's credentials: the browser stores them,
+        clearing them disconnects. The message must not identify a patient; the
+        console sends the bed label only. Webhook targets must be public HTTPS
+        hosts (validate_webhook_url), so this endpoint cannot be used to probe the
+        network the server sits on.
+        ponytail: resolve-then-connect leaves a DNS-rebinding window; pin the resolved
+        address in the connection if this endpoint is ever exposed beyond the ward LAN.
+        """
+        token = str(body.get("token") or "").strip()
+        webhook_url = str(body.get("webhook_url") or "").strip()
+        message = str(body.get("message") or "").strip()[:LINE_MESSAGE_MAX]
+        if not message:
+            raise HTTPException(status_code=400, detail="Missing 'message' in request body")
+        if not token and not webhook_url:
+            raise HTTPException(status_code=400, detail="Either 'token' or 'webhook_url' is required")
+        headers = {"User-Agent": "SmartExtubation-EarlyWarning/1.0", "Content-Type": "application/json"}
+
+        if webhook_url:
+            problem = validate_webhook_url(webhook_url)
+            if problem:
+                raise HTTPException(status_code=400, detail=f"webhook_url rejected: {problem}")
+            url, channel = webhook_url, "webhook"
+            payload = {"message": message, "level": body.get("level"), "bed": str(body.get("bed") or ""),
+                       "timestamp": time.time(), "source": "SmartExtubation"}
+        else:
+            url, channel = LINE_BROADCAST_URL, "line_messaging_api"
+            headers["Authorization"] = f"Bearer {token}"
+            payload = {"messages": [{"type": "text", "text": message}]}
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                return {"ok": True, "status": "sent", "channel": channel, "code": resp.getcode()}
+        except urllib.error.HTTPError as err:
+            detail = err.read().decode("utf-8", errors="replace")[:300]
+            logger_api.warning(f"{channel} notification failed ({err.code}): {detail}")
+            return {"ok": False, "status": "error", "channel": channel, "code": err.code, "error": detail or err.reason}
+        except (urllib.error.URLError, OSError) as exc:
+            logger_api.warning(f"{channel} notification failed: {exc}")
+            return {"ok": False, "status": "error", "channel": channel, "error": str(exc)}
+
+    app.add_api_route("/api/v6/notify/line", notify_line, methods=["POST"])
+
     def get_ward_status() -> Dict[str, Any]:
         """Bed slots for the dashboard's ward panel. NO invented telemetry.
 
@@ -3247,12 +3446,25 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
 
         debouncer = AlarmDebouncer()
         peel = PeelTracker()
+        # Under the Kalman scheme delta = raw - b(t), so the baseline trajectory is
+        # raw - delta. The static scheme has no tracked baseline and so no drift.
+        track = np.asarray(raw, dtype=float) - delta if mode == "kalman" else None
+        drift_hist: collections.deque[float] = collections.deque(maxlen=DRIFT_RATE_WINDOW_FRAMES)
+        jit: collections.deque[float] = collections.deque(maxlen=JITTER_WINDOW_FRAMES)
 
         frames: List[Dict[str, Any]] = []
         for i in range(len(delta)):
             d = delta[i]
             warming = bool(mode == "kalman" and i < KALMAN_WARMUP)
             level = 0 if warming else debouncer.update(int(raw_preds[i]))
+            quality: Dict[str, Any] = {"cqi": None, "components": None, "drift": None,
+                                       "note": "no tracked baseline under static calibration"}
+            if track is not None:
+                if i and not warming and int(raw_preds[i]) == 0:
+                    jit.append(float(np.median(np.abs(delta[i] - delta[i - 1]))))
+                drift_hist.append(float((track[i] - track[0]).mean()))
+                quality = signal_quality(track[i], track[0],
+                                         float(np.median(jit)) if jit else 0.0, drift_hist)
             frames.append({
                 "index": i,
                 "time_sec": round(i * SAMPLE_PERIOD_S, 3),
@@ -3265,6 +3477,8 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
                 "probabilities": round_proba(proba[i]),
                 "cpri_percent": 0.0 if warming else round(float(risk[i]), 1),
                 "propagation": peel.update(d),
+                "alarm_signal": alarm_signal(level, warming=warming),
+                "signal_quality": quality,
             })
         return JSONResponse({"filename": filepath, "calibration": mode,
                              "total_frames": len(frames), "frames": frames})
@@ -3466,6 +3680,18 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
             return HTMLResponse(content=fh.read())
 
     app.add_api_route("/", dashboard, methods=["GET"], response_class=HTMLResponse)
+
+    def presentation_deck() -> Any:
+        deck_path = os.path.join(PROJECT_DIR, "docs", "presentation_deck.html")
+        if not os.path.isfile(deck_path):
+            return HTMLResponse(status_code=404, content=(
+                "<h1>docs/presentation_deck.html is missing</h1>"
+                "<p>Presentation slide deck file not found.</p>"))
+        with open(deck_path, "r", encoding="utf-8") as fh:
+            return HTMLResponse(content=fh.read())
+
+    app.add_api_route("/slides", presentation_deck, methods=["GET"], response_class=HTMLResponse)
+    app.add_api_route("/deck", presentation_deck, methods=["GET"], response_class=HTMLResponse)
 
     return app
 

@@ -9,3 +9,10 @@ __pycache__/
 
 Data/*.joblib
 Data/*.joblib.sha256.json
+
+scratch/
+Claude outputs/
+*.pptx
+*.pdf
+*.bak
+*.tmp

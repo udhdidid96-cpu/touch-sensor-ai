@@ -14,6 +14,7 @@ COPY --from=builder /install /usr/local
 COPY --chown=project2:project2 main.py ./
 COPY --chown=project2:project2 web/ ./web/
 COPY --chown=project2:project2 Data/ ./Data/
+COPY --chown=project2:project2 docs/presentation_deck.html ./docs/
 COPY --chown=project2:project2 requirements.txt ./
 
 RUN mkdir -p /app/Data/Custom_Uploads && chown -R project2:project2 /app/Data
