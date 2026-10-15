@@ -2822,7 +2822,7 @@ LINE_AUDIT_FILE = "line_alert_audit.jsonl"
 LINE_AUDIT_LOCK = threading.Lock()
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
+class NoRedirect(urllib.request.HTTPRedirectHandler):
     """Refuse redirects: a public webhook answering 302 -> 169.254.169.254 would
     otherwise carry the request past validate_webhook_url. A 3xx surfaces as HTTPError."""
 
@@ -2830,7 +2830,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_PUSH_OPENER = urllib.request.build_opener(_NoRedirect)
+PUSH_OPENER = urllib.request.build_opener(NoRedirect)
 
 
 def validate_webhook_url(url: str) -> Optional[str]:
@@ -2859,7 +2859,7 @@ def _iso_now() -> str:
 def _http_once(req: urllib.request.Request) -> Dict[str, Any]:
     """One outbound call through the no-redirect opener: ok, HTTP code, error text."""
     try:
-        with _PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
+        with PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
             return {"ok": True, "code": resp.getcode()}
     except urllib.error.HTTPError as err:
         return {"ok": False, "code": err.code,

@@ -3,16 +3,23 @@
 These are anchored on behaviour: what the server sends for a given level or frame,
 and that the page reads those fields instead of deriving them.
 """
+from __future__ import annotations
+
 import json
 import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 
 import main as M
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 APP_JS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "app.js")
 
@@ -101,9 +108,10 @@ class Ctx {
 }
 Date.now = () => now;
 global.setTimeout = () => 0;
+const make = muted => new Function('state', 'window', src.slice(start, end) + '\nreturn { siren, playAlarmSound };')(
+  { isMuted: !!muted, audioCtx: null }, { AudioContext: Ctx });
 const run = (frames, muted) => {
-  const siren = new Function('state', 'window', src.slice(start, end) + '\nreturn siren;')(
-    { isMuted: !!muted, audioCtx: null }, { AudioContext: Ctx });
+  const { siren } = make(muted);
   const bursts = [];
   for (const [t, prio] of frames) {
     now = t; current = [];
@@ -119,6 +127,12 @@ console.log(JSON.stringify({
   peel_held: run(held('medium', 12)),
   detach_held: run(held('high', 5)),
   muted: run(held('high', 5), true),
+  audition_muted: Object.fromEntries(['info', 'medium', 'high'].map(p => {
+    const { playAlarmSound } = make(true);
+    current = [];
+    playAlarmSound(p);
+    return [p, current];
+  })),
 }));
 """
 
@@ -136,3 +150,66 @@ def test_console_touch_chime_sounds_once_per_contact_and_differs_from_alarms(tmp
     assert out["muted"] == []
     touch, peel, detach = (set(out[k][0]["tones"]) for k in ("touch_held", "peel_held", "detach_held"))
     assert not (touch & peel or touch & detach or peel & detach), (touch, peel, detach)
+    for prio, key in (("info", "touch_held"), ("medium", "peel_held"), ("high", "detach_held")):
+        assert out["audition_muted"][prio] == out[key][0]["tones"], (
+            f"the {prio} preview button must play exactly the alarm it previews, even when muted")
+
+
+STYLE_CSS = os.path.join(os.path.dirname(APP_JS), "style.css")
+
+
+def test_alarm_tiers_markup_matches_the_server_signal_table(client: TestClient) -> None:
+    page: str = client.get("/").text
+    block = page[page.index('id="alarmTiers"'):]
+    block = block[:block.index("</section>")]
+    assert re.findall(r'data-tier="(\w+)"', block) == ["high", "medium", "info"], "high on top, info at the base"
+    for prio, colour in (("high", "red"), ("medium", "yellow")):
+        hz = f"{M.ALARM_SIGNALS[prio]['flash_hz']:.1f} Hz"
+        assert re.search(rf'data-tier="{prio}".*?{colour}, flashing {re.escape(hz)}', block, re.S), (prio, hz)
+    assert M.ALARM_SIGNALS["info"]["flash_hz"] == 0.0 and "Information - cyan, steady" in block
+    for prio in ("high", "medium", "info"):
+        assert f"playAlarmSound('{prio}')" in block
+
+
+def test_alarm_tiers_flash_from_the_server_period_and_info_stays_steady() -> None:
+    css = open(STYLE_CSS, encoding="utf-8").read()
+    for prio in ("high", "medium"):
+        rule = re.search(rf'\.tiers\[data-priority="{prio}"\] \[data-tier="{prio}"\] \.tier__beacon \{{([^}}]*)\}}', css)
+        assert rule and re.search(r"animation:\s*alarm-flash var\(--flash-period", rule.group(1)), prio
+    assert not re.search(r'\[data-tier="info"\][^{]*\{[^}]*animation', css), "information must glow steady"
+    for prio in ("high", "medium", "info"):
+        assert f'.tiers[data-priority="{prio}"] [data-tier="{prio}"] .tier__beacon' in css, "active glow"
+    assert re.search(r"@keyframes alarm-flash \{ 0% \{ opacity: 1; \} 50% \{ opacity: \.18; \} \}", css), "50 % duty"
+
+
+# Runs the page's own renderAnnunciator() in node against real server alarm_signal values.
+_TIERS_HARNESS = r"""
+const src = require('fs').readFileSync(process.argv[2], 'utf8');
+const start = src.indexOf('function renderAnnunciator');
+const end = src.indexOf('\n}\n', start) + 3;
+const node = () => ({ dataset: {}, title: '', textContent: '', setAttribute() {},
+                      style: { p: {}, setProperty(k, v) { this.p[k] = v; }, removeProperty(k) { delete this.p[k]; } } });
+const nodes = { alarmAnnunciator: node(), annPriority: node(), alarmTiers: node() };
+const render = new Function('document', 't', src.slice(start, end) + '\nreturn renderAnnunciator;')(
+  { getElementById: id => nodes[id] }, k => k);
+console.log(JSON.stringify(JSON.parse(process.argv[3]).map(sig => {
+  render(sig);
+  return [nodes.alarmTiers.dataset.priority, nodes.alarmTiers.style.p['--flash-period'] || null];
+})));
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_alarm_tiers_light_from_the_server_alarm_signal(tmp_path: Path) -> None:
+    harness = tmp_path / "tiers_harness.js"
+    harness.write_text(_TIERS_HARNESS, encoding="utf-8")
+    sigs = [M.alarm_signal(level) for level in (0, 1, 2, 3)]
+    sigs += [M.alarm_signal(3, disconnected=True), M.alarm_signal(3, warming=True)]
+    out = json.loads(subprocess.run(["node", str(harness), APP_JS, json.dumps(sigs)], capture_output=True,
+                                    text=True, check=True, timeout=60).stdout)
+    assert out == [["none", None], ["info", None], ["medium", "1.667s"], ["high", "0.500s"],
+                   ["medium", "1.667s"], ["none", None]], out
+    for (prio, period), sig in zip(out, sigs):
+        assert prio == sig["priority"]
+        if sig["flash_hz"]:
+            assert period == f"{1 / sig['flash_hz']:.3f}s", "flash period is the server's 1 / flash_hz"
