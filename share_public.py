@@ -91,7 +91,9 @@ def _announce(public_url: str, key: str) -> None:
 def tunnel(port: int, key: str) -> int:
     exe = shutil.which("cloudflared")
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    if not exe and os.path.isfile(os.path.join(base_dir, "cloudflared.exe")):
+    if not exe and os.path.isfile(os.path.join(base_dir, "tools", "cloudflared.exe")):
+        exe = os.path.join(base_dir, "tools", "cloudflared.exe")
+    elif not exe and os.path.isfile(os.path.join(base_dir, "cloudflared.exe")):
         exe = os.path.join(base_dir, "cloudflared.exe")
     elif not exe and os.path.isfile(os.path.join(base_dir, "cf.exe")):
         exe = os.path.join(base_dir, "cf.exe")

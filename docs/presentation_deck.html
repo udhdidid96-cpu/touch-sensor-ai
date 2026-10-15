@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Dressing Defense Deck</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #f59e0b;
+      --danger: #ef4444;
+      --success: #10b981;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+    .deck-container {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    .disclaimer-banner {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--danger);
+      color: #fca5a5;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      text-align: center;
+    }
+    .slide-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+    .slide-num {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; color: #fff; }
+    h2 { font-size: 1.5rem; margin-bottom: 1rem; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    p { margin-bottom: 1rem; color: var(--text); }
+    ul { margin-left: 1.5rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.5rem; color: var(--text-muted); }
+    li strong { color: var(--text); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.8rem;
+      text-align: left;
+    }
+    th { background: rgba(255, 255, 255, 0.05); color: var(--primary); }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="deck-container">
+    <div class="disclaimer-banner">
+      Research Prototype Only: This device has <strong>not been assessed against IEC 62304</strong>. Not for diagnostic use.
+    </div>
+
+    <!-- Slide 1 -->
+    <div class="slide-card">
+      <div class="slide-num">Slide 1 of 10</div>
+      <h1>Smart Dressing Defense Deck</h1>
+      <p><strong>Early Detection of Endotracheal Tube Self-Extubation</strong></p>
+      <p>A 25-channel continuous capacitive sensing array providing early warning before physical tube dislodgement in critical ICU patients.</p>
+      <ul>
+        <li><strong>Episode Sensitivity:</strong> 100.0% (30/30 pulled episodes detected)</li>
+        <li><strong>False Alarm Rate:</strong> 4.9% per recording (7.8 alarms/hour)</li>
+        <li><strong>Median Warning Lead Time:</strong> 5.60 seconds before full detachment</li>
+      </ul>
+    </div>
+
+    <!-- Slide 2 -->
+    <div class="slide-card">
+      <div class="slide-num">Slide 2 of 10</div>
+      <h2>Transduction Physics & Capacitive Coupling</h2>
+      <p>Parallel-plate and fringing capacitance model: <code>C = ε₀εᵣA/d + C_fringe</code></p>
+      <ul>
+        <li><strong>Skin/Tissue:</strong> ε ≈ 50–80 (high water/electrolyte content)</li>
+        <li><strong>Medical Tube (PVC/silicone):</strong> ε ≈ 2.8</li>
+        <li><strong>Air Gap:</strong> ε ≈ 1.0</li>
+        <li><strong>Extubation / Peeling:</strong> Tissue replaced by air gap → Deep Negative Delta (ΔC &lt;&lt; 0)</li>
+        <li><strong>Touch / Press:</strong> External mass coupling → High Positive Delta (ΔC &gt;&gt; 0)</li>
+      </ul>
+    </div>
+
+    <!-- Slide 3 -->
+    <div class="slide-card">
+      <div class="slide-num">Slide 3 of 10</div>
+      <h2>Architecture & Algorithm Selection</h2>
+      <ul>
+        <li><strong>Classifier:</strong> HistGradientBoosting (150 trees, max depth 8, class_weight='balanced')</li>
+        <li><strong>Features:</strong> 34 features = 25 spatial pad deltas + 9 statistics (spatial distribution preserves 2D detachment geometry)</li>
+        <li><strong>Annunciator:</strong> 7-of-6 majority vote with 9-frame hold window</li>
+        <li><strong>Accuracy:</strong> 97.53% leave-one-file-out cross validation across 81 bench files</li>
+      </ul>
+    </div>
+
+    <!-- Slide 4 -->
+    <div class="slide-card">
+      <div class="slide-num">Slide 4 of 10</div>
+      <h2>Generalizability Across 5 Canonical Scenarios</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Files</th>
+            <th>Gate Crossed (&le; -300)</th>
+            <th>Annunciator Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1. Baseline</td><td>5</td><td>0 / 5</td><td><span class="badge badge-success">0/5 FA (0.0%)</span></td></tr>
+          <tr><td>2. Touching</td><td>21</td><td>18 / 21</td><td><span class="badge badge-success">1/21 FA (4.8%)</span></td></tr>
+          <tr><td>3. Friction</td><td>10</td><td>0 / 10</td><td><span class="badge badge-success">0/10 FA (0.0%)</span></td></tr>
+          <tr><td>4. Pulling</td><td>30</td><td>13 / 30</td><td><span class="badge badge-danger">30/30 Sens (100%)</span></td></tr>
+          <tr><td>5. Peeling</td><td>10</td><td>10 / 10</td><td><span class="badge badge-danger">10/10 Sens (100%)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Slide 5 -->
+    <div class="slide-card">
+      <div class="slide-num">Slide 5 of 10</div>
+      <h2>Horizontal Pull Dynamics & Sensor Polarity</h2>
+      <p>Horizontal tension produces compression / press signals rather than lift. The 34-feature gradient boosting model captures this multi-axis transition without hardcoded handcrafting.</p>
+    </div>
+
+    <!-- Slide 6 -->
+    <div class="slide-card">
+      <div class="slide-num">Slide 6 of 10</div>
+      <h2>Clinical Alarm Annunciation</h2>
+      <p>3-Tier escalation architecture compliant with medical telemetry ergonomics:</p>
+      <ul>
+        <li><strong>Tier 3 (High - Red):</strong> 2.0 Hz flashing, Level 3 full detachment (5-pulse buzzer)</li>
+        <li><strong>Tier 2 (Medium - Yellow):</strong> 0.6 Hz flashing, Level 2 peel/dislodgement (3-pulse beep)</li>
+        <li><strong>Tier 1 (Information - Cyan):</strong> Steady illumination, Level 1 touch (gentle 2-note chime)</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
