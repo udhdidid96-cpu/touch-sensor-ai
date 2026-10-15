@@ -162,11 +162,11 @@ const TRANSLATIONS = {
     events_hint: 'ระบบเขียนบันทึกทุกครั้งที่ระดับการเตือนเปลี่ยน หากเขียนไม่สำเร็จจะแจ้งเตือนขึ้นมา ไม่กลืนความผิดพลาด',
 
     p_line: 'ระบบแจ้งเตือนผ่าน LINE',
-    line_hint: 'แจ้งเตือนผ่าน LINE Messaging API (broadcast ถึงผู้ติดตามช่อง) หรือ HTTPS webhook ข้อความมีเพียงชื่อเตียงและระดับเตือน ไม่มีชื่อหรือเลขผู้ป่วย เชื่อมต่อหรือตัดการเชื่อมต่อได้ตลอดเวลา การตั้งค่าเก็บในเบราว์เซอร์นี้ (LINE Notify ปิดบริการแล้วเมื่อ 31 มี.ค. 2025)',
+    line_hint: 'แจ้งเตือนผ่าน LINE Messaging API (broadcast ถึงผู้ติดตามช่อง) หรือ HTTPS webhook ข้อความมีเพียงชื่อเตียง ระดับเตือน ค่า CPRI และเวลา ไม่มีชื่อหรือเลขผู้ป่วย การแจ้งซ้ำของเตียงเดิมเว้นอย่างน้อย 30 วินาที เว้นแต่ระดับสูงขึ้น เชื่อมต่อหรือตัดการเชื่อมต่อได้ตลอดเวลา การตั้งค่าเก็บในเบราว์เซอร์นี้ (LINE Notify ปิดบริการแล้วเมื่อ 31 มี.ค. 2025)',
     line_service: 'ประเภทบริการ', line_min_level: 'ระดับที่เริ่มแจ้งเตือน',
     line_token: 'LINE ACCESS TOKEN', line_webhook: 'WEBHOOK URL',
     btn_line_connect: 'เชื่อมต่อ LINE', btn_line_test: 'ทดสอบส่งแจ้งเตือน', btn_line_disconnect: 'ตัดการเชื่อมต่อ',
-    line_status_connected: 'เชื่อมต่อแล้ว', line_status_disconnected: 'ไม่ได้เชื่อมต่อ',
+    line_status_connected: 'เชื่อมต่อแล้ว', line_status_disconnected: 'ไม่ได้เชื่อมต่อ', line_status_error: 'ผิดพลาด',
 
     p_modelperf: 'ประสิทธิภาพโมเดล',
     m_acc_s: 'ระดับเฟรม นอกโฟลด์', m_f1_s: 'เฉลี่ยไม่ถ่วงน้ำหนักทั้ง 4 คลาส',
@@ -283,11 +283,11 @@ const TRANSLATIONS = {
     events_hint: 'An entry is written on every change of alarm level. A failed write is surfaced as a toast, never swallowed.',
 
     p_line: 'LINE NOTIFICATION ALERTS',
-    line_hint: 'Push alerts through the LINE Messaging API (broadcast to the channel followers) or an HTTPS webhook. Messages carry the bed label and alarm level only, never a patient name or number. Connect or disconnect at any time; settings stay in this browser. LINE Notify ended on 31 March 2025 and is not offered.',
+    line_hint: 'Push alerts through the LINE Messaging API (broadcast to the channel followers) or an HTTPS webhook. Messages carry the bed label, alarm level, CPRI and time only, never a patient name or number. Repeats for the same bed wait 30 s unless the level rises. Connect or disconnect at any time; settings stay in this browser. LINE Notify ended on 31 March 2025 and is not offered.',
     line_service: 'SERVICE TYPE', line_min_level: 'NOTIFICATION TRIGGER',
     line_token: 'LINE ACCESS TOKEN', line_webhook: 'WEBHOOK URL',
     btn_line_connect: 'Connect LINE', btn_line_test: 'Test Alert', btn_line_disconnect: 'Disconnect',
-    line_status_connected: 'Connected', line_status_disconnected: 'Disconnected',
+    line_status_connected: 'Connected', line_status_disconnected: 'Disconnected', line_status_error: 'Error',
 
     p_modelperf: 'MODEL PERFORMANCE',
     m_acc_s: 'Frame-level, out of fold', m_f1_s: 'Unweighted over four classes',
@@ -404,11 +404,11 @@ const TRANSLATIONS = {
     events_hint: '警報レベルが変わるたびに記録します。書き込みに失敗した場合は通知され、握り潰されることはありません。',
 
     p_line: 'LINE 通知アラート',
-    line_hint: 'LINE Messaging API（チャネルの友だちへ一斉送信）またはHTTPS Webhookで通知します。送信内容はベッド名とアラームレベルのみで、患者の氏名・番号は含みません。いつでも接続・切断でき、設定はこのブラウザに保存されます。LINE Notifyは2025年3月31日に終了しました。',
+    line_hint: 'LINE Messaging API（チャネルの友だちへ一斉送信）またはHTTPS Webhookで通知します。送信内容はベッド名・アラームレベル・CPRI・時刻のみで、患者の氏名・番号は含みません。同じベッドの再通知はレベルが上がらない限り30秒空けます。いつでも接続・切断でき、設定はこのブラウザに保存されます。LINE Notifyは2025年3月31日に終了しました。',
     line_service: 'サービス種別', line_min_level: '通知トリガー',
     line_token: 'LINE アクセストークン', line_webhook: 'Webhook URL',
     btn_line_connect: 'LINE 接続', btn_line_test: 'テスト通知', btn_line_disconnect: '切断',
-    line_status_connected: '接続中', line_status_disconnected: '未接続',
+    line_status_connected: '接続中', line_status_disconnected: '未接続', line_status_error: 'エラー',
 
     p_modelperf: 'モデル性能',
     m_acc_s: 'フレーム単位・未学習データ', m_f1_s: '4クラスの非加重平均',
@@ -2282,6 +2282,13 @@ function saveLineConfig(cfg) {
 state.lineConfig = getLineConfig();
 let lastLineNotificationTime = 0;
 let lastNotifiedLevel = 0;
+let lineLastError = '';
+
+function noteLineResult(err) {
+  if (err === lineLastError) return;
+  lineLastError = err;
+  renderLineStatusUI();
+}
 
 function updateLineFormFields() {
   const sel = document.getElementById('lineServiceSelect');
@@ -2309,7 +2316,10 @@ function renderLineStatusUI() {
   updateLineFormFields();
 
   if (badge) {
-    if (cfg.enabled) {
+    if (cfg.enabled && lineLastError) {
+      badge.textContent = t('line_status_error');
+      badge.className = 'chip chip--bad';
+    } else if (cfg.enabled) {
       badge.textContent = t('line_status_connected');
       badge.className = 'chip chip--ok';
     } else {
@@ -2318,7 +2328,10 @@ function renderLineStatusUI() {
     }
   }
   if (statEl) {
-    if (cfg.enabled) {
+    if (cfg.enabled && lineLastError) {
+      statEl.textContent = `Status: Error · ${lineLastError}`;
+      statEl.className = 'stat__s stat__s--bad';
+    } else if (cfg.enabled) {
       const modeText = cfg.service === 'webhook' ? 'Webhook' : 'LINE Messaging API';
       statEl.textContent = `Status: Connected (${modeText}) · Active for Level ${cfg.minLevel}+`;
       statEl.className = 'stat__s stat__s--ok';
@@ -2357,6 +2370,7 @@ async function connectLineAlert() {
     minLevel: minLevel
   };
   saveLineConfig(state.lineConfig);
+  lineLastError = '';
   renderLineStatusUI();
 
   showToast('เชื่อมต่อ LINE สำเร็จ', `ระบบเปิดการแจ้งเตือน LINE สำหรับ Level ${minLevel}+ แล้ว`, 'success');
@@ -2377,6 +2391,7 @@ function disconnectLineAlert() {
   const hookInp = document.getElementById('lineWebhookInput');
   if (hookInp) hookInp.value = '';
 
+  lineLastError = '';
   renderLineStatusUI();
   showToast('ตัดการเชื่อมต่อ LINE แล้ว', 'ยกเลิกการส่งการแจ้งเตือนผ่าน LINE เรียบร้อย', 'info');
 }
@@ -2421,6 +2436,7 @@ async function testLineAlert() {
       })
     });
     const data = await res.json();
+    noteLineResult(data.ok ? '' : String(data.error || data.detail || `HTTP ${res.status}`));
     if (data.ok) {
       showToast('ทดสอบสำเร็จ', `ส่งข้อความแจ้งเตือนผ่าน ${data.channel || 'LINE'} เรียบร้อยแล้ว`, 'success');
       if (!state.lineConfig.enabled) {
@@ -2436,6 +2452,7 @@ async function testLineAlert() {
     }
   } catch (err) {
     console.error('Line test error:', err);
+    noteLineResult(String(err.message || err));
     showToast('การเชื่อมต่อล้มเหลว', String(err.message || err), 'warning');
   }
 }
@@ -2472,7 +2489,7 @@ async function dispatchLineNotification(fr) {
     `Notice: Research Prototype (not been assessed against IEC 62304)`;
 
   try {
-    await fetch(withKey('/api/v6/notify/line'), {
+    const res = await fetch(withKey('/api/v6/notify/line'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2480,11 +2497,15 @@ async function dispatchLineNotification(fr) {
         webhook_url: cfg.service === 'webhook' ? cfg.webhookUrl : '',
         message: alertMsg,
         level: lvl,
-        bed: bedName
+        bed: bedName,
+        cpri_percent: fr.cpri_percent ?? null
       })
     });
+    const data = await res.json().catch(() => ({}));
+    noteLineResult(data.ok || data.status === 'throttled' ? '' : String(data.error || data.detail || `HTTP ${res.status}`));
   } catch (e) {
     console.warn('LINE dispatch failed:', e);
+    noteLineResult(String(e.message || e));
   }
 }
 
