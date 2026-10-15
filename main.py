@@ -2810,6 +2810,19 @@ def _key_ok(supplied: str, expected: str) -> bool:
 
 LINE_BROADCAST_URL = "https://api.line.me/v2/bot/message/broadcast"
 LINE_MESSAGE_MAX = 5000   # LINE text message limit, characters
+LINE_TIMEOUT_S = 5.0      # a push slower than this is dropped, never queued behind the stream
+LINE_COOLDOWN_S = 30.0    # per bed; a level above the last one sent goes out at once
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects: a public webhook answering 302 -> 169.254.169.254 would
+    otherwise carry the request past validate_webhook_url. A 3xx surfaces as HTTPError."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_PUSH_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def validate_webhook_url(url: str) -> Optional[str]:
@@ -3344,6 +3357,9 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
 
     app.add_api_route("/api/v6/shift-report", get_shift_report, methods=["GET"])
 
+    line_lock = threading.Lock()
+    line_last_sent: Dict[str, Tuple[float, int]] = {}
+
     def notify_line(body: Dict[str, Any]) -> Dict[str, Any]:
         """Relay an alert to LINE (Messaging API broadcast) or to an HTTPS webhook.
 
@@ -3355,6 +3371,14 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
         network the server sits on.
         ponytail: resolve-then-connect leaves a DNS-rebinding window; pin the resolved
         address in the connection if this endpoint is ever exposed beyond the ward LAN.
+
+        The webhook body is built from an allowlist (bed, level, cpri_percent,
+        timestamp, message), so identity fields a caller adds never leave the server.
+        A sync route: FastAPI runs it in its threadpool, so a slow host holds one
+        worker for at most LINE_TIMEOUT_S and never the event loop carrying the stream.
+        Repeats for one bed are dropped for LINE_COOLDOWN_S unless the level rises.
+        Level 0 is the console's Test Alert and is never throttled. A failed push
+        does not start the cooldown, so the next alarm is not swallowed.
         """
         token = str(body.get("token") or "").strip()
         webhook_url = str(body.get("webhook_url") or "").strip()
@@ -3363,6 +3387,12 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
             raise HTTPException(status_code=400, detail="Missing 'message' in request body")
         if not token and not webhook_url:
             raise HTTPException(status_code=400, detail="Either 'token' or 'webhook_url' is required")
+        try:
+            level = int(body.get("level") or 0)
+            cpri = None if body.get("cpri_percent") is None else round(float(body["cpri_percent"]), 1)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="'level' must be an integer and 'cpri_percent' a number")
+        bed = str(body.get("bed") or "")[:64]
         headers = {"User-Agent": "SmartExtubation-EarlyWarning/1.0", "Content-Type": "application/json"}
 
         if webhook_url:
@@ -3370,23 +3400,36 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
             if problem:
                 raise HTTPException(status_code=400, detail=f"webhook_url rejected: {problem}")
             url, channel = webhook_url, "webhook"
-            payload = {"message": message, "level": body.get("level"), "bed": str(body.get("bed") or ""),
-                       "timestamp": time.time(), "source": "SmartExtubation"}
+            payload: Dict[str, Any] = {"message": message, "level": level, "bed": bed, "cpri_percent": cpri,
+                                       "timestamp": time.time(), "source": "SmartExtubation"}
         else:
             url, channel = LINE_BROADCAST_URL, "line_messaging_api"
             headers["Authorization"] = f"Bearer {token}"
             payload = {"messages": [{"type": "text", "text": message}]}
+
+        stamp = (time.monotonic(), level)
+        if level > 0:
+            with line_lock:
+                last = line_last_sent.get(bed)
+                if last and level <= last[1] and stamp[0] - last[0] < LINE_COOLDOWN_S:
+                    return {"ok": False, "status": "throttled", "channel": channel,
+                            "retry_after_s": round(LINE_COOLDOWN_S - (stamp[0] - last[0]), 1)}
+                line_last_sent[bed] = stamp
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
+            with _PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
                 return {"ok": True, "status": "sent", "channel": channel, "code": resp.getcode()}
         except urllib.error.HTTPError as err:
             detail = err.read().decode("utf-8", errors="replace")[:300]
-            logger_api.warning(f"{channel} notification failed ({err.code}): {detail}")
-            return {"ok": False, "status": "error", "channel": channel, "code": err.code, "error": detail or err.reason}
+            result: Dict[str, Any] = {"ok": False, "status": "error", "channel": channel,
+                                      "code": err.code, "error": detail or err.reason}
         except (urllib.error.URLError, OSError) as exc:
-            logger_api.warning(f"{channel} notification failed: {exc}")
-            return {"ok": False, "status": "error", "channel": channel, "error": str(exc)}
+            result = {"ok": False, "status": "error", "channel": channel, "error": str(exc)}
+        logger_api.warning(f"{channel} notification failed: {result}")
+        with line_lock:
+            if line_last_sent.get(bed) == stamp:
+                del line_last_sent[bed]
+        return result
 
     app.add_api_route("/api/v6/notify/line", notify_line, methods=["POST"])
 
