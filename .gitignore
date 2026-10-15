@@ -16,3 +16,4 @@ Claude outputs/
 *.pdf
 *.bak
 *.tmp
+Data/line_alert_audit.jsonl
