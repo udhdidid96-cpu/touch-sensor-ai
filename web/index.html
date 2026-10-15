@@ -622,7 +622,7 @@
           <div class="panel__body">
             <div class="line-settings">
               <p class="hint" style="margin-bottom: 14px;" data-i18n="line_hint">
-                Push alerts through the LINE Messaging API (broadcast to the channel followers) or an HTTPS webhook. Messages carry the bed label, alarm level, CPRI and time only, never a patient name or number. Repeats for the same bed wait 30 s unless the level rises. Connect or disconnect at any time; settings stay in this browser. LINE Notify ended on 31 March 2025 and is not offered.
+                Push alerts through the LINE Messaging API (broadcast to the channel followers) or an HTTPS webhook. The server sends alerts itself from the live sensor, even with no dashboard open. Messages carry the bed label, alarm level, CPRI, deepest pad delta, lifting pads and time only, never a patient name or number. Level 2 repeats after 60 s, Level 3 every 30 s, and one all-clear follows 15 s of normal. Connect or disconnect at any time; settings stay in this browser. LINE Notify ended on 31 March 2025 and is not offered.
               </p>
               <div class="grid grid--second" style="gap: 16px;">
                 <label class="field">

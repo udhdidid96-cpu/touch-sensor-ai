@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import csv
+import datetime
 import difflib
 import collections
 import glob
@@ -2809,9 +2810,16 @@ def _key_ok(supplied: str, expected: str) -> bool:
 
 
 LINE_BROADCAST_URL = "https://api.line.me/v2/bot/message/broadcast"
-LINE_MESSAGE_MAX = 5000   # LINE text message limit, characters
-LINE_TIMEOUT_S = 5.0      # a push slower than this is dropped, never queued behind the stream
-LINE_COOLDOWN_S = 30.0    # per bed; a level above the last one sent goes out at once
+LINE_BOT_INFO_URL = "https://api.line.me/v2/bot/info"   # proves a token without spending a message
+LINE_MESSAGE_MAX = 5000       # LINE text message limit, characters
+LINE_TIMEOUT_S = 3.5          # per attempt
+LINE_ATTEMPTS = 3             # 5xx / 429 / network errors retry after 0.5 s, then 1 s
+LINE_BACKOFF_S = 0.5
+LINE_WARN_COOLDOWN_S = 60.0   # a Level 2 push waits this long after any push for the bed
+LINE_CRIT_REPEAT_S = 30.0     # Level 3 repeats this often while it persists
+LINE_CLEAR_AFTER_S = 15.0     # Level 0 held this long after an alarm sends one all-clear
+LINE_AUDIT_FILE = "line_alert_audit.jsonl"
+LINE_AUDIT_LOCK = threading.Lock()
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -2842,6 +2850,223 @@ def validate_webhook_url(url: str) -> Optional[str]:
         if not ipaddress.ip_address(info[4][0].split("%")[0]).is_global:
             return "host resolves to a non-public address"
     return None
+
+
+def _iso_now() -> str:
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _http_once(req: urllib.request.Request) -> Dict[str, Any]:
+    """One outbound call through the no-redirect opener: ok, HTTP code, error text."""
+    try:
+        with _PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
+            return {"ok": True, "code": resp.getcode()}
+    except urllib.error.HTTPError as err:
+        return {"ok": False, "code": err.code,
+                "error": err.read().decode("utf-8", errors="replace")[:300] or str(err.reason)}
+    except (urllib.error.URLError, OSError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _append_line_audit(record: Dict[str, Any]) -> None:
+    """Append one delivery attempt to Data/line_alert_audit.jsonl.
+
+    Hash-chained with audit_event_hash like the event trail, so a deleted or edited
+    line breaks verify_audit_chain. Kept apart from extubation_events_audit.json so
+    pushes never count as clinical events in the shift report. A failed write is
+    logged, not raised: losing an audit line must not cost the alert itself.
+    ponytail: reads the whole file for the last hash; keep the tail hash in memory
+    if this log ever grows past a few MB.
+    """
+    path = os.path.join(DATA_ROOT, LINE_AUDIT_FILE)
+    with LINE_AUDIT_LOCK:
+        prev = AUDIT_GENESIS_HASH
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            if lines:
+                prev = str(json.loads(lines[-1])["hash"])
+        except (OSError, ValueError, KeyError):
+            pass
+        record["prev_hash"] = prev
+        record["hash"] = audit_event_hash(record, prev)
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            logger_api.error(f"LINE audit write failed: {exc}")
+
+
+# kind -> (headline EN/JA/TH, action directive EN/JA/TH)
+_LINE_KIND_TEXT: Dict[str, Tuple[str, str]] = {
+    "critical": ("🚨 LEVEL 3 CRITICAL - tube pull / detachment\n"
+                 "レベル3 緊急 - チューブ抜去・剥離\n"
+                 "ระดับ 3 วิกฤต - ท่อถูกดึง / แผ่นหลุด",
+                 "Immediate bedside verification required / 直ちにベッドサイドで確認 / ตรวจสอบที่ข้างเตียงทันที"),
+    "warning": ("⚠️ LEVEL 2 WARNING - dressing peeling\n"
+                "レベル2 警告 - ドレッシング剥がれ\n"
+                "ระดับ 2 เตือน - แผ่นปิดเริ่มลอก",
+                "Check the dressing at the bedside / ベッドサイドでドレッシングを確認 / ตรวจแผ่นปิดที่ข้างเตียง"),
+    "cleared": ("✅ ALARM CLEARED - patient restabilized\n"
+                "アラーム解除 - 安定\n"
+                "ยกเลิกการเตือน - กลับสู่ภาวะปกติ",
+                "None: normal for 15 s / 対応不要（15秒間正常） / ไม่ต้องดำเนินการ ปกติต่อเนื่อง 15 วินาที"),
+}
+
+
+def format_line_alert(fields: Dict[str, Any]) -> str:
+    """The text a phone shows. Built only from `fields` (bed, kind, metrics), which
+    the callers assemble themselves, so no patient identity can reach it."""
+    headline, action = _LINE_KIND_TEXT[str(fields["kind"])]
+    now = datetime.datetime.now().astimezone()
+    lines = [headline, "", f"Bed / ベッド / เตียง: {fields['bed']}"]
+    if fields.get("cpri_percent") is not None:
+        lines.append(f"CPRI: {float(fields['cpri_percent']):.1f}%")
+    if fields.get("max_delta") is not None:
+        lines.append(f"Deepest pad delta / 最大変化 / ค่าลดลงสูงสุด: {float(fields['max_delta']):+.0f} counts")
+    if fields.get("lifting_pads") is not None:
+        lines.append(f"Lifting pads / 浮きパッド / แผ่นที่ยก: {int(fields['lifting_pads'])}/{N_PADS}")
+    lines += [f"Time / 時刻 / เวลา: {now:%Y-%m-%d %H:%M:%S} ({now.isoformat(timespec='seconds')})",
+              f"Action / 対応 / การดำเนินการ: {action}",
+              "Research prototype - not been assessed against IEC 62304"]
+    return "\n".join(lines)[:LINE_MESSAGE_MAX]
+
+
+class LineAlerter:
+    """Server-side LINE dispatch for the live sources (USB serial, browser serial).
+
+    One per process, so the headless --monitor loop, the WebSocket loop and the
+    dashboard's /api/v6/notify/line share one escalation state per bed: whichever
+    handler sees an event first sends it, and the others are told it is already
+    out. That shared state is the idempotency lock. Delivery runs on one worker
+    thread, so a slow or dead gateway costs the frame loop a dict update, never a
+    frame. The token comes from LINE_CHANNEL_ACCESS_TOKEN or the dashboard and is
+    held in memory only.
+    """
+
+    def __init__(self, token: str = "", bed: str = "Bed 01") -> None:
+        self.lock = threading.Lock()
+        self.token, self.webhook_url, self.bed, self.min_level = token, "", bed, 2
+        self.enabled = bool(token)
+        self.token_source = "env" if token else ""
+        self.beds: Dict[str, Dict[str, Any]] = {}
+        self.last: Dict[str, Any] = {}
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="p2-line")
+
+    def decide(self, bed: str, level: int, now: float) -> Optional[str]:
+        """'critical' | 'warning' | 'cleared' | None for one frame of `bed`.
+
+        L0/L1 never push. L2 pushes unless any push for the bed went out in the last
+        LINE_WARN_COOLDOWN_S. L3 pushes at once when the open alarm is below L3 and
+        then every LINE_CRIT_REPEAT_S. After a push, LINE_CLEAR_AFTER_S of
+        uninterrupted L0 sends one all-clear and re-arms the bed.
+        """
+        with self.lock:
+            s = self.beds.setdefault(bed, {"level": 0, "t": -math.inf, "calm": None})
+            if level >= 3:
+                s["calm"] = None
+                if s["level"] < 3 or now - s["t"] >= LINE_CRIT_REPEAT_S:
+                    s.update(level=3, t=now)
+                    return "critical"
+            elif level == 2:
+                s["calm"] = None
+                if now - s["t"] >= LINE_WARN_COOLDOWN_S:
+                    s.update(level=2, t=now)
+                    return "warning"
+            elif level == 1:
+                s["calm"] = None
+            elif s["level"]:
+                s["calm"] = now if s["calm"] is None else s["calm"]
+                if now - s["calm"] >= LINE_CLEAR_AFTER_S:
+                    s.update(level=0, t=-math.inf, calm=None)
+                    return "cleared"
+            return None
+
+    def observe(self, out: Dict[str, Any], now: Optional[float] = None) -> Optional["concurrent.futures.Future[Dict[str, Any]]"]:
+        """Feed one LivePipeline frame. Returns at once; any push runs on the worker."""
+        if not self.enabled or out.get("warming_up"):
+            return None
+        level = int(out.get("severity_level") or 0)
+        kind = self.decide(self.bed, level if level >= self.min_level else min(level, 1),
+                           time.monotonic() if now is None else now)
+        if kind is None:
+            return None
+        prop: Dict[str, Any] = out.get("propagation") or {}
+        deltas: List[float] = out.get("deltas") or [0.0]
+        fields: Dict[str, Any] = {"bed": self.bed, "kind": kind, "level": level,
+                                  "cpri_percent": out.get("cpri_percent"), "max_delta": min(deltas),
+                                  "lifting_pads": prop.get("n_lifting_pads")}
+        return self.pool.submit(self.send, format_line_alert(fields), fields, self.token, self.webhook_url)
+
+    def send(self, message: str, fields: Dict[str, Any], token: str = "", webhook_url: str = "") -> Dict[str, Any]:
+        """POST one alert with retries, audit it, keep the outcome for the status badge."""
+        headers = {"User-Agent": "SmartExtubation-EarlyWarning/1.0", "Content-Type": "application/json"}
+        if webhook_url:
+            url, channel = webhook_url, "webhook"
+            payload: Dict[str, Any] = {**fields, "message": message, "timestamp": _iso_now(),
+                                       "source": "SmartExtubation"}
+        else:
+            url, channel = LINE_BROADCAST_URL, "line_messaging_api"
+            headers["Authorization"] = f"Bearer {token}"
+            payload = {"messages": [{"type": "text", "text": message}]}
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+        t0 = time.monotonic()
+        res: Dict[str, Any] = {}
+        attempt = 0
+        for attempt in range(1, LINE_ATTEMPTS + 1):
+            res = _http_once(req)
+            code = res.get("code")
+            if res["ok"] or (code is not None and code < 500 and code != 429):
+                break
+            if attempt < LINE_ATTEMPTS:
+                time.sleep(LINE_BACKOFF_S * 2 ** (attempt - 1))
+        res.update(status="sent" if res["ok"] else "error", channel=channel, attempts=attempt,
+                   latency_ms=round(1000 * (time.monotonic() - t0)))
+        if not res["ok"]:
+            logger_api.warning(f"{channel} {fields.get('kind')} push failed: {res.get('code')} {res.get('error')}")
+        _append_line_audit({"at": _iso_now(), "kind": fields.get("kind"), "bed": fields.get("bed"),
+                            "level": fields.get("level"), "channel": channel, "ok": res["ok"],
+                            "http_status": res.get("code"), "latency_ms": res["latency_ms"],
+                            "attempts": attempt, "error": res.get("error")})
+        with self.lock:
+            self.last = {**res, "at": _iso_now()}
+        return res
+
+    def configure(self, enabled: bool, token: str = "", webhook_url: str = "",
+                  min_level: int = 2, bed: str = "") -> None:
+        with self.lock:
+            self.enabled, self.webhook_url, self.min_level, self.last = enabled, webhook_url, min_level, {}
+            if token:
+                self.token, self.token_source = token, "dashboard"
+            if bed:
+                self.bed = bed
+
+    def verify(self) -> None:
+        """GET /v2/bot/info with the token: 'Connected' then means the gateway took it."""
+        res = _http_once(urllib.request.Request(LINE_BOT_INFO_URL, headers={
+            "Authorization": f"Bearer {self.token}", "User-Agent": "SmartExtubation-EarlyWarning/1.0"}))
+        with self.lock:
+            self.last = {**res, "status": "verified" if res["ok"] else "error", "at": _iso_now()}
+
+    def status(self) -> Dict[str, Any]:
+        """For the dashboard badge. Never includes the token."""
+        with self.lock:
+            if not (self.enabled and (self.token or self.webhook_url)):
+                state, detail = "disconnected", ""
+            elif self.last and not self.last.get("ok"):
+                state = "error"
+                detail = f"HTTP {self.last['code']}: " if self.last.get("code") else ""
+                detail += str(self.last.get("error") or "")
+            else:
+                state, detail = "connected", ("" if self.last else "not verified yet")
+            return {"state": state, "detail": detail,
+                    "channel": "webhook" if self.webhook_url else "line_messaging_api",
+                    "token_source": self.token_source or None, "min_level": self.min_level,
+                    "bed": self.bed, "last": dict(self.last)}
+
+
+LINE_ALERTS = LineAlerter(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip(),
+                          os.environ.get("LINE_BED_LABEL", "").strip() or "Bed 01")
 
 
 def create_app(model_holder: Dict[str, Any]) -> FastAPI:
@@ -3357,28 +3582,19 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
 
     app.add_api_route("/api/v6/shift-report", get_shift_report, methods=["GET"])
 
-    line_lock = threading.Lock()
-    line_last_sent: Dict[str, Tuple[float, int]] = {}
-
     def notify_line(body: Dict[str, Any]) -> Dict[str, Any]:
-        """Relay an alert to LINE (Messaging API broadcast) or to an HTTPS webhook.
+        """Relay an operator message to LINE (Messaging API broadcast) or to an HTTPS webhook.
 
-        LINE Notify was shut down on 2025-03-31, so it is not offered. Connecting
-        and disconnecting is the operator's credentials: the browser stores them,
-        clearing them disconnects. The message must not identify a patient; the
-        console sends the bed label only. Webhook targets must be public HTTPS
-        hosts (validate_webhook_url), so this endpoint cannot be used to probe the
-        network the server sits on.
+        The console's Test Alert uses this (level 0, never throttled). A level above
+        0 goes through LINE_ALERTS.decide for the bed, so a push the live pipeline
+        already sent is answered "throttled" instead of going out twice. LINE Notify
+        was shut down on 2025-03-31, so it is not offered. Webhook targets must be
+        public HTTPS hosts (validate_webhook_url) and redirects are refused, so this
+        endpoint cannot be used to probe the network the server sits on. The webhook
+        body is LineAlerter.send's allowlist (bed, kind, level, cpri_percent,
+        message, timestamp); identity fields a caller adds never leave the server.
         ponytail: resolve-then-connect leaves a DNS-rebinding window; pin the resolved
         address in the connection if this endpoint is ever exposed beyond the ward LAN.
-
-        The webhook body is built from an allowlist (bed, level, cpri_percent,
-        timestamp, message), so identity fields a caller adds never leave the server.
-        A sync route: FastAPI runs it in its threadpool, so a slow host holds one
-        worker for at most LINE_TIMEOUT_S and never the event loop carrying the stream.
-        Repeats for one bed are dropped for LINE_COOLDOWN_S unless the level rises.
-        Level 0 is the console's Test Alert and is never throttled. A failed push
-        does not start the cooldown, so the next alarm is not swallowed.
         """
         token = str(body.get("token") or "").strip()
         webhook_url = str(body.get("webhook_url") or "").strip()
@@ -3393,45 +3609,44 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="'level' must be an integer and 'cpri_percent' a number")
         bed = str(body.get("bed") or "")[:64]
-        headers = {"User-Agent": "SmartExtubation-EarlyWarning/1.0", "Content-Type": "application/json"}
-
         if webhook_url:
             problem = validate_webhook_url(webhook_url)
             if problem:
                 raise HTTPException(status_code=400, detail=f"webhook_url rejected: {problem}")
-            url, channel = webhook_url, "webhook"
-            payload: Dict[str, Any] = {"message": message, "level": level, "bed": bed, "cpri_percent": cpri,
-                                       "timestamp": time.time(), "source": "SmartExtubation"}
-        else:
-            url, channel = LINE_BROADCAST_URL, "line_messaging_api"
-            headers["Authorization"] = f"Bearer {token}"
-            payload = {"messages": [{"type": "text", "text": message}]}
-
-        stamp = (time.monotonic(), level)
-        if level > 0:
-            with line_lock:
-                last = line_last_sent.get(bed)
-                if last and level <= last[1] and stamp[0] - last[0] < LINE_COOLDOWN_S:
-                    return {"ok": False, "status": "throttled", "channel": channel,
-                            "retry_after_s": round(LINE_COOLDOWN_S - (stamp[0] - last[0]), 1)}
-                line_last_sent[bed] = stamp
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-        try:
-            with _PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
-                return {"ok": True, "status": "sent", "channel": channel, "code": resp.getcode()}
-        except urllib.error.HTTPError as err:
-            detail = err.read().decode("utf-8", errors="replace")[:300]
-            result: Dict[str, Any] = {"ok": False, "status": "error", "channel": channel,
-                                      "code": err.code, "error": detail or err.reason}
-        except (urllib.error.URLError, OSError) as exc:
-            result = {"ok": False, "status": "error", "channel": channel, "error": str(exc)}
-        logger_api.warning(f"{channel} notification failed: {result}")
-        with line_lock:
-            if line_last_sent.get(bed) == stamp:
-                del line_last_sent[bed]
-        return result
+        if level > 0 and LINE_ALERTS.decide(bed, level, time.monotonic()) is None:
+            return {"ok": False, "status": "throttled",
+                    "channel": "webhook" if webhook_url else "line_messaging_api"}
+        fields = {"bed": bed, "kind": "manual" if level else "test", "level": level, "cpri_percent": cpri}
+        return LINE_ALERTS.send(message, fields, token, webhook_url)
 
     app.add_api_route("/api/v6/notify/line", notify_line, methods=["POST"])
+
+    def line_alert_config(body: Dict[str, Any]) -> Dict[str, Any]:
+        """Dashboard -> server sync of the LINE settings the browser keeps in localStorage,
+        so the server dispatches even when no dashboard is open. A token is verified
+        against /v2/bot/info, held in memory only and never echoed back."""
+        enabled = bool(body.get("enabled"))
+        token = str(body.get("token") or "").strip()
+        webhook_url = str(body.get("webhook_url") or "").strip()
+        min_level = body.get("min_level", 2)
+        if min_level not in (2, 3):
+            raise HTTPException(status_code=400, detail="'min_level' must be 2 or 3")
+        if enabled and webhook_url:
+            problem = validate_webhook_url(webhook_url)
+            if problem:
+                raise HTTPException(status_code=400, detail=f"webhook_url rejected: {problem}")
+        if enabled and not (token or webhook_url or LINE_ALERTS.token):
+            raise HTTPException(status_code=400, detail="Either 'token' or 'webhook_url' is required")
+        LINE_ALERTS.configure(enabled, token, webhook_url, int(min_level), str(body.get("bed") or "")[:64])
+        if enabled and not webhook_url:
+            LINE_ALERTS.verify()
+        return LINE_ALERTS.status()
+
+    app.add_api_route("/api/v6/alerts/line/config", line_alert_config, methods=["POST"])
+    def line_alert_status() -> Dict[str, Any]:
+        return LINE_ALERTS.status()
+
+    app.add_api_route("/api/v6/alerts/line/status", line_alert_status, methods=["GET"])
 
     def get_ward_status() -> Dict[str, Any]:
         """Bed slots for the dashboard's ward panel. NO invented telemetry.
@@ -3645,7 +3860,9 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
                         await ws.send_json({"error": "raw_frame contains non-finite values"})
                         continue
                     pad_frame = signals_to_pads(arr) if permute_flag else arr
-                    await ws.send_json(pipeline.process(pad_frame))
+                    out = pipeline.process(pad_frame)
+                    LINE_ALERTS.observe(out)
+                    await ws.send_json(out)
                 await ws.send_json({"event": "finished", "frames": pipeline.index})
                 return
             elif source_kind in ("simulator", "live", "standby"):
@@ -3665,7 +3882,10 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
                     frame = await loop.run_in_executor(pool, lambda: next(gen, None))
                     if frame is None:
                         break
-                    await ws.send_json(pipeline.process(frame))
+                    out = pipeline.process(frame)
+                    if source_kind == "serial":
+                        LINE_ALERTS.observe(out)
+                    await ws.send_json(out)
                 await ws.send_json({"event": "finished", "frames": pipeline.index})
             finally:
                 src.close()
@@ -4847,12 +5067,17 @@ def run_monitor(port: str, baudrate: int = 115200, permute: bool = False,
     pipe = LivePipeline(model, use_gradient)
     print(f"\n  monitoring {port} @ {baudrate} baud   "
           f"pad_order_applied={permute}   model={'loaded' if model else 'NONE (level 0 only)'}")
+    line = LINE_ALERTS.status()
+    print(f"  LINE alerts: {line['state']} ({line['bed']}, Level {line['min_level']}+)"
+          if line["state"] != "disconnected" else
+          "  LINE alerts: off (set LINE_CHANNEL_ACCESS_TOKEN to page the ward from this monitor)")
     print("  legend: V past -300 lift gate  v lifting  ^ contact  A firm contact  . quiet")
     print("  Ctrl-C to stop\n")
     n = 0
     try:
         for frame in src.frames():
             out = pipe.process(frame)
+            LINE_ALERTS.observe(out)
             n += 1
             pr = out["propagation"]
             print(f"  t={out['time_sec']:7.2f}s L{out['severity_level']} "

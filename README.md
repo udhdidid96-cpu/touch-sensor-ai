@@ -846,6 +846,18 @@ with it embedded. Do not run the tunnel without it: `/api/v5/dataset/{path}`
 serves every recording and `/ws/live_sensor?source=serial&port=COM3` opens a
 serial port on your laptop.
 
+**LINE alerts.** The server pages the ward itself from live sources only
+(`--monitor`, `?source=serial`, `?source=client`); replays and the simulator
+never push. Set `LINE_CHANNEL_ACCESS_TOKEN` (Messaging API channel token) and
+optionally `LINE_BED_LABEL`, or connect from the dashboard's LINE card, which
+syncs its settings to `/api/v6/alerts/line/config` and shows
+`/api/v6/alerts/line/status`. Level 2 pushes then waits 60 s, Level 3 pushes at
+once and repeats every 30 s, and 15 s of Level 0 sends one all-clear. A push
+carries the bed label, level, CPRI, deepest pad delta, lifting-pad count and
+time, never a patient name or number. Each attempt (3.5 s timeout, 3 tries with
+backoff on 5xx/429/network errors) is appended to the hash-chained
+`Data/line_alert_audit.jsonl`.
+
 ---
 
 ## 11. Appendix
