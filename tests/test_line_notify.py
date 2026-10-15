@@ -222,6 +222,9 @@ def test_push_opener_refuses_redirects():
     class Hop(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
             hits.append(self.path)
+            length = int(self.headers.get("Content-Length", 0))
+            if length > 0:
+                self.rfile.read(length)
             self.send_response(302)
             self.send_header("Location", "/latest/meta-data")
             self.send_header("Content-Length", "0")

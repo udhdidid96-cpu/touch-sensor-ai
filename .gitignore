@@ -6,6 +6,7 @@ __pycache__/
 
 .serena/
 .claude/
+.agents/
 
 Data/*.joblib
 Data/*.joblib.sha256.json
