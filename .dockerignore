@@ -3,6 +3,8 @@
 .github
 
 cloudflared.exe
+tools/
+tools/*
 cf.exe
 *.exe
 
