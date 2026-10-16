@@ -184,7 +184,7 @@ def test_alarm_tiers_flash_from_the_server_period_and_info_stays_steady() -> Non
 
 # Runs the page's own renderAnnunciator() in node against real server alarm_signal values.
 _TIERS_HARNESS = r"""
-const src = require('fs').readFileSync(process.argv[2], 'utf8');
+const src = require('fs').readFileSync(process.argv[2], 'utf8').replace(/\r\n/g, '\n');
 const start = src.indexOf('function renderAnnunciator');
 const end = src.indexOf('\n}\n', start) + 3;
 const node = () => ({ dataset: {}, title: '', textContent: '', setAttribute() {},

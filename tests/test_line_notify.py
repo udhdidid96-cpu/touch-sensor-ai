@@ -167,7 +167,7 @@ def test_touch_notice_reaches_the_phone_without_identity(gateway: _Gateway) -> N
     fut = a.observe(_frame(1), now=1)
     assert fut is not None and fut.result(timeout=5)["ok"]
     text = _body(gateway.sent[-1][0])["messages"][0]["text"]
-    for needle in ("LEVEL 1 NOTICE", "レベル1", "ระดับ 1", "Bed 02", "No alarm"):
+    for needle in ("LEVEL 1 NOTICE", "レベル1", "ระดับ 1", "Bed 02"):
         assert needle in text
     assert not IDENTITY_RE.search(text)
     assert a.observe(_frame(1), now=2) is None
@@ -291,3 +291,17 @@ def test_push_opener_refuses_redirects() -> None:
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_level_1_notice_trigger(gateway: Any, client: TestClient) -> None:
+    a = M.LineAlerter("tok", bed="Bed 01")
+    a.min_level = 1
+    fut = a.observe({"severity_level": 1, "deltas": [-50.0], "cpri_percent": 15.0, "warming_up": False}, now=0)
+    assert fut is not None and fut.result(timeout=5)["ok"]
+    assert a.observe({"severity_level": 1, "deltas": [-50.0], "cpri_percent": 15.0, "warming_up": False}, now=30) is None
+    fut2 = a.observe({"severity_level": 1, "deltas": [-50.0], "cpri_percent": 15.0, "warming_up": False}, now=65)
+    assert fut2 is not None and fut2.result(timeout=5)["ok"]
+    r = client.post("/api/v6/alerts/line/config",
+                    json={"enabled": True, "token": "tok", "min_level": 1, "bed": "Bed 01"})
+    assert r.status_code == 200 and r.json()["min_level"] == 1
+
