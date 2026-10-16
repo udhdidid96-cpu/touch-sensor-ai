@@ -805,3 +805,64 @@ body[data-level="3"] .topbar { box-shadow: inset 0 -3px 0 var(--bad); }
   .drift { grid-template-columns: minmax(0, 1fr); }
   .driftmap { grid-row: auto; }
 }
+
+/* ---- Alarm signal tiers --------------------------------------------------------
+   The same server alarm_signal as the annunciator, drawn as a three-step stack
+   (high on top) beside its legend. renderAnnunciator sets data-priority and
+   --flash-period (1 / flash_hz) here too, so flash timing is the server's, never a
+   page constant; alarm-flash gives the 50 % duty. Info glows steady. */
+.tiers { display: grid; gap: 10px; }
+.tier {
+  --tc: var(--alarm-off); --tc-ink: var(--alarm-ink-medium);
+  display: grid; grid-template-columns: minmax(110px, 0.55fr) minmax(0, 1.45fr); align-items: center;
+}
+.tier[data-tier="high"]   { --tc: var(--alarm-high); --tc-ink: var(--alarm-ink); }
+.tier[data-tier="medium"] { --tc: var(--alarm-medium); }
+.tier[data-tier="info"]   { --tc: var(--sig-press); }
+.tier__left {
+  display: grid; place-items: center; align-self: stretch;
+  background: linear-gradient(var(--line), var(--line)) no-repeat right center / 50% 2px;
+}
+.tier__step {
+  display: grid; place-items: center; height: 50px; min-width: 38px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.tier[data-tier="high"] .tier__step   { width: 40%; }
+.tier[data-tier="medium"] .tier__step { width: 70%; }
+.tier[data-tier="info"] .tier__step   { width: 100%; }
+.tier__beacon { width: 24px; height: 24px; border-radius: 50%; background: var(--tc); opacity: .22; }
+.tier__card {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  padding: 9px 12px; background: var(--panel);
+  border: 1px solid var(--line); border-left: 4px solid var(--tc); border-radius: var(--r);
+}
+.tier__text { display: grid; gap: 4px; min-width: 0; }
+.tier__name {
+  justify-self: start; padding: 2px 9px; border-radius: 6px;
+  background: var(--tc); color: var(--tc-ink); font-size: 12.5px; font-weight: 800;
+}
+.tier__desc { font-size: 12px; line-height: 1.4; color: var(--ink-2); }
+.tier__play { margin-left: auto; flex: none; width: 28px; padding: 0; justify-content: center; }
+
+.tiers[data-priority="high"] [data-tier="high"] .tier__beacon,
+.tiers[data-priority="medium"] [data-tier="medium"] .tier__beacon,
+.tiers[data-priority="info"] [data-tier="info"] .tier__beacon {
+  opacity: 1; box-shadow: 0 0 0 4px color-mix(in srgb, var(--tc) 28%, transparent), 0 0 16px var(--tc);
+}
+.tiers[data-priority="high"] [data-tier="high"] .tier__card,
+.tiers[data-priority="medium"] [data-tier="medium"] .tier__card,
+.tiers[data-priority="info"] [data-tier="info"] .tier__card {
+  background: color-mix(in srgb, var(--tc) 12%, var(--panel)); border-color: var(--tc);
+}
+.tiers[data-priority="high"] [data-tier="high"] .tier__left,
+.tiers[data-priority="medium"] [data-tier="medium"] .tier__left,
+.tiers[data-priority="info"] [data-tier="info"] .tier__left {
+  background-image: linear-gradient(var(--tc), var(--tc));
+}
+.tiers[data-priority="high"] [data-tier="high"] .tier__beacon { animation: alarm-flash var(--flash-period, .5s) steps(1, end) infinite; }
+.tiers[data-priority="medium"] [data-tier="medium"] .tier__beacon { animation: alarm-flash var(--flash-period, 1.667s) steps(1, end) infinite; }
+
+@media (max-width: 560px) {
+  .tier { grid-template-columns: 72px minmax(0, 1fr); }
+  .tier__step { height: 40px; }
+}

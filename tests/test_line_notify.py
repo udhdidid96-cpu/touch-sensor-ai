@@ -1,5 +1,8 @@
 """LINE alerts: refusals, escalation, delivery and privacy, all without touching the network."""
+from __future__ import annotations
+
 import contextlib
+import http.client
 import http.server
 import io
 import json
@@ -11,39 +14,43 @@ import types
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 import pytest
 
 import main as M
 
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+
 # Identity a push must never carry: hospital/medical record numbers, patient id or
 # name fields, and long digit runs (an HN is a 6+ digit number in every format seen).
 IDENTITY_RE = re.compile(r"(?i)\b(hn|mrn)\b|patient[ _-]?(id|name)|\b\d{6,}\b")
-IDENTITY = {"patient_id": "must-not-leave", "patient_name": "must-not-leave", "hn": "must-not-leave"}
+IDENTITY: Dict[str, str] = {"patient_id": "must-not-leave", "patient_name": "must-not-leave", "hn": "must-not-leave"}
 
 
 @pytest.mark.parametrize("url", ["http://example.com/hook", "https://127.0.0.1/hook", "https://localhost/hook",
                                  "https://10.1.2.3/hook", "https://169.254.169.254/latest/meta-data",
                                  "ftp://example.com"])
-def test_webhook_to_a_private_or_plain_http_target_is_refused(client, url):
+def test_webhook_to_a_private_or_plain_http_target_is_refused(client: TestClient, url: str) -> None:
     r = client.post("/api/v6/notify/line", json={"message": "test", "webhook_url": url})
     assert r.status_code == 400 and "webhook_url rejected" in r.json()["detail"]
     r = client.post("/api/v6/alerts/line/config", json={"enabled": True, "webhook_url": url})
     assert r.status_code == 400
 
 
-def test_message_and_a_credential_are_required(client):
+def test_message_and_a_credential_are_required(client: TestClient) -> None:
     assert client.post("/api/v6/notify/line", json={"token": "x"}).status_code == 400
     assert client.post("/api/v6/notify/line", json={"message": "x"}).status_code == 400
 
 
-def test_level_and_metric_must_be_numbers(client):
+def test_level_and_metric_must_be_numbers(client: TestClient) -> None:
     r = client.post("/api/v6/notify/line", json={"token": "t", "message": "m", "level": "high"})
     assert r.status_code == 400
 
 
-def test_line_notify_is_gone_and_the_console_never_pages_by_itself(client):
-    src = M.__loader__.get_source(M.__name__)
+def test_line_notify_is_gone_and_the_console_never_pages_by_itself(client: TestClient) -> None:
+    src = M.__loader__.get_source(M.__name__) or ""
     assert "notify-api.line.me" not in src, "LINE Notify was shut down on 2025-03-31"
     js = client.get("/static/app.js").text
     assert js.count("/api/v6/notify/line") == 1, (
@@ -52,62 +59,70 @@ def test_line_notify_is_gone_and_the_console_never_pages_by_itself(client):
 
 
 class _Gateway:
-    """Stands in for main._PUSH_OPENER. `codes` are answered in order (last one repeats)."""
+    """Stands in for main.PUSH_OPENER. `codes` are answered in order (last one repeats)."""
 
-    def __init__(self):
-        self.sent = []
-        self.codes = [200]
+    def __init__(self) -> None:
+        self.sent: List[Tuple[urllib.request.Request, float]] = []
+        self.codes: List[int] = [200]
         self.delay = 0.0
 
-    def open(self, req, timeout):
+    def open(self, req: urllib.request.Request, timeout: float) -> contextlib.nullcontext[types.SimpleNamespace]:
         self.sent.append((req, timeout))
         if self.delay:
             time.sleep(self.delay)
         code = self.codes[min(len(self.sent), len(self.codes)) - 1]
         if code >= 400:
-            raise urllib.error.HTTPError(req.full_url, code, "err", None,
+            raise urllib.error.HTTPError(req.full_url, code, "err", http.client.HTTPMessage(),
                                          io.BytesIO(b'{"message":"Authentication failed"}'))
         return contextlib.nullcontext(types.SimpleNamespace(getcode=lambda: code))
 
 
+def _public_dns(*_: object, **__: object) -> List[Tuple[int, int, int, str, Tuple[str, int]]]:
+    return [(2, 1, 6, "", ("1.1.1.1", 443))]
+
+
+def _body(req: urllib.request.Request) -> Any:
+    return json.loads(cast(bytes, req.data))
+
+
 @pytest.fixture
-def gateway(monkeypatch):
+def gateway(monkeypatch: pytest.MonkeyPatch) -> _Gateway:
     gw = _Gateway()
-    monkeypatch.setattr(M, "_PUSH_OPENER", gw)
+    monkeypatch.setattr(M, "PUSH_OPENER", gw)
     monkeypatch.setattr(M, "LINE_ALERTS", M.LineAlerter())
     monkeypatch.setattr(M, "LINE_BACKOFF_S", 0.0)
-    monkeypatch.setattr(M.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("1.1.1.1", 443))])
+    monkeypatch.setattr(M.socket, "getaddrinfo", _public_dns)
     return gw
 
 
-def _frame(level, cpri=81.2):
+def _frame(level: int, cpri: float = 81.2) -> Dict[str, Any]:
     deltas = [-812.0 if i < 7 else -20.0 for i in range(M.N_PADS)]
     return {"severity_level": level, "cpri_percent": cpri, "deltas": deltas, "warming_up": False,
             "propagation": {"n_lifting_pads": 7}}
 
 
-def test_line_push_is_a_bearer_broadcast_with_the_text_only(client, gateway):
+def test_line_push_is_a_bearer_broadcast_with_the_text_only(client: TestClient, gateway: _Gateway) -> None:
     r = client.post("/api/v6/notify/line", json={"token": "tok", "message": "Bed 01 test", "level": 0,
                                                  "bed": "Bed 01", "cpri_percent": 81.2, **IDENTITY})
     assert r.json()["ok"] and r.json()["latency_ms"] >= 0
     req, timeout = gateway.sent[-1]
     assert req.full_url == M.LINE_BROADCAST_URL and req.get_header("Authorization") == "Bearer tok"
     assert timeout == M.LINE_TIMEOUT_S == 3.5
-    assert json.loads(req.data) == {"messages": [{"type": "text", "text": "Bed 01 test"}]}
+    assert _body(req) == {"messages": [{"type": "text", "text": "Bed 01 test"}]}
 
 
-def test_webhook_payload_is_an_allowlist_without_identity(client, gateway):
+def test_webhook_payload_is_an_allowlist_without_identity(client: TestClient, gateway: _Gateway) -> None:
     r = client.post("/api/v6/notify/line", json={"webhook_url": "https://relay.example/hook", "message": "L3",
                                                  "level": 3, "bed": "privacy-hook", "cpri_percent": 81.2, **IDENTITY})
     assert r.json()["ok"]
-    sent = json.loads(gateway.sent[-1][0].data)
+    sent = _body(gateway.sent[-1][0])
     assert set(sent) == {"bed", "kind", "level", "cpri_percent", "message", "timestamp", "source"}
     assert sent["cpri_percent"] == 81.2 and "must-not-leave" not in json.dumps(sent)
 
 
-def test_escalation_normal_warning_critical_stabilized():
+def test_escalation_normal_warning_critical_stabilized() -> None:
     a = M.LineAlerter()
-    script = [(0, 0, None), (1, 1, None), (2, 2, "warning"), (2, 30, None),
+    script: List[Tuple[int, int, Optional[str]]] = [(0, 0, None), (1, 1, None), (2, 2, "warning"), (2, 30, None),
               (3, 31, "critical"), (3, 50, None), (3, 61, "critical"), (2, 70, None),
               (0, 80, None), (1, 85, None), (0, 86, None), (0, 100, None), (0, 101, "cleared"),
               (0, 200, None), (2, 201, "warning"), (2, 260, None), (2, 261, "warning")]
@@ -115,7 +130,7 @@ def test_escalation_normal_warning_critical_stabilized():
     assert got == script, "L0/L1 silent, L2 then 60 s, L3 bypasses and repeats at 30 s, all-clear after 15 s of L0"
 
 
-def test_rapid_frames_do_not_spam():
+def test_rapid_frames_do_not_spam() -> None:
     a = M.LineAlerter()
     frames = [k * M.SAMPLE_PERIOD_S for k in range(200)]
     warn = [a.decide("spam-2", 2, t) for t in frames]
@@ -124,7 +139,7 @@ def test_rapid_frames_do_not_spam():
     assert crit.count("critical") == 4, "200 L3 frames over 112 s: every 30 s"
 
 
-def test_critical_only_mutes_warnings(gateway):
+def test_critical_only_mutes_warnings(gateway: _Gateway) -> None:
     a = M.LineAlerter("tok")
     a.min_level = 3
     assert a.observe(_frame(2), now=0) is None
@@ -132,7 +147,7 @@ def test_critical_only_mutes_warnings(gateway):
     assert fut is not None and fut.result(timeout=5)["ok"]
 
 
-def test_pipeline_push_never_blocks_the_frame_loop_and_carries_no_identity(gateway):
+def test_pipeline_push_never_blocks_the_frame_loop_and_carries_no_identity(gateway: _Gateway) -> None:
     gateway.delay = 0.5
     a = M.LineAlerter("tok", bed="Bed 01")
     t0 = time.monotonic()
@@ -141,7 +156,7 @@ def test_pipeline_push_never_blocks_the_frame_loop_and_carries_no_identity(gatew
     assert fut is not None and fut.result(timeout=5)["ok"]
     req, _ = gateway.sent[-1]
     assert req.full_url == M.LINE_BROADCAST_URL and req.get_header("Authorization") == "Bearer tok"
-    text = json.loads(req.data)["messages"][0]["text"]
+    text = _body(req)["messages"][0]["text"]
     for needle in ("Bed 01", "CPRI: 81.2%", "-812 counts", "7/25", "Immediate bedside verification required",
                    "レベル3", "ระดับ 3"):
         assert needle in text
@@ -151,18 +166,19 @@ def test_pipeline_push_never_blocks_the_frame_loop_and_carries_no_identity(gatew
 
 
 @pytest.mark.parametrize("kind", ["critical", "warning", "cleared"])
-def test_every_message_kind_is_free_of_identity(kind):
+def test_every_message_kind_is_free_of_identity(kind: str) -> None:
     text = M.format_line_alert({"bed": "ICU Station A", "kind": kind, "level": 3, "cpri_percent": 81.2,
                                 "max_delta": -812.0, "lifting_pads": 7})
     assert not IDENTITY_RE.search(text), text
 
 
-def test_retries_back_off_on_5xx_and_stop_on_4xx_and_every_attempt_is_audited(gateway, monkeypatch):
-    sleeps = []
+def test_retries_back_off_on_5xx_and_stop_on_4xx_and_every_attempt_is_audited(gateway: _Gateway,
+                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: List[float] = []
     monkeypatch.setattr(M, "LINE_BACKOFF_S", 0.5)
     monkeypatch.setattr(M.time, "sleep", sleeps.append)
     a = M.LineAlerter("tok")
-    fields = {"bed": "audit-bed", "kind": "critical", "level": 3}
+    fields: Dict[str, Any] = {"bed": "audit-bed", "kind": "critical", "level": 3}
 
     gateway.codes = [503, 503, 200]
     res = a.send("m", fields, "tok")
@@ -174,13 +190,13 @@ def test_retries_back_off_on_5xx_and_stop_on_4xx_and_every_attempt_is_audited(ga
     assert a.status()["state"] == "error" and "401" in a.status()["detail"]
 
     with open(os.path.join(M.DATA_ROOT, M.LINE_AUDIT_FILE), encoding="utf-8") as fh:
-        records = [json.loads(line) for line in fh]
+        records: List[Dict[str, Any]] = [json.loads(line) for line in fh]
     assert [(r["ok"], r["http_status"], r["attempts"]) for r in records[-2:]] == [(True, 200, 3), (False, 401, 1)]
     assert all(r["latency_ms"] >= 0 for r in records[-2:])
     assert M.verify_audit_chain(records)["status"] == "intact"
 
 
-def test_pipeline_and_route_share_one_idempotency_lock(client, gateway):
+def test_pipeline_and_route_share_one_idempotency_lock(client: TestClient, gateway: _Gateway) -> None:
     M.LINE_ALERTS.configure(True, "tok", bed="Bed 07")
     fut = M.LINE_ALERTS.observe(_frame(3))
     assert fut is not None and fut.result(timeout=5)["ok"]
@@ -188,7 +204,7 @@ def test_pipeline_and_route_share_one_idempotency_lock(client, gateway):
     assert r.json()["status"] == "throttled" and len(gateway.sent) == 1
 
 
-def test_config_verifies_the_token_and_never_echoes_it(client, gateway):
+def test_config_verifies_the_token_and_never_echoes_it(client: TestClient, gateway: _Gateway) -> None:
     bad = client.post("/api/v6/alerts/line/config", json={"enabled": True, "token": "t", "min_level": 5})
     assert bad.status_code == 400
     r = client.post("/api/v6/alerts/line/config",
@@ -201,8 +217,8 @@ def test_config_verifies_the_token_and_never_echoes_it(client, gateway):
     assert client.post("/api/v6/alerts/line/config", json={"enabled": False}).json()["state"] == "disconnected"
 
 
-def test_only_live_sources_page(client, monkeypatch, sample_csv):
-    seen = []
+def test_only_live_sources_page(client: TestClient, monkeypatch: pytest.MonkeyPatch, sample_csv: str) -> None:
+    seen: List[Dict[str, Any]] = []
     monkeypatch.setattr(M, "LINE_ALERTS", types.SimpleNamespace(observe=seen.append))
     url = f"/ws/live_sensor?source=replay&file={urllib.parse.quote(sample_csv)}&realtime=0"
     with client.websocket_connect(url) as ws:
@@ -216,11 +232,11 @@ def test_only_live_sources_page(client, monkeypatch, sample_csv):
     assert len(seen) == 1, "browser serial is a live source"
 
 
-def test_push_opener_refuses_redirects():
-    hits = []
+def test_push_opener_refuses_redirects() -> None:
+    hits: List[str] = []
 
     class Hop(http.server.BaseHTTPRequestHandler):
-        def do_POST(self):
+        def do_POST(self) -> None:
             hits.append(self.path)
             length = int(self.headers.get("Content-Length", 0))
             if length > 0:
@@ -231,17 +247,32 @@ def test_push_opener_refuses_redirects():
             self.end_headers()
         do_GET = do_POST
 
-        def log_message(self, *args):
+        def log_message(self, format: str, *args: Any) -> None:
             pass
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), Hop)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        assert any(isinstance(h, M._NoRedirect) for h in M._PUSH_OPENER.handlers)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), M._NoRedirect)
+        handlers: List[object] = getattr(M.PUSH_OPENER, "handlers")
+        assert any(isinstance(h, M.NoRedirect) for h in handlers)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), M.NoRedirect)
         with pytest.raises(urllib.error.HTTPError) as err:
             opener.open(urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/hook", data=b"{}"), timeout=5)
         assert err.value.code == 302 and hits == ["/hook"]
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_level_1_notice_trigger(gateway: Any, client: TestClient) -> None:
+    a = M.LineAlerter("tok", bed="Bed 01")
+    a.min_level = 1
+    fut = a.observe({"severity_level": 1, "deltas": [-50.0], "cpri_percent": 15.0, "warming_up": False}, now=0)
+    assert fut is not None and fut.result(timeout=5)["ok"]
+    assert a.observe({"severity_level": 1, "deltas": [-50.0], "cpri_percent": 15.0, "warming_up": False}, now=30) is None
+    fut2 = a.observe({"severity_level": 1, "deltas": [-50.0], "cpri_percent": 15.0, "warming_up": False}, now=65)
+    assert fut2 is not None and fut2.result(timeout=5)["ok"]
+    r = client.post("/api/v6/alerts/line/config",
+                    json={"enabled": True, "token": "tok", "min_level": 1, "bed": "Bed 01"})
+    assert r.status_code == 200 and r.json()["min_level"] == 1
+

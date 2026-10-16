@@ -2816,13 +2816,14 @@ LINE_TIMEOUT_S = 3.5          # per attempt
 LINE_ATTEMPTS = 3             # 5xx / 429 / network errors retry after 0.5 s, then 1 s
 LINE_BACKOFF_S = 0.5
 LINE_WARN_COOLDOWN_S = 60.0   # a Level 2 push waits this long after any push for the bed
+LINE_TOUCH_COOLDOWN_S = 60.0  # a Level 1 notice waits this long per bed
 LINE_CRIT_REPEAT_S = 30.0     # Level 3 repeats this often while it persists
 LINE_CLEAR_AFTER_S = 15.0     # Level 0 held this long after an alarm sends one all-clear
 LINE_AUDIT_FILE = "line_alert_audit.jsonl"
 LINE_AUDIT_LOCK = threading.Lock()
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
+class NoRedirect(urllib.request.HTTPRedirectHandler):
     """Refuse redirects: a public webhook answering 302 -> 169.254.169.254 would
     otherwise carry the request past validate_webhook_url. A 3xx surfaces as HTTPError."""
 
@@ -2830,7 +2831,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_PUSH_OPENER = urllib.request.build_opener(_NoRedirect)
+PUSH_OPENER = urllib.request.build_opener(NoRedirect)
 
 
 def validate_webhook_url(url: str) -> Optional[str]:
@@ -2859,7 +2860,7 @@ def _iso_now() -> str:
 def _http_once(req: urllib.request.Request) -> Dict[str, Any]:
     """One outbound call through the no-redirect opener: ok, HTTP code, error text."""
     try:
-        with _PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
+        with PUSH_OPENER.open(req, timeout=LINE_TIMEOUT_S) as resp:
             return {"ok": True, "code": resp.getcode()}
     except urllib.error.HTTPError as err:
         return {"ok": False, "code": err.code,
@@ -2907,6 +2908,10 @@ _LINE_KIND_TEXT: Dict[str, Tuple[str, str]] = {
                 "レベル2 警告 - ドレッシング剥がれ\n"
                 "ระดับ 2 เตือน - แผ่นปิดเริ่มลอก",
                 "Check the dressing at the bedside / ベッドサイドでドレッシングを確認 / ตรวจแผ่นปิดที่ข้างเตียง"),
+    "touch": ("ℹ️ LEVEL 1 NOTICE - touch / press detected\n"
+              "レベル1 通知 - 接触検知\n"
+              "ระดับ 1 แจ้งเตือน - ตรวจพบการสัมผัสแผ่นปิด",
+              "Incidental touch or routine care / 偶発的な接触またはケア / การสัมผัสจากการดูแลตามปกติ"),
     "cleared": ("✅ ALARM CLEARED - patient restabilized\n"
                 "アラーム解除 - 安定\n"
                 "ยกเลิกการเตือน - กลับสู่ภาวะปกติ",
@@ -2975,6 +2980,10 @@ class LineAlerter:
                     return "warning"
             elif level == 1:
                 s["calm"] = None
+                if (self.min_level == 1 and s.get("level", 0) < 2
+                        and now - s.get("t_touch", -math.inf) >= LINE_TOUCH_COOLDOWN_S):
+                    s["t_touch"] = now
+                    return "touch"
             elif s["level"]:
                 s["calm"] = now if s["calm"] is None else s["calm"]
                 if now - s["calm"] >= LINE_CLEAR_AFTER_S:
@@ -3629,8 +3638,8 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
         token = str(body.get("token") or "").strip()
         webhook_url = str(body.get("webhook_url") or "").strip()
         min_level = body.get("min_level", 2)
-        if min_level not in (2, 3):
-            raise HTTPException(status_code=400, detail="'min_level' must be 2 or 3")
+        if min_level not in (1, 2, 3):
+            raise HTTPException(status_code=400, detail="'min_level' must be 1, 2 or 3")
         if enabled and webhook_url:
             problem = validate_webhook_url(webhook_url)
             if problem:
