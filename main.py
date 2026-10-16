@@ -3949,7 +3949,11 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
                 "next to main.py. The API is unaffected - try "
                 "<a href='/api/v6/health'>/api/v6/health</a>.</p>"))
         with open(index, "r", encoding="utf-8") as fh:
-            return HTMLResponse(content=fh.read())
+            return HTMLResponse(content=fh.read(), headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            })
 
     app.add_api_route("/", dashboard, methods=["GET"], response_class=HTMLResponse)
 
