@@ -147,6 +147,32 @@ def test_critical_only_mutes_warnings(gateway: _Gateway) -> None:
     assert fut is not None and fut.result(timeout=5)["ok"]
 
 
+def test_touch_notices_only_at_min_level_1_on_their_own_cooldown() -> None:
+    assert M.LineAlerter().decide("default", 1, 0) is None, "min_level 2 (the default) keeps L1 silent"
+    a = M.LineAlerter()
+    a.min_level = 1
+    script: List[Tuple[int, int, Optional[str]]] = [(1, 0, "touch"), (1, 30, None), (0, 40, None), (0, 56, None),
+              (1, 60, "touch"), (2, 61, "warning"), (1, 70, None), (0, 80, None), (0, 95, "cleared"),
+              (1, 96, None), (1, 120, "touch")]
+    got = [(lvl, t, a.decide("touch", lvl, t)) for lvl, t, _ in script]
+    assert got == script, "L1 once per 60 s, no all-clear for it, never delays L2, silent while an alarm is open"
+    frames = [k * M.SAMPLE_PERIOD_S for k in range(200)]
+    assert [a.decide("touch-spam", 1, t) for t in frames].count("touch") == 2, "200 L1 frames over 112 s"
+
+
+def test_touch_notice_reaches_the_phone_without_identity(gateway: _Gateway) -> None:
+    a = M.LineAlerter("tok", bed="Bed 02")
+    assert a.observe(_frame(1), now=0) is None
+    a.min_level = 1
+    fut = a.observe(_frame(1), now=1)
+    assert fut is not None and fut.result(timeout=5)["ok"]
+    text = _body(gateway.sent[-1][0])["messages"][0]["text"]
+    for needle in ("LEVEL 1 NOTICE", "レベル1", "ระดับ 1", "Bed 02", "No alarm"):
+        assert needle in text
+    assert not IDENTITY_RE.search(text)
+    assert a.observe(_frame(1), now=2) is None
+
+
 def test_pipeline_push_never_blocks_the_frame_loop_and_carries_no_identity(gateway: _Gateway) -> None:
     gateway.delay = 0.5
     a = M.LineAlerter("tok", bed="Bed 01")
@@ -165,7 +191,7 @@ def test_pipeline_push_never_blocks_the_frame_loop_and_carries_no_identity(gatew
     assert a.observe({**_frame(3), "warming_up": True}, now=100) is None
 
 
-@pytest.mark.parametrize("kind", ["critical", "warning", "cleared"])
+@pytest.mark.parametrize("kind", ["critical", "warning", "touch", "cleared"])
 def test_every_message_kind_is_free_of_identity(kind: str) -> None:
     text = M.format_line_alert({"bed": "ICU Station A", "kind": kind, "level": 3, "cpri_percent": 81.2,
                                 "max_delta": -812.0, "lifting_pads": 7})
@@ -214,6 +240,9 @@ def test_config_verifies_the_token_and_never_echoes_it(client: TestClient, gatew
     status = client.get("/api/v6/alerts/line/status")
     assert "secret-token" not in r.text + status.text
     assert status.json()["min_level"] == 3 and status.json()["bed"] == "Bed 03"
+    assert client.post("/api/v6/alerts/line/config", json={"enabled": False, "min_level": 0}).status_code == 400
+    one = client.post("/api/v6/alerts/line/config", json={"enabled": True, "token": "secret-token", "min_level": 1})
+    assert one.status_code == 200 and one.json()["min_level"] == 1
     assert client.post("/api/v6/alerts/line/config", json={"enabled": False}).json()["state"] == "disconnected"
 
 

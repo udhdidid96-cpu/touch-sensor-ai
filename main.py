@@ -2818,6 +2818,7 @@ LINE_BACKOFF_S = 0.5
 LINE_WARN_COOLDOWN_S = 60.0   # a Level 2 push waits this long after any push for the bed
 LINE_CRIT_REPEAT_S = 30.0     # Level 3 repeats this often while it persists
 LINE_CLEAR_AFTER_S = 15.0     # Level 0 held this long after an alarm sends one all-clear
+LINE_TOUCH_COOLDOWN_S = 60.0  # min_level 1 only: one Level 1 notice per bed per this long
 LINE_AUDIT_FILE = "line_alert_audit.jsonl"
 LINE_AUDIT_LOCK = threading.Lock()
 
@@ -2907,6 +2908,11 @@ _LINE_KIND_TEXT: Dict[str, Tuple[str, str]] = {
                 "レベル2 警告 - ドレッシング剥がれ\n"
                 "ระดับ 2 เตือน - แผ่นปิดเริ่มลอก",
                 "Check the dressing at the bedside / ベッドサイドでドレッシングを確認 / ตรวจแผ่นปิดที่ข้างเตียง"),
+    "touch": ("ℹ️ LEVEL 1 NOTICE - touch / press on the dressing\n"
+              "レベル1 通知 - ドレッシングへの接触・圧迫\n"
+              "ระดับ 1 แจ้งให้ทราบ - มีการสัมผัส / กดที่แผ่นปิด",
+              "No alarm. Confirm the contact was planned care / アラームではありません。ケアによる接触か確認 / "
+              "ไม่ใช่สัญญาณเตือน ตรวจสอบว่าเป็นการสัมผัสจากการดูแลตามปกติ"),
     "cleared": ("✅ ALARM CLEARED - patient restabilized\n"
                 "アラーム解除 - 安定\n"
                 "ยกเลิกการเตือน - กลับสู่ภาวะปกติ",
@@ -2954,15 +2960,18 @@ class LineAlerter:
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="p2-line")
 
     def decide(self, bed: str, level: int, now: float) -> Optional[str]:
-        """'critical' | 'warning' | 'cleared' | None for one frame of `bed`.
+        """'critical' | 'warning' | 'touch' | 'cleared' | None for one frame of `bed`.
 
-        L0/L1 never push. L2 pushes unless any push for the bed went out in the last
-        LINE_WARN_COOLDOWN_S. L3 pushes at once when the open alarm is below L3 and
+        L0 never pushes. L1 pushes only when min_level is 1 and no L2/L3 alarm is
+        open, at most once per LINE_TOUCH_COOLDOWN_S on its own timer, so a notice
+        never delays a later warning and never earns an all-clear. L2 pushes unless
+        any alarm push for the bed went out in the last LINE_WARN_COOLDOWN_S. L3 pushes at once when the open alarm is below L3 and
         then every LINE_CRIT_REPEAT_S. After a push, LINE_CLEAR_AFTER_S of
         uninterrupted L0 sends one all-clear and re-arms the bed.
         """
         with self.lock:
-            s = self.beds.setdefault(bed, {"level": 0, "t": -math.inf, "calm": None})
+            s = self.beds.setdefault(bed, {"level": 0, "t": -math.inf, "calm": None,
+                                          "touch": -math.inf})
             if level >= 3:
                 s["calm"] = None
                 if s["level"] < 3 or now - s["t"] >= LINE_CRIT_REPEAT_S:
@@ -2975,6 +2984,9 @@ class LineAlerter:
                     return "warning"
             elif level == 1:
                 s["calm"] = None
+                if self.min_level <= 1 and not s["level"] and now - s["touch"] >= LINE_TOUCH_COOLDOWN_S:
+                    s["touch"] = now
+                    return "touch"
             elif s["level"]:
                 s["calm"] = now if s["calm"] is None else s["calm"]
                 if now - s["calm"] >= LINE_CLEAR_AFTER_S:
@@ -3629,8 +3641,8 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
         token = str(body.get("token") or "").strip()
         webhook_url = str(body.get("webhook_url") or "").strip()
         min_level = body.get("min_level", 2)
-        if min_level not in (2, 3):
-            raise HTTPException(status_code=400, detail="'min_level' must be 2 or 3")
+        if min_level not in (1, 2, 3):
+            raise HTTPException(status_code=400, detail="'min_level' must be 1, 2 or 3")
         if enabled and webhook_url:
             problem = validate_webhook_url(webhook_url)
             if problem:

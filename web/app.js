@@ -118,7 +118,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'หน้าหลัก', nav_live: 'เฝ้าระวังสด', nav_replay: 'ย้อนหลังและตรวจสอบ',
     nav_events: 'บันทึกเหตุการณ์', nav_model: 'ประสิทธิภาพโมเดล', nav_ward: 'มุมมองทั้งวอร์ด',
-    nav_reports: 'รายงานและส่งออก', nav_settings: 'ตั้งค่าระบบ', nav_slides: 'สไลด์นำเสนอ',
+    nav_reports: 'รายงานและส่งออก', nav_settings: 'ตั้งค่าระบบ',
     disclaimer_k: 'ข้อจำกัด', foot_dept: 'วิศวกรรมชีวการแพทย์',
 
     mode_live: 'สด', mode_replay: 'ย้อนหลัง',
@@ -243,7 +243,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'Dashboard', nav_live: 'Live Monitor', nav_replay: 'Replay & Audit',
     nav_events: 'Event Log', nav_model: 'Model Performance', nav_ward: 'Ward View',
-    nav_reports: 'Reports & Export', nav_settings: 'System Settings', nav_slides: 'Presentation Slides',
+    nav_reports: 'Reports & Export', nav_settings: 'System Settings',
     disclaimer_k: 'DISCLAIMER', foot_dept: 'Biomedical Engineering',
 
     mode_live: 'Live', mode_replay: 'Replay',
@@ -368,7 +368,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'ダッシュボード', nav_live: 'ライブ監視', nav_replay: '再生と監査',
     nav_events: 'イベントログ', nav_model: 'モデル性能', nav_ward: '病棟ビュー',
-    nav_reports: 'レポートと出力', nav_settings: 'システム設定', nav_slides: 'スライド発表',
+    nav_reports: 'レポートと出力', nav_settings: 'システム設定',
     disclaimer_k: '注意事項', foot_dept: '医用生体工学',
 
     mode_live: 'ライブ', mode_replay: '再生',
