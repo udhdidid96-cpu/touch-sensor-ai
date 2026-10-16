@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sarabun:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/static/chart.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20260821_neuro">
+  <link rel="stylesheet" href="/static/style.css?v=20261015_tiers">
 </head>
 <body class="app" data-level="0">
 
@@ -101,10 +101,6 @@
       <li><button class="nav__item" data-view="settings" onclick="showView('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 8.2 1V1a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1" transform="translate(2 2) scale(0.86)"/></svg>
         <span data-i18n="nav_settings">System Settings</span></button></li>
-
-      <li><a class="nav__item" href="/slides" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        <span data-i18n="nav_slides">Presentation Slides</span></a></li>
     </ul>
 
     <div class="sidebar__note">
@@ -290,6 +286,49 @@
                 <span class="stat__s" id="patchIntegrityDesc" data-i18n="desc_gate_none">No pad past the −300 count lift gate</span>
               </div>
             </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="grid grid--one">
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title" data-i18n="p_tiers">ALARM SIGNAL TIERS</h2>
+            <span class="chip" data-i18n="chip_tiers">Lit by the server alarm_signal</span>
+          </div>
+          <div class="panel__body">
+          <div class="tiers" id="alarmTiers" data-priority="none" role="group" aria-label="Alarm signal tiers">
+            <div class="tier" data-tier="high">
+              <div class="tier__left"><span class="tier__step"><span class="tier__beacon"></span></span></div>
+              <div class="tier__card">
+                <div class="tier__text">
+                  <b class="tier__name" data-i18n="tier_high_name">High - red, flashing 2.0 Hz</b>
+                  <span class="tier__desc" data-i18n="tier_high_desc">Level 3: full detachment - 5-pulse buzzer (988/740 Hz, rep 2 s)</span>
+                </div>
+                <button type="button" class="btn btn--sm tier__play" onclick="playAlarmSound('high')" aria-label="Preview Level 3 sound" title="Preview Level 3 sound"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+              </div>
+            </div>
+            <div class="tier" data-tier="medium">
+              <div class="tier__left"><span class="tier__step"><span class="tier__beacon"></span></span></div>
+              <div class="tier__card">
+                <div class="tier__text">
+                  <b class="tier__name" data-i18n="tier_medium_name">Medium - yellow, flashing 0.6 Hz</b>
+                  <span class="tier__desc" data-i18n="tier_medium_desc">Level 2: peel or signal loss - 3-pulse beep (660 Hz, rep 5 s)</span>
+                </div>
+                <button type="button" class="btn btn--sm tier__play" onclick="playAlarmSound('medium')" aria-label="Preview Level 2 sound" title="Preview Level 2 sound"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+              </div>
+            </div>
+            <div class="tier" data-tier="info">
+              <div class="tier__left"><span class="tier__step"><span class="tier__beacon"></span></span></div>
+              <div class="tier__card">
+                <div class="tier__text">
+                  <b class="tier__name" data-i18n="tier_info_name">Information - cyan, steady</b>
+                  <span class="tier__desc" data-i18n="tier_info_desc">Level 1: touch or press - Soft 2-note chime on contact (distinct from alarms)</span>
+                </div>
+                <button type="button" class="btn btn--sm tier__play" onclick="playAlarmSound('info')" aria-label="Preview Level 1 sound" title="Preview Level 1 sound"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+              </div>
+            </div>
+          </div>
           </div>
         </section>
       </div>
@@ -635,7 +674,8 @@
                 <label class="field">
                   <span class="field__k" data-i18n="line_min_level">NOTIFICATION TRIGGER</span>
                   <select class="field__ctl" id="lineMinLevelSelect">
-                    <option value="2">Level 2 (Warning) &amp; Level 3 (Critical Pull)</option>
+                    <option value="1">Level 1 (Touch / Notice) &amp; Above</option>
+                    <option value="2" selected>Level 2 (Warning) &amp; Level 3 (Critical Pull)</option>
                     <option value="3">Level 3 (Critical Detachment Only)</option>
                   </select>
                 </label>
@@ -701,6 +741,6 @@
 <div id="toastContainer" class="toasts" aria-live="polite"></div>
 
 <script src="/static/web_serial.js?v=20260825_live_v2"></script>
-<script src="/static/app.js?v=20260825_live_v2"></script>
+<script src="/static/app.js?v=20261015_tiers"></script>
 </body>
 </html>

@@ -90,6 +90,10 @@ function remapToPhysicalPads(raw) {
 const TRANSLATIONS = {
   th: {
     peel_dir: 'ทิศทางการลอก',
+    p_tiers: 'ระดับสัญญาณเตือน', chip_tiers: 'แสดงตาม alarm_signal จากเซิร์ฟเวอร์',
+    tier_high_name: 'สูง - แดง กะพริบ 2.0 Hz', tier_high_desc: 'ระดับ 3: แผ่นหลุดทั้งหมด - เสียงบัซเซอร์ 5 จังหวะ (988/740 Hz ซ้ำทุก 2 วินาที)',
+    tier_medium_name: 'กลาง - เหลือง กะพริบ 0.6 Hz', tier_medium_desc: 'ระดับ 2: แผ่นลอกหรือสัญญาณขาด - เสียงบี๊บ 3 จังหวะ (660 Hz ซ้ำทุก 5 วินาที)',
+    tier_info_name: 'ข้อมูล - ฟ้า ติดค้าง', tier_info_desc: 'ระดับ 1: สัมผัสหรือกด - เสียงกริ่งเบา 2 โน้ตเมื่อเริ่มสัมผัส (ต่างจากเสียงเตือน)',
     ann_k: 'สัญญาณเตือน', ann_none: 'ไม่มีภาวะเตือน', ann_info: 'ข้อมูล: มีการสัมผัสแผ่นปิด (กริ่งเตือนสัมผัส)',
     ann_medium: 'ระดับกลาง: แผ่นเริ่มลอก', ann_high: 'ระดับสูง: แผ่นหลุดทั้งแผ่น', ann_low: 'ระดับต่ำ',
     ann_tech: 'เตือนทางเทคนิค: สัญญาณเซนเซอร์ขาดหาย',
@@ -114,7 +118,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'หน้าหลัก', nav_live: 'เฝ้าระวังสด', nav_replay: 'ย้อนหลังและตรวจสอบ',
     nav_events: 'บันทึกเหตุการณ์', nav_model: 'ประสิทธิภาพโมเดล', nav_ward: 'มุมมองทั้งวอร์ด',
-    nav_reports: 'รายงานและส่งออก', nav_settings: 'ตั้งค่าระบบ', nav_slides: 'สไลด์นำเสนอ',
+    nav_reports: 'รายงานและส่งออก', nav_settings: 'ตั้งค่าระบบ',
     disclaimer_k: 'ข้อจำกัด', foot_dept: 'วิศวกรรมชีวการแพทย์',
 
     mode_live: 'สด', mode_replay: 'ย้อนหลัง',
@@ -211,6 +215,10 @@ const TRANSLATIONS = {
 
   en: {
     peel_dir: 'Peel direction',
+    p_tiers: 'ALARM SIGNAL TIERS', chip_tiers: 'Lit by the server alarm_signal',
+    tier_high_name: 'High - red, flashing 2.0 Hz', tier_high_desc: 'Level 3: full detachment - 5-pulse buzzer (988/740 Hz, rep 2 s)',
+    tier_medium_name: 'Medium - yellow, flashing 0.6 Hz', tier_medium_desc: 'Level 2: peel or signal loss - 3-pulse beep (660 Hz, rep 5 s)',
+    tier_info_name: 'Information - cyan, steady', tier_info_desc: 'Level 1: touch or press - Soft 2-note chime on contact (distinct from alarms)',
     ann_k: 'ALARM SIGNAL', ann_none: 'No alarm condition', ann_info: 'Information: contact on the dressing (tactile alert chime)',
     ann_medium: 'Medium priority: dressing peel', ann_high: 'High priority: full detachment', ann_low: 'Low priority',
     ann_tech: 'Technical alarm: sensor signal lost',
@@ -235,7 +243,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'Dashboard', nav_live: 'Live Monitor', nav_replay: 'Replay & Audit',
     nav_events: 'Event Log', nav_model: 'Model Performance', nav_ward: 'Ward View',
-    nav_reports: 'Reports & Export', nav_settings: 'System Settings', nav_slides: 'Presentation Slides',
+    nav_reports: 'Reports & Export', nav_settings: 'System Settings',
     disclaimer_k: 'DISCLAIMER', foot_dept: 'Biomedical Engineering',
 
     mode_live: 'Live', mode_replay: 'Replay',
@@ -332,6 +340,10 @@ const TRANSLATIONS = {
 
   jp: {
     peel_dir: '剥離方向',
+    p_tiers: 'アラーム信号の段階', chip_tiers: 'サーバーの alarm_signal で点灯',
+    tier_high_name: '高 - 赤、2.0 Hz 点滅', tier_high_desc: 'レベル3：完全剥離 - 5パルスのブザー (988/740 Hz、2秒ごと)',
+    tier_medium_name: '中 - 黄、0.6 Hz 点滅', tier_medium_desc: 'レベル2：剥がれまたは信号途絶 - 3パルスのビープ (660 Hz、5秒ごと)',
+    tier_info_name: '情報 - シアン、点灯', tier_info_desc: 'レベル1：接触または押圧 - 接触時のやわらかい2音チャイム (アラームと区別)',
     ann_k: 'アラーム信号', ann_none: 'アラーム状態なし', ann_info: '情報：ドレッシングへの接触 (接触チャイム音)',
     ann_medium: '中優先度：ドレッシング剥離', ann_high: '高優先度：全面剥離', ann_low: '低優先度',
     ann_tech: '技術アラーム：センサー信号消失',
@@ -356,7 +368,7 @@ const TRANSLATIONS = {
 
     nav_dashboard: 'ダッシュボード', nav_live: 'ライブ監視', nav_replay: '再生と監査',
     nav_events: 'イベントログ', nav_model: 'モデル性能', nav_ward: '病棟ビュー',
-    nav_reports: 'レポートと出力', nav_settings: 'システム設定', nav_slides: 'スライド発表',
+    nav_reports: 'レポートと出力', nav_settings: 'システム設定',
     disclaimer_k: '注意事項', foot_dept: '医用生体工学',
 
     mode_live: 'ライブ', mode_replay: '再生',
@@ -1129,10 +1141,13 @@ function renderAnnunciator(sig) {
   if (!el || !label) return;
   const s = sig || { priority: 'none' };
   const prio = String(s.priority || 'none');
-  el.dataset.priority = prio;
+  [el, document.getElementById('alarmTiers')].forEach(node => {
+    if (!node) return;
+    node.dataset.priority = prio;
+    if (Number(s.flash_hz) > 0) node.style.setProperty('--flash-period', (1 / Number(s.flash_hz)).toFixed(3) + 's');
+    else node.style.removeProperty('--flash-period');
+  });
   el.dataset.condition = s.condition || '';
-  if (Number(s.flash_hz) > 0) el.style.setProperty('--flash-period', (1 / Number(s.flash_hz)).toFixed(3) + 's');
-  else el.style.removeProperty('--flash-period');
   el.setAttribute('aria-live', prio === 'high' ? 'assertive' : 'polite');
   const key = s.condition === 'technical' ? 'ann_tech' : `ann_${prio}`;
   label.setAttribute('data-i18n', key);
@@ -1287,6 +1302,12 @@ function siren(sig) {
   if (state.isMuted || prio === 'none' || prio === 'low') return;
   if (!rising && (!repeat || nowMs - lastSirenTime < repeat)) return;
   lastSirenTime = nowMs;
+  playAlarmSound(prio);
+}
+
+// One burst of a priority's sound. siren() calls it on the server's schedule; the tier
+// cards' preview buttons call it on an explicit click, so it plays even when muted.
+function playAlarmSound(prio) {
   try {
     if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
@@ -1296,7 +1317,7 @@ function siren(sig) {
       tone(1174.66, t0 + 0.10, 0.26, 'sine', 0.075);
     } else if (prio === 'medium') {
       [0, 0.28, 0.56].forEach(d => tone(660, t0 + d, 0.2, 'triangle', 0.09));
-    } else {
+    } else if (prio === 'high') {
       [0, 0.14, 0.28, 0.56, 0.70].forEach((d, i) => tone(i % 2 ? 740 : 988, t0 + d, 0.11, 'square', 0.06));
     }
   } catch (e) {}
