@@ -2959,11 +2959,14 @@ class LineAlerter:
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="p2-line")
 
     def decide(self, bed: str, level: int, now: float) -> Optional[str]:
-        """'critical' | 'warning' | 'cleared' | None for one frame of `bed`.
+        """'critical' | 'warning' | 'touch' | 'cleared' | None for one frame of `bed`.
 
-        L0/L1 never push. L2 pushes unless any push for the bed went out in the last
-        LINE_WARN_COOLDOWN_S. L3 pushes at once when the open alarm is below L3 and
-        then every LINE_CRIT_REPEAT_S. After a push, LINE_CLEAR_AFTER_S of
+        L0 never pushes. L1 pushes only when min_level is 1 and no L2/L3 alarm is
+        open, at most once per LINE_TOUCH_COOLDOWN_S on its own timer, so a notice
+        never delays a later warning and never earns an all-clear. L2 pushes unless
+        any alarm push for the bed went out in the last LINE_WARN_COOLDOWN_S. L3
+        pushes at once when the open alarm is below L3 and then every
+        LINE_CRIT_REPEAT_S. After a push, LINE_CLEAR_AFTER_S of
         uninterrupted L0 sends one all-clear and re-arms the bed.
         """
         with self.lock:

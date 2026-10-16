@@ -852,7 +852,9 @@ never push. Set `LINE_CHANNEL_ACCESS_TOKEN` (Messaging API channel token) and
 optionally `LINE_BED_LABEL`, or connect from the dashboard's LINE card, which
 syncs its settings to `/api/v6/alerts/line/config` and shows
 `/api/v6/alerts/line/status`. Level 2 pushes then waits 60 s, Level 3 pushes at
-once and repeats every 30 s, and 15 s of Level 0 sends one all-clear. A push
+once and repeats every 30 s, and 15 s of Level 0 sends one all-clear. With the
+trigger set to Level 1, a touch also sends one notice per bed per 60 s, never
+while an alarm is open and never followed by an all-clear. A push
 carries the bed label, level, CPRI, deepest pad delta, lifting-pad count and
 time, never a patient name or number. Each attempt (3.5 s timeout, 3 tries with
 backoff on 5xx/429/network errors) is appended to the hash-chained
