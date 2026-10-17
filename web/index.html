@@ -671,14 +671,28 @@
                     <option value="webhook">Custom Webhook (Relay / n8n / Make)</option>
                   </select>
                 </label>
-                <label class="field">
-                  <span class="field__k" data-i18n="line_min_level">NOTIFICATION TRIGGER</span>
-                  <select class="field__ctl" id="lineMinLevelSelect">
+                <div class="field">
+                  <span class="field__k" data-i18n="line_min_level">NOTIFICATION TRIGGERS</span>
+                  <div class="checkbox-tiers" style="display: flex; gap: 8px; align-items: center; min-height: 30px; flex-wrap: wrap;">
+                    <label class="check-tier" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; cursor: pointer; padding: 4px 9px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel);">
+                      <input type="checkbox" id="lineNotifyL1" value="1" onchange="updateLineLevelCheckboxes()">
+                      <span>Level 1 (Touch)</span>
+                    </label>
+                    <label class="check-tier" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; cursor: pointer; padding: 4px 9px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel);">
+                      <input type="checkbox" id="lineNotifyL2" value="2" checked onchange="updateLineLevelCheckboxes()">
+                      <span>Level 2 (Warning)</span>
+                    </label>
+                    <label class="check-tier" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; cursor: pointer; padding: 4px 9px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel);">
+                      <input type="checkbox" id="lineNotifyL3" value="3" checked onchange="updateLineLevelCheckboxes()">
+                      <span>Level 3 (Critical)</span>
+                    </label>
+                  </div>
+                  <select class="field__ctl" id="lineMinLevelSelect" style="display: none;">
                     <option value="1">Level 1 (Touch / Notice) &amp; Above</option>
                     <option value="2" selected>Level 2 (Warning) &amp; Level 3 (Critical Pull)</option>
                     <option value="3">Level 3 (Critical Detachment Only)</option>
                   </select>
-                </label>
+                </div>
               </div>
               <div class="field" id="lineTokenFieldWrap" style="margin-top: 12px;">
                 <span class="field__k" data-i18n="line_token">LINE ACCESS TOKEN</span>

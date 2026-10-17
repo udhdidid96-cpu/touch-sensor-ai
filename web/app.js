@@ -2311,6 +2311,25 @@ function updateLineFormFields() {
   hookWrap.style.display = isHook ? 'block' : 'none';
 }
 
+function getSelectedLineLevels() {
+  const levels = [];
+  const l1 = document.getElementById('lineNotifyL1');
+  const l2 = document.getElementById('lineNotifyL2');
+  const l3 = document.getElementById('lineNotifyL3');
+  if (l1 && l1.checked) levels.push(1);
+  if (l2 && l2.checked) levels.push(2);
+  if (l3 && l3.checked) levels.push(3);
+  return levels.length ? levels : [2, 3];
+}
+
+function updateLineLevelCheckboxes() {
+  const levels = getSelectedLineLevels();
+  const lvlSel = document.getElementById('lineMinLevelSelect');
+  if (lvlSel) {
+    lvlSel.value = String(Math.min(...levels));
+  }
+}
+
 // The server is the only dispatcher: it pages from the live pipeline whether or not a
 // dashboard is open, so this page configures it and shows what it reports.
 function renderLineStatusUI() {
@@ -2322,6 +2341,14 @@ function renderLineStatusUI() {
   const hookInp = document.getElementById('lineWebhookInput');
   const servSel = document.getElementById('lineServiceSelect');
   const lvlSel = document.getElementById('lineMinLevelSelect');
+  const l1 = document.getElementById('lineNotifyL1');
+  const l2 = document.getElementById('lineNotifyL2');
+  const l3 = document.getElementById('lineNotifyL3');
+
+  const activeLevels = cfg.levels || (cfg.minLevel === 1 ? [1, 2, 3] : cfg.minLevel === 3 ? [3] : [2, 3]);
+  if (l1) l1.checked = activeLevels.includes(1);
+  if (l2) l2.checked = activeLevels.includes(2);
+  if (l3) l3.checked = activeLevels.includes(3);
 
   if (servSel && cfg.service) servSel.value = cfg.service;
   if (lvlSel && cfg.minLevel) lvlSel.value = String(cfg.minLevel);
@@ -2341,7 +2368,8 @@ function renderLineStatusUI() {
     } else if (st === 'connected') {
       const modeText = srv.channel === 'webhook' ? 'Webhook' : 'LINE Messaging API';
       const src = srv.token_source === 'env' ? ' · token from server environment' : '';
-      statEl.textContent = `Status: Connected (${modeText}) · ${srv.bed} · Level ${srv.min_level}+${src}` +
+      const lvlsText = (srv.levels && srv.levels.length) ? 'Level ' + srv.levels.join(', ') : `Level ${srv.min_level}+`;
+      statEl.textContent = `Status: Connected (${modeText}) · ${srv.bed} · ${lvlsText}${src}` +
         (srv.detail ? ` · ${srv.detail}` : '');
       statEl.className = 'stat__s stat__s--ok';
     } else {
@@ -2368,7 +2396,8 @@ async function postLineConfig(cfg) {
       enabled: cfg.enabled,
       token: cfg.service === 'webhook' ? '' : cfg.token,
       webhook_url: cfg.service === 'webhook' ? cfg.webhookUrl : '',
-      min_level: cfg.minLevel,
+      min_level: cfg.minLevel || 2,
+      levels: cfg.levels || (cfg.minLevel === 1 ? [1, 2, 3] : cfg.minLevel === 3 ? [3] : [2, 3]),
       bed: state.activeBed || 'Bed 01'
     })
   });
@@ -2389,12 +2418,12 @@ async function initLineAlerts() {
 
 async function connectLineAlert() {
   const servSel = document.getElementById('lineServiceSelect');
-  const lvlSel = document.getElementById('lineMinLevelSelect');
   const tokenInp = document.getElementById('lineTokenInput');
   const hookInp = document.getElementById('lineWebhookInput');
 
   const service = servSel ? servSel.value : 'messaging_api';
-  const minLevel = lvlSel ? Number(lvlSel.value) || 2 : 2;
+  const levels = getSelectedLineLevels();
+  const minLevel = Math.min(...levels);
   const token = tokenInp ? tokenInp.value.trim() : '';
   const webhookUrl = hookInp ? hookInp.value.trim() : '';
 
@@ -2407,7 +2436,7 @@ async function connectLineAlert() {
     return;
   }
 
-  const cfg = { enabled: true, service: service, token: token, webhookUrl: webhookUrl, minLevel: minLevel };
+  const cfg = { enabled: true, service: service, token: token, webhookUrl: webhookUrl, minLevel: minLevel, levels: levels };
   try {
     const srv = await postLineConfig(cfg);
     state.lineConfig = cfg;
