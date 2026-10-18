@@ -990,7 +990,7 @@ def scan_csv_dirs(root: str) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str
             stray.append((VACUUM_STATION_DIR, n_csv,
                           "vacuum demo station - scored separately by "
                           "scripts/evaluate_vacuum_station.py, and deliberately NOT training "
-                          "data: its labels are confounded with the attachment (CLAUDE.md). "
+                          "data: its labels are confounded with the attachment. "
                           "Do not rename it to S1"))
             continue
         leaf = parts[-1]
@@ -2951,7 +2951,9 @@ class LineAlerter:
 
     def __init__(self, token: str = "", bed: str = "Bed 01") -> None:
         self.lock = threading.Lock()
+        self._custom_levels = False
         self.token, self.webhook_url, self.bed, self.min_level = token, "", bed, 2
+        self.levels: Set[int] = {2, 3}
         self.enabled = bool(token)
         self.token_source = "env" if token else ""
         self.beds: Dict[str, Dict[str, Any]] = {}
@@ -2959,28 +2961,29 @@ class LineAlerter:
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="p2-line")
 
     def decide(self, bed: str, level: int, now: float) -> Optional[str]:
-        """'critical' | 'warning' | 'cleared' | None for one frame of `bed`.
-
-        L0/L1 never push. L2 pushes unless any push for the bed went out in the last
-        LINE_WARN_COOLDOWN_S. L3 pushes at once when the open alarm is below L3 and
-        then every LINE_CRIT_REPEAT_S. After a push, LINE_CLEAR_AFTER_S of
-        uninterrupted L0 sends one all-clear and re-arms the bed.
-        """
+        """'critical' | 'warning' | 'touch' | 'cleared' | None for one frame of `bed`."""
         with self.lock:
             s = self.beds.setdefault(bed, {"level": 0, "t": -math.inf, "calm": None})
+            active_levels = getattr(self, "levels", None)
+            min_lvl = getattr(self, "min_level", 2)
+            if active_levels is None or not getattr(self, "_custom_levels", False):
+                active_levels = {lvl for lvl in (1, 2, 3) if lvl >= min_lvl}
+
             if level >= 3:
                 s["calm"] = None
-                if s["level"] < 3 or now - s["t"] >= LINE_CRIT_REPEAT_S:
-                    s.update(level=3, t=now)
-                    return "critical"
+                if 3 in active_levels:
+                    if s["level"] < 3 or now - s["t"] >= LINE_CRIT_REPEAT_S:
+                        s.update(level=3, t=now)
+                        return "critical"
             elif level == 2:
                 s["calm"] = None
-                if now - s["t"] >= LINE_WARN_COOLDOWN_S:
-                    s.update(level=2, t=now)
-                    return "warning"
+                if 2 in active_levels:
+                    if now - s["t"] >= LINE_WARN_COOLDOWN_S:
+                        s.update(level=2, t=now)
+                        return "warning"
             elif level == 1:
                 s["calm"] = None
-                if (self.min_level == 1 and s.get("level", 0) < 2
+                if (1 in active_levels and s.get("level", 0) < 2
                         and now - s.get("t_touch", -math.inf) >= LINE_TOUCH_COOLDOWN_S):
                     s["t_touch"] = now
                     return "touch"
@@ -2996,8 +2999,7 @@ class LineAlerter:
         if not self.enabled or out.get("warming_up"):
             return None
         level = int(out.get("severity_level") or 0)
-        kind = self.decide(self.bed, level if level >= self.min_level else min(level, 1),
-                           time.monotonic() if now is None else now)
+        kind = self.decide(self.bed, level, time.monotonic() if now is None else now)
         if kind is None:
             return None
         prop: Dict[str, Any] = out.get("propagation") or {}
@@ -3033,18 +3035,33 @@ class LineAlerter:
                    latency_ms=round(1000 * (time.monotonic() - t0)))
         if not res["ok"]:
             logger_api.warning(f"{channel} {fields.get('kind')} push failed: {res.get('code')} {res.get('error')}")
-        _append_line_audit({"at": _iso_now(), "kind": fields.get("kind"), "bed": fields.get("bed"),
-                            "level": fields.get("level"), "channel": channel, "ok": res["ok"],
-                            "http_status": res.get("code"), "latency_ms": res["latency_ms"],
-                            "attempts": attempt, "error": res.get("error")})
+        _append_line_audit({
+            "at": _iso_now(), "kind": fields.get("kind"), "bed": fields.get("bed"),
+            "level": fields.get("level"), "channel": channel, "ok": res["ok"],
+            "http_status": res.get("code"), "latency_ms": res["latency_ms"],
+            "attempts": attempt, "error": res.get("error"),
+        })
         with self.lock:
             self.last = {**res, "at": _iso_now()}
         return res
 
     def configure(self, enabled: bool, token: str = "", webhook_url: str = "",
-                  min_level: int = 2, bed: str = "") -> None:
+                  min_level: int = 2, bed: str = "", levels: Optional[List[int]] = None) -> None:
         with self.lock:
-            self.enabled, self.webhook_url, self.min_level, self.last = enabled, webhook_url, min_level, {}
+            if levels:
+                self._custom_levels = True
+                self.levels = {int(x) for x in levels if int(x) in (1, 2, 3)}
+                self.min_level = min(self.levels) if self.levels else int(min_level)
+            else:
+                self._custom_levels = False
+                self.min_level = int(min_level)
+                if self.min_level == 1:
+                    self.levels = {1, 2, 3}
+                elif self.min_level == 3:
+                    self.levels = {3}
+                else:
+                    self.levels = {2, 3}
+            self.enabled, self.webhook_url, self.last = enabled, webhook_url, {}
             if token:
                 self.token, self.token_source = token, "dashboard"
             if bed:
@@ -3068,9 +3085,11 @@ class LineAlerter:
                 detail += str(self.last.get("error") or "")
             else:
                 state, detail = "connected", ("" if self.last else "not verified yet")
+            active_levels = sorted(getattr(self, "levels", {2, 3}))
             return {"state": state, "detail": detail,
                     "channel": "webhook" if self.webhook_url else "line_messaging_api",
                     "token_source": self.token_source or None, "min_level": self.min_level,
+                    "levels": active_levels,
                     "bed": self.bed, "last": dict(self.last)}
 
 
@@ -3637,21 +3656,30 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
         enabled = bool(body.get("enabled"))
         token = str(body.get("token") or "").strip()
         webhook_url = str(body.get("webhook_url") or "").strip()
-        min_level = body.get("min_level", 2)
-        if min_level not in (1, 2, 3):
-            raise HTTPException(status_code=400, detail="'min_level' must be 1, 2 or 3")
+        raw_levels = body.get("levels")
+        if raw_levels is not None:
+            if not isinstance(raw_levels, (list, tuple)) or not all(x in (1, 2, 3) for x in raw_levels):
+                raise HTTPException(status_code=400, detail="'levels' must be a list containing 1, 2, and/or 3")
+            levels = [int(x) for x in raw_levels]
+            min_level = min(levels) if levels else 2
+        else:
+            min_level = body.get("min_level", 2)
+            if min_level not in (1, 2, 3):
+                raise HTTPException(status_code=400, detail="'min_level' must be 1, 2 or 3")
+            levels = [lvl for lvl in (1, 2, 3) if lvl >= int(min_level)]
         if enabled and webhook_url:
             problem = validate_webhook_url(webhook_url)
             if problem:
                 raise HTTPException(status_code=400, detail=f"webhook_url rejected: {problem}")
         if enabled and not (token or webhook_url or LINE_ALERTS.token):
             raise HTTPException(status_code=400, detail="Either 'token' or 'webhook_url' is required")
-        LINE_ALERTS.configure(enabled, token, webhook_url, int(min_level), str(body.get("bed") or "")[:64])
+        LINE_ALERTS.configure(enabled, token, webhook_url, int(min_level), str(body.get("bed") or "")[:64], levels=levels)
         if enabled and not webhook_url:
             LINE_ALERTS.verify()
         return LINE_ALERTS.status()
 
     app.add_api_route("/api/v6/alerts/line/config", line_alert_config, methods=["POST"])
+
     def line_alert_status() -> Dict[str, Any]:
         return LINE_ALERTS.status()
 
