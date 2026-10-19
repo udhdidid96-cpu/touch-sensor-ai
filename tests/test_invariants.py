@@ -1,4 +1,4 @@
-"""Feature F17: Project Invariants Verification Suite (AGENTS.md).
+"""Feature F17: Project Invariants Verification Suite.
 
 Strictly verifies all 9 non-negotiable project invariants:
   Invariant 1: web/ contains no classification logic (nLifted, rawLevel, liveKalman, isCriticalDetached)

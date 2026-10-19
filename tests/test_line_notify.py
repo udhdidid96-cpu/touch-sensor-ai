@@ -122,10 +122,12 @@ def test_webhook_payload_is_an_allowlist_without_identity(client: TestClient, ga
 
 def test_escalation_normal_warning_critical_stabilized() -> None:
     a = M.LineAlerter()
-    script: List[Tuple[int, int, Optional[str]]] = [(0, 0, None), (1, 1, None), (2, 2, "warning"), (2, 30, None),
-              (3, 31, "critical"), (3, 50, None), (3, 61, "critical"), (2, 70, None),
-              (0, 80, None), (1, 85, None), (0, 86, None), (0, 100, None), (0, 101, "cleared"),
-              (0, 200, None), (2, 201, "warning"), (2, 260, None), (2, 261, "warning")]
+    script: List[Tuple[int, int, Optional[str]]] = [
+        (0, 0, None), (1, 1, None), (2, 2, "warning"), (2, 30, None),
+        (3, 31, "critical"), (3, 50, None), (3, 61, "critical"), (2, 70, None),
+        (0, 80, None), (1, 85, None), (0, 86, None), (0, 100, None), (0, 101, "cleared"),
+        (0, 200, None), (2, 201, "warning"), (2, 260, None), (2, 261, "warning"),
+    ]
     got = [(lvl, t, a.decide("esc", lvl, t)) for lvl, t, _ in script]
     assert got == script, "L0/L1 silent, L2 then 60 s, L3 bypasses and repeats at 30 s, all-clear after 15 s of L0"
 
@@ -172,8 +174,9 @@ def test_every_message_kind_is_free_of_identity(kind: str) -> None:
     assert not IDENTITY_RE.search(text), text
 
 
-def test_retries_back_off_on_5xx_and_stop_on_4xx_and_every_attempt_is_audited(gateway: _Gateway,
-                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+def test_retries_back_off_on_5xx_and_stop_on_4xx_and_every_attempt_is_audited(
+    gateway: _Gateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sleeps: List[float] = []
     monkeypatch.setattr(M, "LINE_BACKOFF_S", 0.5)
     monkeypatch.setattr(M.time, "sleep", sleeps.append)
@@ -275,4 +278,3 @@ def test_level_1_notice_trigger(gateway: Any, client: TestClient) -> None:
     r = client.post("/api/v6/alerts/line/config",
                     json={"enabled": True, "token": "tok", "min_level": 1, "bed": "Bed 01"})
     assert r.status_code == 200 and r.json()["min_level"] == 1
-

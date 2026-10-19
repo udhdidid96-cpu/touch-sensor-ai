@@ -63,8 +63,8 @@ def pytest_configure(config: pytest.Config) -> None:
     So: an explicit basetemp, outside the repo, with a fixed name. Fixed rather
     than per-process on purpose - pytest clears basetemp at session start, so
     the directory is self-cleaning and does not accumulate. That makes two
-    simultaneous runs collide, which AGENTS.md already forbids ("run one agent
-    session at a time on this folder"); the collision this replaced was between
+    simultaneous runs collide, so run one test session at a time on this
+    folder; the collision this replaced was between
     a run and the repo, which nothing forbade.
     """
     if getattr(config.option, "basetemp", None) is None:

@@ -184,7 +184,7 @@ def test_dashboard_does_not_fabricate_its_numbers(client: TestClient):
 
 def test_frontend_wiring_and_helper_integrity(client: TestClient):
     """Ensure uploadSelectedCSV, withKey, showError, clearError are properly implemented
-    and that no inline hex color assignments violate rules/frontend.md."""
+    and that no inline hex color assignments bypass the CSS color variables."""
     js = client.get("/static/app.js").text
     serial_js = client.get("/static/web_serial.js").text
     page = client.get("/").text
@@ -812,4 +812,3 @@ def test_presentation_deck_endpoint(client: TestClient):
     resp2 = client.get("/deck")
     assert resp2.status_code == 200
     assert "Smart Dressing Defense Deck" in resp2.text
-
