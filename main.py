@@ -41,7 +41,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from typing import (TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Literal, Optional,
-                    Protocol, Sequence, Set, TextIO, Tuple, TypeGuard)
+                    Protocol, Sequence, Set, TextIO, Tuple, TypeGuard, cast)
 
 import joblib
 import numpy as np
@@ -2848,7 +2848,8 @@ def validate_webhook_url(url: str) -> Optional[str]:
     except OSError:
         return "host does not resolve"
     for info in infos:
-        if not ipaddress.ip_address(info[4][0].split("%")[0]).is_global:
+        host = str(info[4][0])  # sockaddr[0] is the address string; typeshed widens it to str | int
+        if not ipaddress.ip_address(host.split("%")[0]).is_global:
             return "host resolves to a non-public address"
     return None
 
@@ -3658,9 +3659,12 @@ def create_app(model_holder: Dict[str, Any]) -> FastAPI:
         webhook_url = str(body.get("webhook_url") or "").strip()
         raw_levels = body.get("levels")
         if raw_levels is not None:
-            if not isinstance(raw_levels, (list, tuple)) or not all(x in (1, 2, 3) for x in raw_levels):
+            if not isinstance(raw_levels, (list, tuple)):
                 raise HTTPException(status_code=400, detail="'levels' must be a list containing 1, 2, and/or 3")
-            levels = [int(x) for x in raw_levels]
+            level_items = cast(Sequence[Any], raw_levels)
+            if not all(x in (1, 2, 3) for x in level_items):
+                raise HTTPException(status_code=400, detail="'levels' must be a list containing 1, 2, and/or 3")
+            levels = [int(x) for x in level_items]
             min_level = min(levels) if levels else 2
         else:
             min_level = body.get("min_level", 2)

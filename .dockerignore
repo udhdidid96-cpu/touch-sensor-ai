@@ -15,7 +15,6 @@ cf.exe
 
 *.bat
 
-.agents/
 _archive/
 
 __pycache__/

@@ -3,11 +3,9 @@
 
 Why this exists
 ---------------
-`docs/PHYSICS_TO_FEATURE_MAP.md` is a one-page answer to the supervisor's
-question "which feature sees which physical effect". Every number on that page
-has to come from the corpus, not from a plausible guess (AGENTS.md, invariant 4
-and the "measure before claiming" rule). This script is where those numbers come
-from; re-run it and the page can be checked line by line.
+Answers the supervisor's question "which feature sees which physical effect".
+Every number has to come from the corpus, not from a plausible guess. This
+script measures them and writes Data/physics_feature_stats.json.
 
 What it measures
 ----------------

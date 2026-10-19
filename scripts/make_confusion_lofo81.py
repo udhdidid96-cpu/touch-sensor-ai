@@ -10,8 +10,8 @@ import sys
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
 m = json.load(open(sys.argv[1]))["random_forest"]
 cm = np.array(m["confusion_matrix"], dtype=float)

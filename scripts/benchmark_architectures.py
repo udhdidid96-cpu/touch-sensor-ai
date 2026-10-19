@@ -14,7 +14,7 @@ Two corpora, scored separately because they cannot be pooled honestly:
 
   VACUUM  the 24 files in Data/data new vaccum/, 3 classes, deltas against the
           N_base1 C0 (scripts/evaluate_vacuum_station.py). Every model is scored on
-          the three controls from CLAUDE.md, never on the 25-item headline alone:
+          three controls, never on the 25-item headline alone:
             strict 24-file LOFO,
             settled tails (attached-and-still frames of pull files; fewer "pull"
             calls is better: those frames are not a pull),
@@ -428,7 +428,7 @@ def main() -> int:
     ap.add_argument("--served", action="store_true", help="only: shipped F vs F+T on the served path (LivePipeline)")
     a = ap.parse_args()
     if a.json and os.path.realpath(a.json).startswith(M.DATA_ROOT):
-        raise SystemExit("refusing to write results under Data/ (CLAUDE.md: no clutter in Data/)")
+        raise SystemExit("refusing to write results under Data/ (Data/ holds recordings only)")
     models = estimators(a.quick, not a.no_ens)
     use_cnn = torch is not None and not a.quick and not a.no_cnn
     only = a.reps.split(",") if a.reps else None

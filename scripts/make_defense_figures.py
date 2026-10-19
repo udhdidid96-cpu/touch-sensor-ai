@@ -12,7 +12,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # noqa: E402
 
 # main.py constants (BASELINE_COUNTS, COUNTS_PER_PF, NOMINAL_BASELINE_PF, SPEC_DETACH_MAX)
 BASELINE_COUNTS = 28000.0

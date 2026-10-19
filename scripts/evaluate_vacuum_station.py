@@ -15,7 +15,7 @@
 
 All class-2 files were recorded after all class-0/1 files (16:20-18:08, 2026-09-25), and
 each attachment rests at its own per-pad level, so file labels let a classifier separate
-the classes by attachment state alone. See .claude/findings.md (2026-09-26) before quoting
+the classes by attachment state alone. Keep this in mind before quoting
 any number printed here.
 """
 

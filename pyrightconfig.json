@@ -8,7 +8,6 @@
     "**/__pycache__",
     "**/.*",
     "scratch",
-    "Claude outputs",
     "Data",
     "docs"
   ]

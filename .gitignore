@@ -4,15 +4,11 @@ __pycache__/
 .pytest_temp/
 .pytest_cache/
 
-.serena/
-.claude/
-.agents/
 
 Data/*.joblib
 Data/*.joblib.sha256.json
 
 scratch/
-Claude outputs/
 *.pptx
 *.pdf
 *.bak
